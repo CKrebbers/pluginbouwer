@@ -66,6 +66,15 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **Parameterbereiken exact in float32** (een AU geeft float door); `tests/standaard.test.mjs` bewaakt het.
 - **ADAA-1 is voor kleine signalen een (1+z⁻¹)/2-filter**: −3 dB op fs/4 en een halve sample vertraging (die de
   dub-echo van de delaytijd aftrekt).
+- **Python-referentie draait met `-I`** (geïsoleerd): een numpy in de user-site telt dan niet. CI installeert
+  `python3-numpy` systeembreed en controleert met `python3 -I -c "import numpy"`.
+- **Een sinusmeting op een keten met echo**: eerst inlopen (¾ van `pg_staart`, hooguit 8 s), anders is het inzetten
+  van elke herhaling lek over het hele spectrum. Bandbeweging en modulatie stil bij aliasing/thd: hun zijbanden zijn
+  geen aliasing (−16,5 dB met beweging, −122,6 dB zonder, op de dub-echo). Zelfoscillatie = geen getal, wel een reden.
+- **AudioWorklet uit een blob-URL** weigert Chrome op `file://`; `audio.js` valt terug op een data-URL, daarna op
+  ScriptProcessor (zelfde WASM op de hoofdthread). De tool zegt welke draait.
+- **Als artifact op claude.ai** doet een downloadlink niets: bewaren gaat via de `downloads`-capability
+  (`claude.use('downloads')`), de losse pagina gebruikt een gewone link. `tool/bouw.mjs` maakt beide versies.
 
 ## Conventies
 | Onderwerp | Afspraak |
