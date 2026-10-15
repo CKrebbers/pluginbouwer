@@ -99,6 +99,54 @@ jobs:
           cmake --build build-asan --target pb_clap pb-render
           UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh tools/ci-null.sh clap build-asan
 
+  stackproef:
+    # Fase B: dezelfde keten in Faust. Faust-WASM (faustwasm) tegen Faust-native C++, en door een gebouwd .clap.
+    # Op macOS rekent native sin/cos met Apple libm, de WASM met V8 Math: daar zou een verschil moeten blijken.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      FAUST_COMMIT: 1a52f7785
+      FAUSTWASM_VERSIE: 0.19.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/cache@v4
+        id: faustcache
+        with:
+          path: faust-bron
+          key: faust-${{ matrix.os }}-${{ env.FAUST_COMMIT }}-v1
+      - name: Faust-compiler bouwen (vaste commit, alleen de C++- en WASM-backend)
+        if: steps.faustcache.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none https://github.com/grame-cncm/faust faust-bron
+          cd faust-bron && git checkout "$FAUST_COMMIT" && git submodule update --init --depth 1 libraries
+          cd build && cmake -B pbbuild -C ../../stackproef/faust/faust-backends.cmake -DINCLUDE_STATIC=OFF -DINCLUDE_DYNAMIC=OFF -DINCLUDE_OSC=OFF -DINCLUDE_HTTP=OFF -DCMAKE_BUILD_TYPE=Release .
+          cmake --build pbbuild --target faust -j 4
+      - name: faustwasm (npm, vaste versie)
+        run: mkdir -p fw && cd fw && npm init -y > /dev/null && npm install "@grame/faustwasm@$FAUSTWASM_VERSIE"
+      - name: Faust-kandidaat als CLAP in onze schil (C++ eerst genereren)
+        run: |
+          export FAUST=$PWD/faust-bron/build/bin/faust FAUST_LIB=$PWD/faust-bron/libraries FAUSTWASM=$PWD/fw/node_modules/@grame/faustwasm
+          node stackproef/faust/proef.mjs > /dev/null || true
+          cmake -B build-faust -S plugin -DCMAKE_BUILD_TYPE=Release -DPB_ONTWERP=faust_proef_delay
+          cmake --build build-faust --target pb_clap pb-render -j 4
+      - name: Proef (null-tests in de job-samenvatting)
+        run: |
+          export FAUST=$PWD/faust-bron/build/bin/faust FAUST_LIB=$PWD/faust-bron/libraries FAUSTWASM=$PWD/fw/node_modules/@grame/faustwasm
+          export PB_FAUST_CLAP="$(ls -d $PWD/build-faust/plugins/*.clap)" PB_RENDER=$PWD/build-faust/pb-render
+          set +e; node stackproef/faust/proef.mjs; status=$?; set -e
+          cat stackproef/faust/uitslag.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stackproef-${{ matrix.os }}
+          path: stackproef/faust/uitslag.md
+
   macos:
     runs-on: macos-15
     steps:

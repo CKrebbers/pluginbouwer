@@ -40,6 +40,10 @@ struct Plug {
   unsigned long geheugenGrootte = 0;
 };
 
+#ifdef PB_RTSAN_KANARIE
+void* volatile kanarieSink = nullptr;
+#endif
+
 Plug* zelf(const clap_plugin_t* p) { return static_cast<Plug*>(p->plugin_data); }
 
 int indexVanId(clap_id id) {
@@ -220,8 +224,10 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   auto* s = zelf(p);
 #ifdef PB_RTSAN_KANARIE
   // Alleen in de controlebouw van CI: een opzettelijke allocatie, om te bewijzen dat RTSan hem vangt.
-  volatile void* kanarie = std::malloc(16);
-  std::free((void*)kanarie);
+  // De pointer gaat naar een globale variabele: een malloc/free-paar in één functie haalt clang bij -O2 weg,
+  // ook met een volatile lokale pointer (gezien: de eerste kanarie werd daardoor nooit gevangen).
+  kanarieSink = std::malloc(16);
+  std::free(kanarieSink);
 #endif
   const uint32_t n = pr->frames_count;
   const uint32_t nEv = pr->in_events->size(pr->in_events);
