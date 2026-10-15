@@ -92,7 +92,7 @@ int64_t istRead(const clap_istream_t* s, void* p, uint64_t n) {
   std::memcpy(p, b->d.data() + b->pos, m); b->pos += m; return (int64_t)m;
 }
 
-PB_RT clap_process_status doeProcess(const clap_plugin_t* pl, const clap_process_t* pr) { return pl->process(pl, pr); }
+clap_process_status doeProcess(const clap_plugin_t* pl, const clap_process_t* pr) PB_RT { return pl->process(pl, pr); }
 
 }  // namespace
 

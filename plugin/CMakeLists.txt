@@ -33,6 +33,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 project(pluginbouwer-${PB_ONTWERP} VERSION ${PB_VERSIE} LANGUAGES C CXX)
+if (APPLE)
+  # de AUv2- en VST3-schillen van clap-wrapper hebben .mm-bestanden; die targets staan in ONZE map
+  enable_language(OBJC)
+  enable_language(OBJCXX)
+endif()
 
 include(FetchContent)
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES TRUE CACHE BOOL "" FORCE)
