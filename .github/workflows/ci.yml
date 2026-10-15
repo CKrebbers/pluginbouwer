@@ -2,6 +2,8 @@
 #   linux   bouwen met clang, clap-validator 0.4.1 (uit de bron), pluginval v2.0.0-beta3 strictness 10 op de VST3
 #   rtsan   clang 20, pb-render met -fsanitize=realtime; de plugin moet schoon zijn en de kanarie MOET falen
 #   macos   arm64: bouwen, ad-hoc signeren, installeren, auval -strict, pluginval 10 --rtcheck enabled (AU en VST3)
+# Null-test (fase 1): gereedschap/ci-null.sh — pb-render door de .clap (blok 512, wisselend, state-rondje) en
+# pluginval test op de VST3 (Linux, macOS) en de AU (macOS), tegen de verwachte uitvoer in testsignalen/.
 name: CI
 
 on:
@@ -65,6 +67,12 @@ jobs:
           xvfb-run -a ~/pluginval/pluginval validate --strictness-level 10 --verbose \
             --output-dir uit/pluginval-linux "build/plugins/$PB_NAAM.vst3"
 
+      - name: Null-test CLAP (pb-render)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "build/plugins/$PB_NAAM.vst3" ~/pluginval/pluginval vst3-linux
+
       - name: Logs bewaren
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,6 +113,10 @@ jobs:
             ./build-rtsan/pb-render "build-rtsan/plugins/$PB_NAAM.clap" \
               testsignalen/echo-standaard.in.wav uit/rtsan/schoon.wav --blok "$blok"
           done
+          # met parameters en een state-rondje (de DSP en de state-route door het Ontwerp)
+          ./build-rtsan/pb-render "build-rtsan/plugins/$PB_NAAM.clap" \
+            testsignalen/zelfoscillatie.in.wav uit/rtsan/schoon-p.wav --blok 3,128,1,4096,77 --state-rondje \
+            --p 1=93.75 --p 2=1.09375 --p 6=6 --p 8=1
           echo "RTSan: geen meldingen."
 
       - name: RTSan — de kanarie MOET falen
@@ -183,6 +195,19 @@ jobs:
           ~/pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled \
             --verbose --output-dir uit/pluginval-vst3 \
             ~/Library/Audio/Plug-Ins/VST3/"$PB_NAAM.vst3"
+
+      - name: Null-test CLAP (pb-render)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"$PB_NAAM.vst3" \
+            ~/pluginval/pluginval.app/Contents/MacOS/pluginval vst3-macos
+
+      - name: Null-test AU (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"$PB_NAAM.component" \
+            ~/pluginval/pluginval.app/Contents/MacOS/pluginval au-macos
 
       - name: Plugins als artefact
         uses: actions/upload-artifact@v4
