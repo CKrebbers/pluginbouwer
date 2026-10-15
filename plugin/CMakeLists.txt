@@ -29,7 +29,7 @@ option(PB_KANARIE "Bouw ook een kanarie-CLAP met een malloc in process (voor de 
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "" FORCE)
 set(CLAP_WRAPPER_OUTPUT_NAME "PB Dub-echo" CACHE STRING "" FORCE)
 include(FetchContent)
-# Patch 2 (eigen, zie VERSLAG.md): de thread-override-tellers van clap-wrapper waren thread_local; op macOS
+# Patch 2 (eigen, zie UITSLAG-fase0.md): de thread-override-tellers van clap-wrapper waren thread_local; op macOS
 # alloceert dyld die bij de eerste aanraking per thread, dus midden in de render-callback (pluginval --rtcheck).
 set(PB_PATCH1 "${PB_PAKKET}/patches/clap-wrapper-auv2-params-voor-init.patch")
 set(PB_PATCH2 "${PB_PAKKET}/patches/clap-wrapper-thread-override-zonder-tlv.patch")
