@@ -1,0 +1,291 @@
+// plugin.cpp — de CLAP-schil rond een Ontwerp (dsp/ontwerpen/*.h). clap-wrapper maakt hier VST3 en AUv2 van.
+// Hier staat geen klank: alles wat klinkt zit in het Ontwerp, en dat is dezelfde code als de WASM in de browser.
+//
+// Wat deze schil wel doet: parameters (in hun eigen eenheid, lineair zoals CLAP dat doorgeeft), events op hun sample
+// (het blok wordt bij elk event gesplitst; het Ontwerp rekent per sample, dus dat verandert niets aan de uitvoer),
+// state met versie en parameter-id's (onbekende id's worden overgeslagen, ontbrekende houden hun standaard),
+// latency en tail melden.
+#include <clap/clap.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <new>
+
+#include PB_ONTWERP
+#include "entry.h"
+
+namespace {
+
+using pb::Ontwerp;
+
+const char* const FEATURES[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, CLAP_PLUGIN_FEATURE_MONO,
+                                CLAP_PLUGIN_FEATURE_FILTER, nullptr};
+
+const clap_plugin_descriptor_t DESCRIPTOR = {
+    CLAP_VERSION_INIT, Ontwerp::META.clapId, Ontwerp::META.naam, Ontwerp::META.maker, Ontwerp::META.url, "", "",
+    Ontwerp::META.versie, Ontwerp::META.uitleg, FEATURES};
+
+constexpr uint32_t STATE_MAGIC = 0x54534250;  // "PBST"
+constexpr uint32_t STATE_VERSIE = 1;
+
+struct Plug {
+  clap_plugin_t plugin;
+  const clap_host_t* host;
+  const clap_host_params_t* hostParams = nullptr;
+  Ontwerp ontwerp;
+  double sr = 48000;
+  uint32_t kanalen = 2;
+  bool actief = false;
+};
+
+Plug* zelf(const clap_plugin_t* p) { return static_cast<Plug*>(p->plugin_data); }
+
+int indexVanId(clap_id id) {
+  for (int i = 0; i < Ontwerp::N_PARAMS; ++i)
+    if (Ontwerp::PARAMS[i].id == id) return i;
+  return -1;
+}
+
+void verwerkEvent(Plug* s, const clap_event_header_t* h) {
+  if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
+  if (h->type == CLAP_EVENT_PARAM_VALUE) {
+    auto* ev = reinterpret_cast<const clap_event_param_value_t*>(h);
+    int i = indexVanId(ev->param_id);
+    if (i >= 0) s->ontwerp.zetParam(i, ev->value);
+  }
+}
+
+// ---- audio-ports: stereo, of mono als de host dat kiest -------------------------------------------------------------
+uint32_t poortenAantal(const clap_plugin_t*, bool) { return 1; }
+bool poortInfo(const clap_plugin_t* p, uint32_t index, bool isIn, clap_audio_port_info_t* info) {
+  if (index != 0) return false;
+  auto* s = zelf(p);
+  info->id = 0;
+  std::snprintf(info->name, sizeof(info->name), "%s", isIn ? "In" : "Uit");
+  info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+  info->channel_count = s->kanalen;
+  info->port_type = s->kanalen == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+  info->in_place_pair = 0;  // in-place is veilig: per sample per kanaal eerst lezen, dan schrijven
+  return true;
+}
+const clap_plugin_audio_ports_t AUDIO_PORTS = {poortenAantal, poortInfo};
+
+uint32_t configAantal(const clap_plugin_t*) { return 2; }
+bool configGet(const clap_plugin_t*, uint32_t index, clap_audio_ports_config_t* c) {
+  if (index > 1) return false;
+  c->id = index;
+  std::snprintf(c->name, sizeof(c->name), "%s", index == 0 ? "Stereo" : "Mono");
+  c->input_port_count = 1; c->output_port_count = 1;
+  c->has_main_input = true; c->has_main_output = true;
+  c->main_input_channel_count = c->main_output_channel_count = index == 0 ? 2 : 1;
+  c->main_input_port_type = c->main_output_port_type = index == 0 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+  return true;
+}
+bool configSelect(const clap_plugin_t* p, clap_id id) {
+  auto* s = zelf(p);
+  if (s->actief || id > 1) return false;
+  s->kanalen = id == 0 ? 2 : 1;
+  return true;
+}
+const clap_plugin_audio_ports_config_t AUDIO_PORTS_CONFIG = {configAantal, configGet, configSelect};
+
+// ---- params -------------------------------------------------------------------------------------------------
+uint32_t paramAantal(const clap_plugin_t*) { return Ontwerp::N_PARAMS; }
+bool paramInfo(const clap_plugin_t*, uint32_t i, clap_param_info_t* info) {
+  if (i >= (uint32_t)Ontwerp::N_PARAMS) return false;
+  const auto& P = Ontwerp::PARAMS[i];
+  std::memset(info, 0, sizeof(*info));
+  info->id = P.id;
+  info->flags = ((P.vlaggen & pb::AUTOMATEERBAAR) ? CLAP_PARAM_IS_AUTOMATABLE : 0) |
+                ((P.vlaggen & pb::STAPPEN) ? CLAP_PARAM_IS_STEPPED : 0);
+  info->cookie = nullptr;
+  std::snprintf(info->name, sizeof(info->name), "%s", P.naam);
+  info->module[0] = 0;
+  info->min_value = P.min; info->max_value = P.max; info->default_value = P.standaard;
+  return true;
+}
+bool paramWaarde(const clap_plugin_t* p, clap_id id, double* v) {
+  int i = indexVanId(id);
+  if (i < 0) return false;
+  *v = zelf(p)->ontwerp.leesParam(i);
+  return true;
+}
+bool paramNaarTekst(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t n) {
+  int i = indexVanId(id);
+  if (i < 0) return false;
+  const auto& P = Ontwerp::PARAMS[i];
+  if (P.vlaggen & pb::STAPPEN) std::snprintf(uit, n, "%d", (int)v);
+  else if (v >= 1000 && std::strcmp(P.eenheid, "Hz") == 0) std::snprintf(uit, n, "%.2f kHz", v / 1000.0);
+  else std::snprintf(uit, n, "%.3g %s", v, P.eenheid);
+  return true;
+}
+bool tekstNaarParam(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
+  int i = indexVanId(id);
+  if (i < 0) return false;
+  char* eind = nullptr;
+  double x = std::strtod(tekst, &eind);
+  if (eind == tekst) return false;
+  while (*eind == ' ') ++eind;
+  if (*eind == 'k') x *= 1000.0;
+  const auto& P = Ontwerp::PARAMS[i];
+  *v = x < P.min ? P.min : (x > P.max ? P.max : x);
+  return true;
+}
+void paramFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
+  auto* s = zelf(p);
+  for (uint32_t k = 0, n = in->size(in); k < n; ++k) verwerkEvent(s, in->get(in, k));
+}
+const clap_plugin_params_t PARAMS_EXT = {paramAantal, paramInfo, paramWaarde, paramNaarTekst, tekstNaarParam, paramFlush};
+
+// ---- state: magic, versie, aantal, dan (id, waarde) ---------------------------------------------------------
+bool schrijfAlles(const clap_ostream_t* st, const void* d, int64_t n) {
+  auto* c = static_cast<const char*>(d);
+  while (n > 0) { int64_t w = st->write(st, c, (uint64_t)n); if (w <= 0) return false; c += w; n -= w; }
+  return true;
+}
+bool leesAlles(const clap_istream_t* st, void* d, int64_t n) {
+  auto* c = static_cast<char*>(d);
+  while (n > 0) { int64_t r = st->read(st, c, (uint64_t)n); if (r <= 0) return false; c += r; n -= r; }
+  return true;
+}
+bool stateSave(const clap_plugin_t* p, const clap_ostream_t* st) {
+  auto* s = zelf(p);
+  uint32_t kop[3] = {STATE_MAGIC, STATE_VERSIE, (uint32_t)Ontwerp::N_PARAMS};
+  if (!schrijfAlles(st, kop, sizeof(kop))) return false;
+  for (int i = 0; i < Ontwerp::N_PARAMS; ++i) {
+    uint32_t id = Ontwerp::PARAMS[i].id;
+    double v = s->ontwerp.leesParam(i);
+    if (!schrijfAlles(st, &id, 4) || !schrijfAlles(st, &v, 8)) return false;
+  }
+  return true;
+}
+bool stateLoad(const clap_plugin_t* p, const clap_istream_t* st) {
+  auto* s = zelf(p);
+  uint32_t kop[3];
+  if (!leesAlles(st, kop, sizeof(kop)) || kop[0] != STATE_MAGIC || kop[1] < 1) return false;
+  if (kop[2] > 4096) return false;
+  for (uint32_t k = 0; k < kop[2]; ++k) {
+    uint32_t id; double v;
+    if (!leesAlles(st, &id, 4) || !leesAlles(st, &v, 8)) return false;
+    int i = indexVanId(id);
+    if (i >= 0 && v == v) s->ontwerp.zetParam(i, v);  // onbekend id = van een nieuwere versie: overslaan
+  }
+  if (s->hostParams) s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
+  return true;
+}
+const clap_plugin_state_t STATE_EXT = {stateSave, stateLoad};
+
+// ---- latency en tail ---------------------------------------------------------------------------------------
+uint32_t latentie(const clap_plugin_t* p) { return zelf(p)->ontwerp.latentie(); }
+const clap_plugin_latency_t LATENCY_EXT = {latentie};
+uint32_t staart(const clap_plugin_t* p) {
+  auto* s = zelf(p);
+  double t = s->ontwerp.staartSec();
+  if (t < 0) return INT32_MAX;  // oneindig (CLAP: INT32_MAX of meer)
+  return (uint32_t)(t * s->sr + 0.5);
+}
+const clap_plugin_tail_t TAIL_EXT = {staart};
+
+// ---- plugin ---------------------------------------------------------------------------------------------------
+bool init(const clap_plugin_t* p) {
+  auto* s = zelf(p);
+  s->hostParams = static_cast<const clap_host_params_t*>(s->host->get_extension(s->host, CLAP_EXT_PARAMS));
+  for (int i = 0; i < Ontwerp::N_PARAMS; ++i) s->ontwerp.zetParam(i, Ontwerp::PARAMS[i].standaard);
+  return true;
+}
+void destroy(const clap_plugin_t* p) { auto* s = zelf(p); s->~Plug(); std::free(s); }
+bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
+  auto* s = zelf(p);
+  s->sr = sr;
+  s->ontwerp.activeer(sr, maxFrames);
+  s->actief = true;
+  return true;
+}
+void deactivate(const clap_plugin_t* p) { zelf(p)->actief = false; }
+bool startProcessing(const clap_plugin_t*) { return true; }
+void stopProcessing(const clap_plugin_t*) {}
+void reset(const clap_plugin_t* p) { zelf(p)->ontwerp.reset(); }
+
+clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
+  auto* s = zelf(p);
+#ifdef PB_RTSAN_KANARIE
+  // Alleen in de controlebouw van CI: een opzettelijke allocatie, om te bewijzen dat RTSan hem vangt.
+  volatile void* kanarie = std::malloc(16);
+  std::free((void*)kanarie);
+#endif
+  const uint32_t n = pr->frames_count;
+  const uint32_t nEv = pr->in_events->size(pr->in_events);
+  uint32_t ev = 0, pos = 0;
+
+  int kIn = pr->audio_inputs_count ? (int)pr->audio_inputs[0].channel_count : 0;
+  int kUit = pr->audio_outputs_count ? (int)pr->audio_outputs[0].channel_count : 0;
+  int k = kUit < 2 ? kUit : 2;
+  if (k == 0) return CLAP_PROCESS_CONTINUE;
+  const float* in[2]; float* uit[2];
+  static const float stilte[1] = {0};
+  for (int c = 0; c < k; ++c) {
+    uit[c] = pr->audio_outputs[0].data32[c];
+    in[c] = kIn > 0 ? pr->audio_inputs[0].data32[c < kIn ? c : kIn - 1] : nullptr;
+  }
+  (void)stilte;
+
+  while (pos < n) {
+    while (ev < nEv) {
+      const auto* h = pr->in_events->get(pr->in_events, ev);
+      if (h->time > pos) break;
+      verwerkEvent(s, h);
+      ++ev;
+    }
+    uint32_t tot = n;
+    if (ev < nEv) { uint32_t t = pr->in_events->get(pr->in_events, ev)->time; if (t < tot) tot = t; }
+    if (tot <= pos) tot = pos + 1;
+    if (tot > n) tot = n;
+    const float* inDeel[2]; float* uitDeel[2];
+    for (int c = 0; c < k; ++c) { uitDeel[c] = uit[c] + pos; inDeel[c] = in[c] ? in[c] + pos : nullptr; }
+    if (!in[0]) {  // geen ingang: stilte erin (in de uitgang, die we toch overschrijven)
+      for (int c = 0; c < k; ++c) { std::memset(uitDeel[c], 0, (tot - pos) * sizeof(float)); inDeel[c] = uitDeel[c]; }
+    }
+    s->ontwerp.verwerk(inDeel, uitDeel, k, tot - pos);
+    pos = tot;
+  }
+  for (int c = k; c < kUit; ++c) std::memcpy(pr->audio_outputs[0].data32[c], uit[k - 1], n * sizeof(float));
+  return CLAP_PROCESS_CONTINUE;
+}
+
+const void* extensie(const clap_plugin_t*, const char* id) {
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG)) return &AUDIO_PORTS_CONFIG;
+  if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
+  if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE_EXT;
+  if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY_EXT;
+  if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL_EXT;
+  return nullptr;
+}
+void opMainThread(const clap_plugin_t*) {}
+
+const clap_plugin_t* maakPlugin(const clap_host_t* host) {
+  void* mem = std::malloc(sizeof(Plug));
+  if (!mem) return nullptr;
+  auto* s = new (mem) Plug();
+  s->host = host;
+  s->plugin = {&DESCRIPTOR, s, init, destroy, activate, deactivate, startProcessing, stopProcessing,
+               reset, process, extensie, opMainThread};
+  return &s->plugin;
+}
+
+// ---- factory ----------------------------------------------------------------------------------------------
+uint32_t fabAantal(const clap_plugin_factory_t*) { return 1; }
+const clap_plugin_descriptor_t* fabDescriptor(const clap_plugin_factory_t*, uint32_t i) { return i == 0 ? &DESCRIPTOR : nullptr; }
+const clap_plugin_t* fabMaak(const clap_plugin_factory_t*, const clap_host_t* host, const char* id) {
+  if (!clap_version_is_compatible(host->clap_version) || std::strcmp(id, DESCRIPTOR.id)) return nullptr;
+  return maakPlugin(host);
+}
+const clap_plugin_factory_t FACTORY = {fabAantal, fabDescriptor, fabMaak};
+
+}  // namespace
+
+bool pb_entry_init(const char*) { return true; }
+void pb_entry_deinit() {}
+const void* pb_entry_get_factory(const char* id) {
+  return std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &FACTORY : nullptr;
+}

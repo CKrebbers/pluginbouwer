@@ -1,0 +1,159 @@
+# CI — het bewijs (CLAUDE.md regel 5). Elke stap faalt hard; niets wordt overgeslagen om groen te worden.
+#   toetsen   Node-toetsen, WASM opnieuw bouwen en controleren dat de verwachte uitvoer bit voor bit gelijk blijft
+#   linux     CLAP + VST3 bouwen, clap-validator, pluginval 10 (VST3), null-test door het binary (CLAP en VST3)
+#   rtsan     RTSan (clang 20) met een kanarie die moet falen, en ASan/UBSan
+#   macos     arm64: CLAP + VST3 + AU, ad-hoc gesigneerd, auval -strict, pluginval 10 met rtcheck (AU en VST3),
+#             null-test door het binary (AU, VST3, CLAP); de plugins als download
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PLUGINVAL_VERSIE: v2.0.0-beta3
+  CLAP_VALIDATOR_VERSIE: 0.4.1
+  ONTWERPEN: pijplijn_biquad
+
+jobs:
+  toetsen:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: WASM opnieuw bouwen met de clang van de runner
+        run: |
+          clang --version | head -1
+          for o in $ONTWERPEN; do sh dsp/bouw-wasm.sh "$o"; done
+      - name: Node-toetsen (formules, wiskunde, blokgrootte)
+        run: node --test tests/*.test.mjs
+      - name: Verwachte uitvoer opnieuw maken — moet bit voor bit gelijk zijn aan wat in git staat
+        run: |
+          for o in $ONTWERPEN; do node tools/null.mjs maak "$o"; done
+          git diff --stat --exit-code testsignalen/
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Gereedschap
+        run: sudo apt-get update && sudo apt-get install -y ninja-build xvfb libasound2t64 libfreetype6 libfontconfig1
+      - name: Bouwen (clang, Release)
+        run: |
+          cmake -B build -S plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build
+          ls -R build/plugins | head -20
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh tools/ci-null.sh clap build
+      - name: clap-validator
+        run: |
+          rustup update stable --no-self-update
+          cargo install --locked --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" clap-validator
+          clap-validator validate build/plugins/*.clap
+      - name: pluginval ophalen
+        run: |
+          curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
+          unzip -q pv.zip -d pv && chmod +x pv/pluginval && pv/pluginval --version
+      - name: pluginval strictness 10 (VST3)
+        run: xvfb-run -a pv/pluginval validate --strictness-level 10 --skip-gui-tests build/plugins/*.vst3
+      - name: Null-test VST3 (pluginval test, blok 512)
+        run: sh tools/ci-null.sh pluginval "$PWD/$(ls -d build/plugins/*.vst3)" "xvfb-run -a $PWD/pv/pluginval" vst3-linux
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-plugins
+          path: |
+            build/plugins/
+            uit/
+
+  rtsan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: clang 20 (apt.llvm.org)
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          curl -fsSL -o llvm.sh https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 20
+          clang++-20 --version | head -1
+      - name: RTSan-bouw en null-test (elke process-aanroep in een real-time context)
+        run: |
+          cmake -B build-rt -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=realtime
+          cmake --build build-rt --target pb_clap pb-render
+          RTSAN_OPTIONS=halt_on_error=true sh tools/ci-null.sh clap build-rt
+      - name: Kanarie — een malloc in process MOET door RTSan gevangen worden
+        run: |
+          cmake -B build-kanarie -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=realtime -DPB_RTSAN_KANARIE=ON
+          cmake --build build-kanarie --target pb_clap pb-render
+          if RTSAN_OPTIONS=halt_on_error=true ./build-kanarie/pb-render build-kanarie/plugins/*.clap testsignalen/pijplijn_biquad/ruis-half.in.wav /tmp/k.wav 2> kanarie.log; then
+            echo "RTSan ving de opzettelijke malloc NIET: de toets is waardeloos"; exit 1
+          fi
+          grep -i "realtime" kanarie.log | head -5
+      - name: ASan + UBSan
+        run: |
+          cmake -B build-asan -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=address,undefined
+          cmake --build build-asan --target pb_clap pb-render
+          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh tools/ci-null.sh clap build-asan
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Bouwen (Apple clang, arm64, Release)
+        run: |
+          uname -m && clang --version | head -1
+          cmake -B build -S plugin -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build build --config Release -j 4
+          ls build/plugins
+      - name: Ad-hoc signeren (gratis; geen Apple Developer-account nodig)
+        run: |
+          for b in build/plugins/*.clap build/plugins/*.vst3 build/plugins/*.component; do
+            codesign --force --deep --sign - "$b" && codesign --verify --verbose "$b"
+          done
+      - name: Installeren in ~/Library/Audio/Plug-Ins en de AU-cache verversen
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3
+          cp -R build/plugins/*.component ~/Library/Audio/Plug-Ins/Components/
+          cp -R build/plugins/*.vst3 ~/Library/Audio/Plug-Ins/VST3/
+          killall -9 AudioComponentRegistrar || true
+          sleep 2
+          auval -a | grep -i vrve || (echo "AU niet gevonden" && exit 1)
+      - name: auval -strict
+        run: |
+          SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/pijplijn_biquad.h)
+          MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/pijplijn_biquad.h)
+          auval -strict -v aufx "$SUB" "$MAN" | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+      - name: Null-test CLAP (pb-render op arm64)
+        run: sh tools/ci-null.sh clap build
+      - name: pluginval ophalen
+        run: |
+          curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
+          unzip -q pv.zip -d pv && ls pv
+          echo "PV=$PWD/pv/pluginval.app/Contents/MacOS/pluginval" >> "$GITHUB_ENV"
+      - name: pluginval strictness 10 met rtcheck (AU)
+        run: $PV validate --strictness-level 10 --skip-gui-tests --rtcheck enabled ~/Library/Audio/Plug-Ins/Components/*.component
+      - name: pluginval strictness 10 met rtcheck (VST3)
+        run: $PV validate --strictness-level 10 --skip-gui-tests --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
+      - name: Null-test AU (pluginval test, blok 512)
+        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos
+      - name: Null-test VST3 (pluginval test, blok 512)
+        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/VST3/*.vst3)" "$PV" vst3-macos
+      - name: Download klaarzetten (voor Logic; zie LEERPAD.md "Installeren")
+        if: always()
+        run: |
+          mkdir -p dl && cp -R build/plugins/* dl/ && cd dl && zip -qry ../pluginbouwer-macos.zip .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-plugins
+          path: |
+            pluginbouwer-macos.zip
+            uit/
+            auval.log

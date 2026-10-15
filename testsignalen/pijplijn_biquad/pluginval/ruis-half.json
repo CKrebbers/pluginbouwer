@@ -1,0 +1,18 @@
+{
+  "name": "ruis-half",
+  "input": {
+    "audio": "../ruis-half.in.wav"
+  },
+  "reference": "../ruis-half.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Frequentie": 0.5,
+      "Resonantie": 0.5
+    }
+  },
+  "sample_rate": 48000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}
