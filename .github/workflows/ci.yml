@@ -13,7 +13,7 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: 0.4.1
-  ONTWERPEN: pijplijn_biquad
+  ONTWERPEN: pijplijn_biquad proef_delay dub_echo
 
 jobs:
   toetsen:
@@ -26,14 +26,25 @@ jobs:
         run: |
           clang --version | head -1
           for o in $ONTWERPEN; do sh dsp/bouw-wasm.sh "$o"; done
-      - name: Node-toetsen (formules, wiskunde, blokgrootte)
+      - name: numpy voor de Python-referentie
+        run: python3 -c "import numpy" 2>/dev/null || pip install --break-system-packages numpy
+      - name: Node-toetsen (formules, wiskunde, blokgrootte, de dub-echo tegen de Python-referentie)
         run: node --test tests/*.test.mjs
+      - name: Meetwaarden in de samenvatting
+        if: always()
+        run: |
+          echo '### Metingen dub-echo (tests/uit/dubecho.json)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"; cat tests/uit/dubecho.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Verwachte uitvoer opnieuw maken — moet bit voor bit gelijk zijn aan wat in git staat
         run: |
-          for o in $ONTWERPEN; do node tools/null.mjs maak "$o"; done
+          for o in pijplijn_biquad dub_echo; do node tools/null.mjs maak "$o"; done
           git diff --stat --exit-code testsignalen/
 
   linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        ontwerp: [pijplijn_biquad, dub_echo]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +54,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build xvfb libasound2t64 libfreetype6 libfontconfig1
       - name: Bouwen (clang, Release)
         run: |
-          cmake -B build -S plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake -B build -S plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DPB_ONTWERP=${{ matrix.ontwerp }}
           cmake --build build
           ls -R build/plugins | head -20
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
-        run: sh tools/ci-null.sh clap build
+        run: sh tools/ci-null.sh clap build ${{ matrix.ontwerp }}
       - name: clap-validator
         run: |
           rustup update stable --no-self-update
@@ -60,16 +71,20 @@ jobs:
       - name: pluginval strictness 10 (VST3)
         run: xvfb-run -a pv/pluginval validate --strictness-level 10 --skip-gui-tests build/plugins/*.vst3
       - name: Null-test VST3 (pluginval test, blok 512)
-        run: sh tools/ci-null.sh pluginval "$PWD/$(ls -d build/plugins/*.vst3)" "xvfb-run -a $PWD/pv/pluginval" vst3-linux
+        run: sh tools/ci-null.sh pluginval "$PWD/$(ls -d build/plugins/*.vst3)" "xvfb-run -a $PWD/pv/pluginval" vst3-linux ${{ matrix.ontwerp }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: linux-plugins
+          name: linux-${{ matrix.ontwerp }}
           path: |
             build/plugins/
             uit/
 
   rtsan:
+    strategy:
+      fail-fast: false
+      matrix:
+        ontwerp: [pijplijn_biquad, dub_echo]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -82,10 +97,11 @@ jobs:
           clang++-20 --version | head -1
       - name: RTSan-bouw en null-test (elke process-aanroep in een real-time context)
         run: |
-          cmake -B build-rt -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=realtime
+          cmake -B build-rt -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=realtime -DPB_ONTWERP=${{ matrix.ontwerp }}
           cmake --build build-rt --target pb_clap pb-render
-          RTSAN_OPTIONS=halt_on_error=true sh tools/ci-null.sh clap build-rt
+          RTSAN_OPTIONS=halt_on_error=true sh tools/ci-null.sh clap build-rt ${{ matrix.ontwerp }}
       - name: Kanarie — een malloc in process MOET door RTSan gevangen worden
+        if: matrix.ontwerp == 'pijplijn_biquad'
         run: |
           cmake -B build-kanarie -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=realtime -DPB_RTSAN_KANARIE=ON
           cmake --build build-kanarie --target pb_clap pb-render
@@ -95,9 +111,9 @@ jobs:
           grep -i "realtime" kanarie.log | head -5
       - name: ASan + UBSan
         run: |
-          cmake -B build-asan -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=address,undefined
+          cmake -B build-asan -S plugin -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DPB_SANITIZE=address,undefined -DPB_ONTWERP=${{ matrix.ontwerp }}
           cmake --build build-asan --target pb_clap pb-render
-          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh tools/ci-null.sh clap build-asan
+          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 sh tools/ci-null.sh clap build-asan ${{ matrix.ontwerp }}
 
   stackproef:
     # Fase B: dezelfde keten in Faust. Faust-WASM (faustwasm) tegen Faust-native C++, en door een gebouwd .clap.
@@ -148,6 +164,10 @@ jobs:
           path: stackproef/faust/uitslag.md
 
   macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        ontwerp: [pijplijn_biquad, dub_echo]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -156,7 +176,7 @@ jobs:
       - name: Bouwen (Apple clang, arm64, Release)
         run: |
           uname -m && clang --version | head -1
-          cmake -B build -S plugin -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake -B build -S plugin -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DPB_ONTWERP=${{ matrix.ontwerp }}
           cmake --build build --config Release -j 4
           ls build/plugins
       - name: Ad-hoc signeren (gratis; geen Apple Developer-account nodig)
@@ -174,12 +194,12 @@ jobs:
           auval -a | grep -i vrve || (echo "AU niet gevonden" && exit 1)
       - name: auval -strict
         run: |
-          SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/pijplijn_biquad.h)
-          MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/pijplijn_biquad.h)
+          SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
+          MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
           auval -strict -v aufx "$SUB" "$MAN" | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
       - name: Null-test CLAP (pb-render op arm64)
-        run: sh tools/ci-null.sh clap build
+        run: sh tools/ci-null.sh clap build ${{ matrix.ontwerp }}
       - name: pluginval ophalen
         run: |
           curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -190,18 +210,18 @@ jobs:
       - name: pluginval strictness 10 met rtcheck (VST3)
         run: $PV validate --strictness-level 10 --skip-gui-tests --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
       - name: Null-test AU (pluginval test, blok 512)
-        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos
+        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos ${{ matrix.ontwerp }}
       - name: Null-test VST3 (pluginval test, blok 512)
-        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/VST3/*.vst3)" "$PV" vst3-macos
+        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/VST3/*.vst3)" "$PV" vst3-macos ${{ matrix.ontwerp }}
       - name: Download klaarzetten (voor Logic; zie LEERPAD.md "Installeren")
         if: always()
         run: |
-          mkdir -p dl && cp -R build/plugins/* dl/ && cd dl && zip -qry ../pluginbouwer-macos.zip .
+          mkdir -p dl && cp -R build/plugins/* dl/ && cd dl && zip -qry ../pluginbouwer-${{ matrix.ontwerp }}-macos.zip .
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: macos-plugins
+          name: macos-${{ matrix.ontwerp }}
           path: |
-            pluginbouwer-macos.zip
+            pluginbouwer-${{ matrix.ontwerp }}-macos.zip
             uit/
             auval.log

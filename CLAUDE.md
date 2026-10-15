@@ -28,6 +28,9 @@ Clay programmeert geen C++: wat hij zelf moet doen of leren staat apart (`LEERPA
    Faalt hij, dan is de code fout of de grens; nooit de toets stilletjes ruimer zetten.
 
 ## Gekozen stack (A en B; meetresultaten in KEUZE-STACK.md)
+Besluit 15 okt 2026, na de proefbouw: onze stack (hieronder) boven Faust. Doorslag: Faust in float (de standaard)
+liet browser en plugin −46,8 dBFS uit elkaar lopen zodra coëfficiënten per sample bewegen; onze stack is overal bit
+voor bit gelijk, ook op macOS arm64 en ook bij zelfoscillatie.
 - DSP: kale C++ in `dsp/`, naar WASM met **clang `--target=wasm32` zonder libc** (geen Emscripten nodig: de code is
   vrijstaand). Afwijking van de opdracht ("Emscripten") met reden: minder gereedschap, dezelfde compilerfamilie als
   native, geen libc-functies die stilletjes anders rekenen.
@@ -49,6 +52,19 @@ tool/           de ontwerper: src/ → één index.html (WASM ingebakken)
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
 ```
+
+## Valkuilen die al gevonden zijn (niet opnieuw instappen)
+- **Geen globale constructors in `dsp/pb_wasm.cpp`.** Zonder libc zet wasm-ld `__wasm_call_ctors` vóór ELKE export:
+  alle instanties werden bij elke aanroep teruggezet. Instanties via placement-new in ruwe opslag.
+- **Een Ontwerp zet zijn standaardwaarden zelf** (constructor); niet erop rekenen dat de schil dat doet.
+- **AU-parameters vóór Initialize** bereikten de CLAP niet (clap-wrapper v0.16.0). Gepatcht in `plugin/patches/`;
+  bij een nieuwe clap-wrapper eerst kijken of de patch nog nodig is (de null-test op macOS zegt het).
+- **Linux-VST3 met `-z nodelete`**: anders crasht pluginval na "SUCCESS" (statics in de VST3 SDK, exit na dlclose).
+- **RTSan-kanarie via een globale sink**: clang -O2 haalt een malloc/free-paar weg, ook met een volatile lokale pointer.
+- **Denormale invoer** nooit als float omzetten om te testen (`pb::invoer` kijkt naar de bits).
+- **Parameterbereiken exact in float32** (een AU geeft float door); `tests/standaard.test.mjs` bewaakt het.
+- **ADAA-1 is voor kleine signalen een (1+z⁻¹)/2-filter**: −3 dB op fs/4 en een halve sample vertraging (die de
+  dub-echo van de delaytijd aftrekt).
 
 ## Conventies
 | Onderwerp | Afspraak |

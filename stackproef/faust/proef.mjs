@@ -30,6 +30,7 @@ const gevallen = [
   { naam: 'sweep', maak: (sr) => stereo(sweep(20, 20000, sr, 2, 0.5)) },
 ];
 let fouten = 0;
+const modUitslag = [];
 const regels = [`# Uitslag proefbouw B (${new Date().toISOString().slice(0, 10)})`, '',
   `Faust ${compiler.version()} (WASM, @grame/faustwasm) en ${execFileSync(process.env.FAUST || 'faust', ['--version']).toString().split('\n')[0]} (native), clang ${execFileSync('clang', ['--version']).toString().split('\n')[0]}.`,
   'Keten: laagdoor → Lagrange-3 delay → droog/nat. Sets: ' + SETS.map((s) => `${s.naam} (${s.sr} Hz, ${JSON.stringify(s.w)})`).join('; ') + '.', ''];
@@ -81,7 +82,38 @@ for (const variant of ['float', 'double']) {
     }
   }
 }
+// --- de scherpere proef: coëfficiënten die elke sample bewegen (sin/cos/pow per sample) -------------------------------
+{
+  const modCode = readFileSync(join(HIER, 'proef_mod.dsp'), 'utf8');
+  regels.push('', '### Gemoduleerd filter (sin/cos/pow per sample): Faust-WASM tegen Faust-native', '',
+    '| variant | geval | browser (WASM) vs native | eerste verschil (sample) |', '|---|---|---|---|');
+  for (const variant of ['float', 'double']) {
+    const args = `-ftz 0 ${variant === 'double' ? '-double' : ''}`.trim();
+    const gen = new FaustMonoDspGenerator();
+    await gen.compile(compiler, 'proefmod', modCode, `-I libraries/ ${args}`);
+    const FAUST = process.env.FAUST || 'faust';
+    const cpp = join(HIER, 'gen', `proef-mod-${variant}.cpp`);
+    execFileSync(FAUST, ['-I', process.env.FAUST_LIB || '/usr/share/faust', ...args.split(' ').filter(Boolean),
+      '-lang', 'cpp', '-cn', 'FaustProef', '-o', cpp, join(HIER, 'proef_mod.dsp')], { stdio: 'inherit' });
+    const bin = join(uit, `rend-mod-${variant}`);
+    execFileSync(process.env.CXX || 'clang++', ['-std=c++17', '-O2', '-ffp-contract=off', ...(variant === 'double' ? ['-DFAUSTFLOAT=double'] : []),
+      `-DPB_FAUST_GEN="gen/proef-mod-${variant}.cpp"`, '-o', bin, join(HIER, 'rend.cpp')], { cwd: HIER, stdio: 'inherit' });
+    for (const g of gevallen) {
+      const sr = 48000, x = g.maak(sr);
+      const p = await gen.createOfflineProcessor(sr, 128);
+      p.setParamValue('/proefmod/Mod', 0.5);
+      const w = p.render(x, x[0].length);
+      const inPad = join(uit, `mod-${g.naam}.in.wav`), natPad = join(uit, `mod-${g.naam}.${variant}.native.wav`);
+      schrijfWav(inPad, x, sr);
+      execFileSync(bin, [inPad, natPad, '512', 'Mod=0.5']);
+      const r = nullTest(w, leesWav(natPad).kanalen);
+      modUitslag.push({ variant, geval: g.naam, piekDb: r.piekDb });
+      regels.push(`| Faust ${variant} | ${g.naam} | ${fmtDb(r.piekDb)} | ${r.eersteVerschil} |`);
+    }
+  }
+}
 regels.push('', `Platform: ${process.platform} ${process.arch}, Node ${process.version}.`);
 writeFileSync(join(HIER, 'uitslag.md'), regels.join('\n') + '\n');
+writeFileSync(join(HIER, `uitslag-${process.platform}-${process.arch}.json`), JSON.stringify({ modUitslag }, null, 2) + '\n');
 console.log(regels.join('\n'));
 if (fouten) { console.error(`${fouten} gevallen boven −90 dBFS tussen Faust-WASM en Faust-native`); process.exit(1); }

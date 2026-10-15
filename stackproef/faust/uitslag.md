@@ -14,14 +14,25 @@ Keten: laagdoor → Lagrange-3 delay → droog/nat. Sets: geheel (48000 Hz, {"Fr
 | Faust float | fractie-441 | ruis | −∞ (bit voor bit gelijk) | — | -86.7 dBFS |
 | Faust float | fractie-441 | stukjes | −∞ (bit voor bit gelijk) | — | -97.2 dBFS |
 | Faust float | fractie-441 | sweep | −∞ (bit voor bit gelijk) | — | -72.2 dBFS |
-| Faust double | geheel | ruis | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) |
-| Faust double | geheel | stukjes | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | -596.7 dBFS |
-| Faust double | geheel | sweep | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) |
-| Faust double | fractie | ruis | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | -198.7 dBFS |
-| Faust double | fractie | stukjes | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | -603.5 dBFS |
-| Faust double | fractie | sweep | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) |
-| Faust double | fractie-441 | ruis | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) |
-| Faust double | fractie-441 | stukjes | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | -427.5 dBFS |
-| Faust double | fractie-441 | sweep | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) | −∞ (bit voor bit gelijk) |
+| Faust double | geheel | ruis | −∞ (bit voor bit gelijk) | — | −∞ (bit voor bit gelijk) |
+| Faust double | geheel | stukjes | −∞ (bit voor bit gelijk) | — | -596.7 dBFS |
+| Faust double | geheel | sweep | −∞ (bit voor bit gelijk) | — | −∞ (bit voor bit gelijk) |
+| Faust double | fractie | ruis | −∞ (bit voor bit gelijk) | — | -198.7 dBFS |
+| Faust double | fractie | stukjes | −∞ (bit voor bit gelijk) | — | -603.5 dBFS |
+| Faust double | fractie | sweep | −∞ (bit voor bit gelijk) | — | −∞ (bit voor bit gelijk) |
+| Faust double | fractie-441 | ruis | −∞ (bit voor bit gelijk) | — | −∞ (bit voor bit gelijk) |
+| Faust double | fractie-441 | stukjes | −∞ (bit voor bit gelijk) | — | -427.5 dBFS |
+| Faust double | fractie-441 | sweep | −∞ (bit voor bit gelijk) | — | −∞ (bit voor bit gelijk) |
+
+### Gemoduleerd filter (sin/cos/pow per sample): Faust-WASM tegen Faust-native
+
+| variant | geval | browser (WASM) vs native | eerste verschil (sample) |
+|---|---|---|---|
+| Faust float | ruis | -46.8 dBFS | 509 |
+| Faust float | stukjes | -63.1 dBFS | 509 |
+| Faust float | sweep | -50.1 dBFS | 509 |
+| Faust double | ruis | −∞ (bit voor bit gelijk) | -1 |
+| Faust double | stukjes | −∞ (bit voor bit gelijk) | -1 |
+| Faust double | sweep | −∞ (bit voor bit gelijk) | -1 |
 
 Platform: linux x64, Node v22.22.0.

@@ -5,14 +5,20 @@
 #define PB_ONTWERP "ontwerpen/pijplijn_biquad.h"
 #endif
 #include PB_ONTWERP
+#include "pb_tape.h"
 
 #define EXPORT extern "C" __attribute__((visibility("default")))
+
+// placement-new zonder <new> (er is geen libc/libc++)
+inline void* operator new(unsigned long, void* p) noexcept { return p; }
 
 namespace {
 constexpr double MAX_SR = 192000;  // geheugen per instantie wordt voor de hoogste samplerate gereserveerd
 constexpr int MAX_INST = 8;
 constexpr uint32_t MAX_BLOK = 4096;
-pb::Ontwerp inst[MAX_INST];
+// Ruwe opslag + placement-new: geen globale constructor (zie bouw-wasm.sh waarom dat hier fataal is).
+alignas(pb::Ontwerp) unsigned char instOpslag[MAX_INST][sizeof(pb::Ontwerp)];
+struct InstTabel { pb::Ontwerp& operator[](int h) { return *reinterpret_cast<pb::Ontwerp*>(instOpslag[h]); } } inst;
 bool bezet[MAX_INST];
 float inBuf[MAX_INST][2][MAX_BLOK];
 float uitBuf[MAX_INST][2][MAX_BLOK];
@@ -50,7 +56,7 @@ EXPORT int pb_maak(double sr) {
     if (!bezet[i]) {
       unsigned long n = pb::Ontwerp::geheugenNodig(MAX_SR);
       if (n > geheugenGrootte[i]) { geheugen[i] = reserveer(n); geheugenGrootte[i] = geheugen[i] ? n : 0; if (!geheugen[i]) return -1; }
-      bezet[i] = true; inst[i] = pb::Ontwerp(); inst[i].activeer(sr, MAX_BLOK, geheugenVan(i)); return i;
+      bezet[i] = true; new (instOpslag[i]) pb::Ontwerp(); inst[i].activeer(sr, MAX_BLOK, geheugenVan(i)); return i;
     }
   return -1;
 }
@@ -86,3 +92,10 @@ EXPORT double pb_t_exp(double x) { return pb::exp_(x); }
 EXPORT double pb_t_log(double x) { return pb::log_(x); }
 EXPORT double pb_t_tanh(double x) { return pb::tanh_(x); }
 EXPORT double pb_t_logcosh(double x) { return pb::logcosh_(x); }
+
+// alleen voor tests/dubecho.test.mjs: het saturatieblok los, op een buffer (in-place), voor de aliasingmeting
+EXPORT void pb_t_tape(float* x, unsigned n, double drive) {
+  pb::TapeVerzadiging t; double g = drive, ig = 1.0 / drive;
+  for (unsigned i = 0; i < n; ++i) x[i] = (float)(t.stap(g * (double)x[i]) * ig);
+}
+EXPORT float* pb_t_buffer() { return inBuf[MAX_INST - 1][0]; }

@@ -1,0 +1,34 @@
+{
+  "modUitslag": [
+    {
+      "variant": "float",
+      "geval": "ruis",
+      "piekDb": -46.80823517170131
+    },
+    {
+      "variant": "float",
+      "geval": "stukjes",
+      "piekDb": -63.09770727398331
+    },
+    {
+      "variant": "float",
+      "geval": "sweep",
+      "piekDb": -50.116479007250625
+    },
+    {
+      "variant": "double",
+      "geval": "ruis",
+      "piekDb": null
+    },
+    {
+      "variant": "double",
+      "geval": "stukjes",
+      "piekDb": null
+    },
+    {
+      "variant": "double",
+      "geval": "sweep",
+      "piekDb": null
+    }
+  ]
+}

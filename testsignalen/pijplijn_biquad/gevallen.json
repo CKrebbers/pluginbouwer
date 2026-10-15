@@ -13,7 +13,8 @@
     "pbRender": [
       "1=10010",
       "2=5.125"
-    ]
+    ],
+    "statistisch": false
   },
   {
     "naam": "sweep-kwart",
@@ -29,7 +30,8 @@
     "pbRender": [
       "1=5015",
       "2=2.6875"
-    ]
+    ],
+    "statistisch": false
   },
   {
     "naam": "stukjes-laag",
@@ -45,7 +47,8 @@
     "pbRender": [
       "1=1268.75",
       "2=7.5625"
-    ]
+    ],
+    "statistisch": false
   },
   {
     "naam": "sinus-441",
@@ -61,7 +64,8 @@
     "pbRender": [
       "1=10010",
       "2=5.125"
-    ]
+    ],
+    "statistisch": false
   },
   {
     "naam": "impuls-96k",
@@ -77,6 +81,7 @@
     "pbRender": [
       "1=5015",
       "2=2.6875"
-    ]
+    ],
+    "statistisch": false
   }
 ]

@@ -45,6 +45,10 @@ elif [ "$SOORT" = pluginval ]; then
     node "$WAAR/tools/null.mjs" vergelijk "$UIT" "$ONTWERP" || true; echo; } | tee /dev/stderr | som
   # 2. de poort: pluginval zelf vergelijkt met de WASM-referentie (tolerantie = −90 dBFS per sample)
   for cfg in "$MAP"/pluginval/*.json; do
+    geval="$(basename "$cfg" .json)"
+    if node -e "process.exit(require('$MAP/gevallen.json').find(g => g.naam === '$geval').statistisch ? 0 : 1)"; then
+      echo "($geval: zelfoscillatie, alleen de statistische toets hierboven)"; continue
+    fi
     $PV test --plugin "$PLUGIN" "$cfg"
   done
   node "$WAAR/tools/null.mjs" vergelijk "$UIT" "$ONTWERP" > /dev/null

@@ -50,6 +50,8 @@ struct Ontwerp {
   Biquad bq[2];
   bool vers = true;
 
+  // Standaardwaarden bij constructie, dus in WASM en plugin hetzelfde (eerst vergeten: de WASM begon op 0).
+  Ontwerp() { for (int i = 0; i < N_PARAMS; ++i) glij[i].doel = glij[i].nu = PARAMS[i].standaard; }
   static unsigned long geheugenNodig(double) { return 0; }
   void activeer(double samplerate, uint32_t, Geheugen) {
     sr = samplerate;

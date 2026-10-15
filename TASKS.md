@@ -6,27 +6,27 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] PROMPT.md, CLAUDE.md, design.md, TASKS.md, BRONNEN.md — checkpoint 0
 
 ## A. Pijplijn (één biquad de hele weg)
-- [ ] `dsp/pb_math.h`: sin/cos/tan/exp/log/tanh zonder libm, getoetst tegen libm (≤ 2 ULP in double op het gebruikte bereik)
-- [ ] `dsp/pb_biquad.h`: RBJ-lowpass, double, per sample, smoothing per sample
-- [ ] WASM met clang wasm32 zonder libc; Node-toets tegen de RBJ-formule (≤ 0,1 dB, ≤ 1° tot 0,9·Nyquist)
-- [ ] blokgrootte-onafhankelijk (1/7/128/512/4096 bit voor bit gelijk)
-- [ ] CLAP-plugin + clap-wrapper → .clap, .vst3, .component (CMake)
-- [ ] `host/pb-render`: CLAP-host die een WAV door het .clap stuurt
-- [ ] CI Linux: bouwen, clap-validator, pluginval 10 op VST3, RTSan, null-test CLAP en VST3 vs WASM
-- [ ] CI macOS arm64: bouwen, auval -strict, pluginval 10 op AU en VST3, null-test AU vs WASM
-- [ ] checkpoint A
+- [x] `dsp/pb_math.h`: sin/cos/tan/exp/log/tanh zonder libm, getoetst tegen Math.* (tests/math.test.mjs)
+- [x] `dsp/pb_biquad.h`: RBJ-lowpass, double, per sample, smoothing per sample
+- [x] WASM met clang wasm32 zonder libc; Node-toets tegen de RBJ-formule (≤ 0,1 dB, ≤ 1° tot 0,9·Nyquist)
+- [x] blokgrootte-onafhankelijk (1/7/128/512/4096 bit voor bit gelijk)
+- [x] CLAP-plugin + clap-wrapper → .clap, .vst3, .component (CMake), met patch voor AU-parameters vóór Initialize
+- [x] `host/pb-render`: CLAP-host die een WAV door het .clap stuurt
+- [x] CI Linux (ook RTSan met kanarie en ASan/UBSan): bouwen, clap-validator, pluginval 10 op VST3, RTSan, null-test CLAP en VST3 vs WASM
+- [x] CI macOS arm64: ad-hoc signeren, auval -strict, pluginval 10 + rtcheck (AU, VST3), null-test AU/VST3/CLAP: bit voor bit
+- [x] checkpoint A (CI run 4, 15 okt 2026: alle jobs groen)
 
 ## B. Proefbouw van de stack
-- [ ] dezelfde biquad + fractionele delay in Faust (C++ en WASM uit één .dsp)
-- [ ] null-test Faust-WASM vs Faust-native, en vs onze eigen stack
-- [ ] licenties en formaten per framework uit de LICENSE-bestanden (BRONNEN.md)
-- [ ] KEUZE-STACK.md met metingen; besluit in CLAUDE.md — checkpoint B
+- [x] dezelfde biquad + fractionele delay in Faust (C++ en WASM uit één .dsp)
+- [x] null-test Faust-WASM vs Faust-native, en vs onze eigen stack
+- [x] licenties en formaten per framework uit de LICENSE-bestanden (BRONNEN.md)
+- [x] KEUZE-STACK.md met metingen; besluit in CLAUDE.md — checkpoint B
 
 ## C. Doelgeluid en de dub-echo
 - [ ] SPEC.md: doelgeluid (RE-201-gegevens, gemarkeerd wat niet bevestigd is), parameters, budgetten, toleranties
-- [ ] DSP-blokken: fractionele delay (Hermite / Lagrange-3), tape-saturatie met ADAA, TPT-SVF in de lus, wow/flutter, mix
-- [ ] Python float64-referentie (andere code), 16× oversampling voor de niet-lineaire delen
-- [ ] metingen: ESS-harmonischen, IMD, aliasing, stabiliteit, staart, null, statistische zelfoscillatietoets
+- [x] DSP-blokken: fractionele delay (Lagrange-3), tape-saturatie met ADAA, TPT-SVF in de lus, wow/flutter, mix
+- [x] Python float64-referentie (andere code), 16× oversampling voor de niet-lineaire delen
+- [~] metingen: ESS, aliasing, stabiliteit, staart, null, statistische zelfoscillatietoets gedaan; **IMD nog niet**
 - [ ] checkpoint C
 
 ## D. De ontwerper

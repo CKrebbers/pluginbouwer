@@ -37,6 +37,8 @@ struct Ontwerp {
   Vertraging vt[2];
   bool vers = true;
 
+  // Standaardwaarden bij constructie, dus in WASM en plugin hetzelfde (eerst vergeten: de WASM begon op 0).
+  Ontwerp() { for (int i = 0; i < N_PARAMS; ++i) glij[i].doel = glij[i].nu = PARAMS[i].standaard; }
   static unsigned long geheugenNodig(double samplerate) { return 2 * Vertraging::geheugen(MAX_MS * 0.001 * samplerate); }
   void activeer(double samplerate, uint32_t, Geheugen g) {
     sr = samplerate;
