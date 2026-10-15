@@ -56,3 +56,14 @@ const html = readFileSync(join(TOOL, 'index.src.html'), 'utf8')
   .replace('/*PB_CODE*/', () => veilig(`(() => {\n'use strict';\n${delen.join('\n\n')}\n})();`));
 writeFileSync(join(TOOL, 'index.html'), html);
 console.log(`tool/index.html: ${(html.length / 1024).toFixed(0)} kB, ${volgorde.length} modules`);
+
+// de artifact-versie: zelfde inhoud zonder doctype/html/head/body (claude.ai zet het skelet er zelf omheen)
+const artifact = html
+  .replace(/^<!doctype html>\s*<html[^>]*>\s*<head>\s*/i, '')
+  .replace('<meta charset="utf-8">\n', '')
+  .replace('<meta name="viewport" content="width=device-width, initial-scale=1">\n', '')
+  .replace('<title>De Pluginbouwer</title>\n', '<title>De Pluginbouwer</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n')
+  .replace(/<\/head>\s*<body>\s*/i, '')
+  .replace(/\s*<\/body>\s*<\/html>\s*$/i, '\n');
+if (!artifact.startsWith('<title>')) throw new Error('artifact.html begint niet met <title>');
+writeFileSync(join(TOOL, 'artifact.html'), artifact);

@@ -130,7 +130,8 @@ function bouw() {
       el('aside', { id: 'bib', class: 'paneel' }),
       el('section', { id: 'midden' }, el('div', { id: 'canvas', class: 'paneel' }), el('div', { id: 'onder', class: 'paneel' })),
       el('aside', { id: 'inspector', class: 'paneel' })),
-    el('section', { id: 'bouwen', class: 'paneel', hidden: true }));
+    el('section', { id: 'bouwen', class: 'paneel', hidden: true }),
+    el('div', { id: 'melding', class: 'melding', role: 'status', hidden: true }));
   document.addEventListener('keydown', (ev) => {
     if (ev.target.closest('input,textarea,select')) return;
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selectie) { verwijderSelectie(); ev.preventDefault(); }
@@ -295,8 +296,7 @@ function tekenCanvas() {
   for (const kn of S.ontwerp.knopen) s.append(tekenKnoop(s, kn));
   if (sleep?.soort === 'kabel') s.append(svg('path', { id: 'sleepKabel', class: 'kabel sleep', d: '' }));
   box.replaceChildren(el('div', { class: 'tape' }, 'KETEN · ' + S.ontwerp.naam), el('div', { class: 'scroller' }, s),
-    el('div', { class: 'tip' }, 'Sleep een blok uit de bibliotheek hierheen. Trek een kabel van een uitgang (rechts) naar een ingang (links). Sleep de uitgang van een LFO op een knop = modulatie. Een kabel terug naar een eerder blok is een terugkoppeling (gestippeld). Delete = weg.'),
-    el('div', { id: 'melding', class: 'melding', hidden: true }));
+    el('div', { class: 'tip' }, 'Sleep een blok uit de bibliotheek hierheen. Trek een kabel van een uitgang (rechts) naar een ingang (links). Sleep de uitgang van een LFO op een knop = modulatie. Een kabel terug naar een eerder blok is een terugkoppeling (gestippeld). Delete = weg.'));
 }
 function punt(s, ev) { const p = s.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(s.getScreenCTM().inverse()); }
 const knopX = (kn, i) => (breedte(kn) === KB ? 34 + (i % 2) * 64 : breedte(kn) / 2);
@@ -597,7 +597,17 @@ function tabTaak(box) {
     el('pre', { class: 'log' }, t.log.slice(-14).map(([ms, w]) => `${String(Math.round(ms / 1000)).padStart(4)} s  ${w}`).join('\n'))) : null,
     el('p', { class: 'zacht' }, 'De log blijft in deze browser. Geen oordeel achteraf: hij meet wat je deed.'));
 }
-function download(blob, naam) { const a = el('a', { href: URL.createObjectURL(blob), download: naam }); document.body.append(a); a.click(); a.remove(); }
+// Bewaren: als artifact via de downloads-capability van claude.ai (een gewone downloadlink doet daar niets), als losse
+// pagina met een gewone link.
+async function download(blob, naam) {
+  const d = globalThis.claude?.use ? await globalThis.claude.use('downloads').catch(() => null) : null;
+  if (d) {
+    try { await d.save({ filename: naam, data: blob }); melding('bewaard: ' + naam); }
+    catch (f) { if (f?.code !== 'declined') melding('bewaren lukte niet (' + (f?.code || f) + '); de losse pagina kan het wel'); }
+    return;
+  }
+  const a = el('a', { href: URL.createObjectURL(blob), download: naam }); document.body.append(a); a.click(); a.remove();
+}
 
 // ---------------------------------------------------------------------------------------------------- bouwen-stand
 function tekenBouwen() {

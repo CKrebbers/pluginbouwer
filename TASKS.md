@@ -39,7 +39,7 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] bouwen-stand: stack, formaten, moeite, kosten, risico's, leerpad
 - [x] ABX tegen een referentie; taaktoets-log
   - De tool staat in tool/index.html (één bestand, `node tool/bouw.mjs`); toets in Chrome: `node tools/headless/tool.mjs` (ook in CI). Readout meet met bandbeweging en modulatie stil en na het inlopen van de echo; zelfoscillatie geeft "n.v.t." met de reden.
-- [ ] artifact + losse pagina — checkpoint D
+- [x] artifact + losse pagina — checkpoint D (artifact: tool/artifact.html, losse pagina: tool/index.html)
 
 ## E. Bouwpakket en prompts
 - [x] export: SPEC, ARCHITECTUUR, design, CLAUDE, TASKS, PROMPTS, testsignalen, dsp/, CI-sjabloon
