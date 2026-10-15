@@ -92,7 +92,9 @@ int64_t istRead(const clap_istream_t* s, void* p, uint64_t n) {
   std::memcpy(p, b->d.data() + b->pos, m); b->pos += m; return (int64_t)m;
 }
 
-clap_process_status doeProcess(const clap_plugin_t* pl, const clap_process_t* pr) PB_RT { return pl->process(pl, pr); }
+// noinline: anders vouwt -O2 hem in main() vóór RTSan instrumenteert, en dan is er geen real-time context
+// (gezien in CI: de kanarie werd niet gevangen).
+__attribute__((noinline)) clap_process_status doeProcess(const clap_plugin_t* pl, const clap_process_t* pr) PB_RT { return pl->process(pl, pr); }
 
 }  // namespace
 

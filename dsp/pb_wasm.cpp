@@ -9,12 +9,32 @@
 #define EXPORT extern "C" __attribute__((visibility("default")))
 
 namespace {
+constexpr double MAX_SR = 192000;  // geheugen per instantie wordt voor de hoogste samplerate gereserveerd
 constexpr int MAX_INST = 8;
 constexpr uint32_t MAX_BLOK = 4096;
 pb::Ontwerp inst[MAX_INST];
 bool bezet[MAX_INST];
 float inBuf[MAX_INST][2][MAX_BLOK];
 float uitBuf[MAX_INST][2][MAX_BLOK];
+unsigned char* geheugen[MAX_INST];
+unsigned long geheugenGrootte[MAX_INST];
+extern "C" unsigned char __heap_base;
+unsigned long heapEind = 0;
+
+// bump-allocator op het einde van het WASM-geheugen; groeit met memory.grow. Alleen bij pb_maak, nooit in verwerk.
+unsigned char* reserveer(unsigned long n) {
+  if (!heapEind) heapEind = (unsigned long)&__heap_base;
+  unsigned long begin = (heapEind + 15u) & ~(unsigned long)15u, eind = begin + n;
+  unsigned long nu = __builtin_wasm_memory_size(0) * 65536ul;
+  if (eind > nu && __builtin_wasm_memory_grow(0, (eind - nu + 65535ul) / 65536ul) == (unsigned long)-1) return nullptr;
+  heapEind = eind;
+  return (unsigned char*)begin;
+}
+pb::Geheugen geheugenVan(int h) {
+  pb::Geheugen g; g.p = geheugen[h]; g.over = geheugenGrootte[h];
+  for (unsigned long i = 0; i < g.over; ++i) g.p[i] = 0;
+  return g;
+}
 }  // namespace
 
 // geheugen voor memset/memcpy die clang zelf kan genereren bij het kopiëren van structs
@@ -27,11 +47,15 @@ extern "C" void* memcpy(void* d, const void* s, unsigned long n) {
 
 EXPORT int pb_maak(double sr) {
   for (int i = 0; i < MAX_INST; ++i)
-    if (!bezet[i]) { bezet[i] = true; inst[i] = pb::Ontwerp(); inst[i].activeer(sr, MAX_BLOK); return i; }
+    if (!bezet[i]) {
+      unsigned long n = pb::Ontwerp::geheugenNodig(MAX_SR);
+      if (n > geheugenGrootte[i]) { geheugen[i] = reserveer(n); geheugenGrootte[i] = geheugen[i] ? n : 0; if (!geheugen[i]) return -1; }
+      bezet[i] = true; inst[i] = pb::Ontwerp(); inst[i].activeer(sr, MAX_BLOK, geheugenVan(i)); return i;
+    }
   return -1;
 }
 EXPORT void pb_weg(int h) { if (h >= 0 && h < MAX_INST) bezet[h] = false; }
-EXPORT void pb_activeer(int h, double sr) { inst[h].activeer(sr, MAX_BLOK); }
+EXPORT void pb_activeer(int h, double sr) { inst[h].activeer(sr > MAX_SR ? MAX_SR : sr, MAX_BLOK, geheugenVan(h)); }
 EXPORT void pb_reset(int h) { inst[h].reset(); }
 EXPORT int pb_aantal_params() { return pb::Ontwerp::N_PARAMS; }
 EXPORT double pb_param_min(int i) { return pb::Ontwerp::PARAMS[i].min; }

@@ -61,7 +61,15 @@ if (opdracht === 'maak') {
     const r = nullTest(leesWav(join(map, `${g.naam}.verwacht.wav`)).kanalen, leesWav(pad).kanalen);
     const ok = r.piekDb <= GRENS_DB;
     if (!ok) mis++;
-    console.log(`| ${g.naam} | ${fmtDb(r.piekDb)} | ${fmtDb(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS**'}`);
+    let uitleg = '';
+    if (!ok) {
+      // Diagnose: klinkt de render als de STANDAARDwaarden? Dan heeft de host de parameters niet bij de DSP gekregen.
+      const inv = leesWav(join(map, `${g.naam}.in.wav`));
+      const std = render(o, inv.kanalen, { sr: inv.sr, waarden: {}, blok: 128 });
+      const rs = nullTest(std, leesWav(pad).kanalen);
+      uitleg = rs.piekDb <= GRENS_DB ? ' — gelijk aan de STANDAARDwaarden: de parameters kwamen niet aan' : '';
+    }
+    console.log(`| ${g.naam} | ${fmtDb(r.piekDb)} | ${fmtDb(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS**' + uitleg}`);
   }
   process.exit(mis ? 1 : 0);
 } else {

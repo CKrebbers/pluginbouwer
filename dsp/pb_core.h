@@ -17,6 +17,23 @@ inline double invoer(float x) {
   return (u & 0x7f800000u) == 0 ? 0.0 : (double)x;
 }
 
+// Geheugen: de schil (plugin of WASM) reserveert vóór activeer één blok van Ontwerp::geheugenNodig(sr) bytes,
+// buiten de audiothread. Het ontwerp deelt het zelf op; in verwerk() wordt nooit gealloceerd (regel 4).
+struct Geheugen {
+  unsigned char* p = nullptr;
+  unsigned long over = 0;
+  template <typename T> T* neem(unsigned long n) {
+    unsigned long a = ((unsigned long)p + 15u) & ~(unsigned long)15u;
+    unsigned long verlies = a - (unsigned long)p, nodig = verlies + n * sizeof(T);
+    if (!p || nodig > over) return nullptr;
+    p += nodig; over -= nodig;
+    return reinterpret_cast<T*>(a);
+  }
+};
+// bytes voor n elementen van T, met ruimte voor uitlijning
+template <typename T> constexpr unsigned long bytesVoor(unsigned long n) { return n * sizeof(T) + 16; }
+inline uint32_t machtVanTwee(double n) { uint32_t m = 1; while ((double)m < n) m <<= 1; return m; }
+
 enum ParamVlag : uint32_t { AUTOMATEERBAAR = 1, STAPPEN = 2, GLIJDEN = 4 };
 
 struct ParamInfo {

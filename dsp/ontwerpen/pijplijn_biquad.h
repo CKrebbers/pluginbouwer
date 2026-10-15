@@ -5,7 +5,8 @@
 //   struct Ontwerp {
 //     static constexpr Meta META;                     // namen en codes voor CLAP, VST3 en AU
 //     static const ParamInfo PARAMS[]; static constexpr int N_PARAMS;
-//     void activeer(double sr, uint32_t maxBlok);     // het enige moment waarop geheugen geregeld mag worden
+//     static unsigned long geheugenNodig(double sr);  // bytes die de schil vóór activeer klaarzet (0 = geen)
+//     void activeer(double sr, uint32_t maxBlok, Geheugen g);  // het enige moment waarop geheugen verdeeld wordt
 //     void reset();                                   // staart weg, smoothers springen bij de volgende sample
 //     void zetParam(int index, double waarde);        // in de eenheid van PARAMS (Hz, ms, …), niet genormaliseerd
 //     double leesParam(int index) const;
@@ -49,7 +50,8 @@ struct Ontwerp {
   Biquad bq[2];
   bool vers = true;
 
-  void activeer(double samplerate, uint32_t) {
+  static unsigned long geheugenNodig(double) { return 0; }
+  void activeer(double samplerate, uint32_t, Geheugen) {
     sr = samplerate;
     for (int i = 0; i < N_PARAMS; ++i) glij[i].zetTijd(PARAMS[i].glijMs, sr);
     reset();

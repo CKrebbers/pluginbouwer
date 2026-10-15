@@ -36,6 +36,8 @@ struct Plug {
   double sr = 48000;
   uint32_t kanalen = 2;
   bool actief = false;
+  unsigned char* geheugen = nullptr;   // vóór activate gereserveerd (main thread), zie pb::Geheugen
+  unsigned long geheugenGrootte = 0;
 };
 
 Plug* zelf(const clap_plugin_t* p) { return static_cast<Plug*>(p->plugin_data); }
@@ -193,11 +195,19 @@ bool init(const clap_plugin_t* p) {
   for (int i = 0; i < Ontwerp::N_PARAMS; ++i) s->ontwerp.zetParam(i, Ontwerp::PARAMS[i].standaard);
   return true;
 }
-void destroy(const clap_plugin_t* p) { auto* s = zelf(p); s->~Plug(); std::free(s); }
+void destroy(const clap_plugin_t* p) { auto* s = zelf(p); std::free(s->geheugen); s->~Plug(); std::free(s); }
 bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
   auto* s = zelf(p);
   s->sr = sr;
-  s->ontwerp.activeer(sr, maxFrames);
+  unsigned long n = Ontwerp::geheugenNodig(sr);
+  if (n > s->geheugenGrootte) {
+    void* nieuw = std::realloc(s->geheugen, n);
+    if (!nieuw) return false;
+    s->geheugen = static_cast<unsigned char*>(nieuw); s->geheugenGrootte = n;
+  }
+  if (s->geheugen) std::memset(s->geheugen, 0, s->geheugenGrootte);
+  pb::Geheugen g; g.p = s->geheugen; g.over = s->geheugenGrootte;
+  s->ontwerp.activeer(sr, maxFrames, g);
   s->actief = true;
   return true;
 }
