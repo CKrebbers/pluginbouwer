@@ -47,9 +47,9 @@ jobs:
         run: |
           set -o pipefail
           ~/clap-validator/bin/clap-validator --version
-          NO_COLOR=1 ~/clap-validator/bin/clap-validator validate "build/plugins/$PLUGIN_NAAM.clap" 2>&1 | tee clap-validator.log
-          # de uitslag zelf ook lezen: 0 mislukt
-          grep -E "tests run, [0-9]+ passed, 0 failed" clap-validator.log
+          ~/clap-validator/bin/clap-validator validate "build/plugins/$PLUGIN_NAAM.clap" 2>&1 | tee clap-validator.log
+          # de uitslag zelf ook lezen: 0 mislukt (clap-validator kleurt altijd; eerst de ANSI-codes eruit)
+          sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -E "tests run, [0-9]+ passed, 0 failed"
 
       - name: pluginval VST3 (strictness 10, xvfb)
         run: |

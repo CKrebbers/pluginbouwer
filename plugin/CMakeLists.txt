@@ -29,13 +29,17 @@ option(PB_KANARIE "Bouw ook een kanarie-CLAP met een malloc in process (voor de 
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "" FORCE)
 set(CLAP_WRAPPER_OUTPUT_NAME "PB Dub-echo" CACHE STRING "" FORCE)
 include(FetchContent)
-set(PB_PATCH "${PB_PAKKET}/patches/clap-wrapper-auv2-params-voor-init.patch")
+# Patch 2 (eigen, zie VERSLAG.md): de thread-override-tellers van clap-wrapper waren thread_local; op macOS
+# alloceert dyld die bij de eerste aanraking per thread, dus midden in de render-callback (pluginval --rtcheck).
+set(PB_PATCH1 "${PB_PAKKET}/patches/clap-wrapper-auv2-params-voor-init.patch")
+set(PB_PATCH2 "${PB_PAKKET}/patches/clap-wrapper-thread-override-zonder-tlv.patch")
 FetchContent_Declare(clap-wrapper
   GIT_REPOSITORY https://github.com/free-audio/clap-wrapper.git
   GIT_TAG v0.16.0
   GIT_SHALLOW TRUE
-  # idempotent: bij een tweede configure staat de patch er al in
-  PATCH_COMMAND sh -c "git apply --reverse --check '${PB_PATCH}' 2>/dev/null || git apply '${PB_PATCH}'"
+  # idempotent: bij een tweede configure staan de patches er al in
+  PATCH_COMMAND sh -c "git apply --reverse --check '${PB_PATCH1}' 2>/dev/null || git apply '${PB_PATCH1}'"
+        COMMAND sh -c "git apply --reverse --check '${PB_PATCH2}' 2>/dev/null || git apply '${PB_PATCH2}'"
 )
 FetchContent_MakeAvailable(clap-wrapper)
 

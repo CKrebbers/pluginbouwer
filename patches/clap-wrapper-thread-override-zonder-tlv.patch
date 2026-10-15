@@ -1,0 +1,115 @@
+diff --git a/src/clap_proxy.cpp b/src/clap_proxy.cpp
+index 49c94c8..e327aef 100644
+--- a/src/clap_proxy.cpp
++++ b/src/clap_proxy.cpp
+@@ -1,6 +1,10 @@
+ #include "clap_proxy.h"
+ #include "detail/clap/fsutil.h"
+ #include <cstring>
++#include <cstdint>
++#if !defined(_WIN32)
++#include <pthread.h>
++#endif
+ 
+ #if __APPLE__
+ #include <TargetConditionals.h>
+@@ -505,12 +509,40 @@ void Plugin::log(clap_log_severity severity, const char *msg)
+ #endif
+ }
+ 
+-static thread_local uint32_t g_main_thread_override = 0;
+-static thread_local uint32_t g_audio_thread_override = 0;
++// No thread_local here on Apple/Linux: a thread_local in a dynamically loaded image is allocated (malloc) by the
++// loader the first time each thread touches it. For the host's audio thread that happens inside the realtime
++// render callback (pluginval --rtcheck: "malloc in real-time context" from dyld4::RuntimeState::_instantiateTLVs).
++// pthread TSD with a key created at load time never allocates on get/set for low key numbers.
++#if defined(_WIN32)
++static thread_local uint32_t g_thread_override[2] = {0, 0};
++static uint32_t threadOverrideGet(int which)
++{
++  return g_thread_override[which];
++}
++void threadOverrideAdd(int which, int delta)
++{
++  g_thread_override[which] += delta;
++}
++#else
++static pthread_key_t g_thread_override_key[2];
++static const bool g_thread_override_ok =
++    pthread_key_create(&g_thread_override_key[0], nullptr) == 0 &&
++    pthread_key_create(&g_thread_override_key[1], nullptr) == 0;
++static uint32_t threadOverrideGet(int which)
++{
++  if (!g_thread_override_ok) return 0;
++  return (uint32_t)(uintptr_t)pthread_getspecific(g_thread_override_key[which]);
++}
++void threadOverrideAdd(int which, int delta)
++{
++  if (!g_thread_override_ok) return;
++  pthread_setspecific(g_thread_override_key[which], (void *)(uintptr_t)(threadOverrideGet(which) + delta));
++}
++#endif
+ 
+ bool Plugin::is_main_thread() const
+ {
+-  if (g_main_thread_override > 0)
++  if (threadOverrideGet(0) > 0)
+   {
+     return true;
+   }
+@@ -519,7 +551,7 @@ bool Plugin::is_main_thread() const
+ 
+ bool Plugin::is_audio_thread() const
+ {
+-  if (g_audio_thread_override > 0)
++  if (threadOverrideGet(1) > 0)
+   {
+     return true;
+   }
+@@ -528,12 +560,12 @@ bool Plugin::is_audio_thread() const
+ 
+ CLAP_NODISCARD Raise Plugin::AlwaysAudioThread()
+ {
+-  return Raise(g_audio_thread_override);
++  return Raise(1);
+ }
+ 
+ CLAP_NODISCARD Raise Plugin::AlwaysMainThread()
+ {
+-  return Raise(g_main_thread_override);
++  return Raise(0);
+ }
+ 
+ void Plugin::param_rescan(clap_param_rescan_flags flags)
+diff --git a/src/clap_proxy.h b/src/clap_proxy.h
+index d1c9830..b0ddd92 100644
+--- a/src/clap_proxy.h
++++ b/src/clap_proxy.h
+@@ -125,20 +125,23 @@ struct ClapPluginExtensions
+ #endif
+ };
+ 
++// per-thread override counters (0 = main thread, 1 = audio thread); see clap_proxy.cpp
++void threadOverrideAdd(int which, int delta);
++
+ class Raise
+ {
+  public:
+-  Raise(uint32_t &counter) : ctx(counter)
++  explicit Raise(int which) : which(which)
+   {
+-    ++ctx;
++    threadOverrideAdd(which, +1);
+   }
+   ~Raise()
+   {
+-    ctx--;
++    threadOverrideAdd(which, -1);
+   }
+ 
+  private:
+-  uint32_t &ctx;
++  int which;
+ };
+ 
+ /// <summary>
