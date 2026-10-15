@@ -25,14 +25,19 @@ get_filename_component(PAKKET "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 option(DUB_ECHO_KANARIE "RTSan-kanarie: process roept malloc aan (moet door RTSan gevangen worden)" OFF)
 option(DUB_ECHO_RTSAN "bouw pb-render met -fsanitize=realtime (clang >= 20)" OFF)
 
-# --- clap-wrapper v0.16.0, met de patch uit patches/ (valkuil 1) -------------------------------------------------
+# --- clap-wrapper v0.16.0, met de patches uit patches/ -----------------------------------------------------------
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "" FORCE)
 include(FetchContent)
 FetchContent_Declare(clap-wrapper
   GIT_REPOSITORY https://github.com/free-audio/clap-wrapper.git
   GIT_TAG v0.16.0
   GIT_SHALLOW TRUE
+  # valkuil 1: AU-parameters vóór Initialize
   PATCH_COMMAND ${CMAKE_COMMAND} -DPATCH=${PAKKET}/patches/clap-wrapper-auv2-params-voor-init.patch
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/pas-patch-toe.cmake
+  # thread-check zonder thread_local: dyld reserveert die met calloc bij de eerste toegang op de audiothread,
+  # en pluginval --rtcheck vangt dat in Render (macOS, gezien in CI)
+        COMMAND ${CMAKE_COMMAND} -DPATCH=${PAKKET}/patches/clap-wrapper-threadcheck-zonder-tls.patch
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/pas-patch-toe.cmake
 )
 FetchContent_MakeAvailable(clap-wrapper)

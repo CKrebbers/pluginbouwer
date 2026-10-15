@@ -1,0 +1,125 @@
+diff --git a/src/clap_proxy.cpp b/src/clap_proxy.cpp
+index 49c94c8..50c5661 100644
+--- a/src/clap_proxy.cpp
++++ b/src/clap_proxy.cpp
+@@ -1,4 +1,7 @@
+ #include "clap_proxy.h"
++#if !defined(_WIN32)
++#include <pthread.h>
++#endif
+ #include "detail/clap/fsutil.h"
+ #include <cstring>
+ 
+@@ -505,12 +508,54 @@ void Plugin::log(clap_log_severity severity, const char *msg)
+ #endif
+ }
+ 
+-static thread_local uint32_t g_main_thread_override = 0;
+-static thread_local uint32_t g_audio_thread_override = 0;
++#if !defined(_WIN32)
++namespace
++{
++// created at load time (static initialisation), never on the audio thread
++struct ThreadOverrideKeys
++{
++  pthread_key_t key[2];
++  ThreadOverrideKeys()
++  {
++    pthread_key_create(&key[0], nullptr);
++    pthread_key_create(&key[1], nullptr);
++  }
++};
++const ThreadOverrideKeys g_thread_override_keys;
++uint32_t threadOverride(int which)
++{
++  return (uint32_t)(uintptr_t)pthread_getspecific(g_thread_override_keys.key[which]);
++}
++void setThreadOverride(int which, uint32_t v)
++{
++  pthread_setspecific(g_thread_override_keys.key[which], (void *)(uintptr_t)v);
++}
++}  // namespace
++#else
++static thread_local uint32_t g_thread_override[2] = {0, 0};
++static uint32_t threadOverride(int which)
++{
++  return g_thread_override[which];
++}
++static void setThreadOverride(int which, uint32_t v)
++{
++  g_thread_override[which] = v;
++}
++#endif
++
++Raise::Raise(int which) : _which(which)
++{
++  setThreadOverride(_which, threadOverride(_which) + 1);
++}
++
++Raise::~Raise()
++{
++  setThreadOverride(_which, threadOverride(_which) - 1);
++}
+ 
+ bool Plugin::is_main_thread() const
+ {
+-  if (g_main_thread_override > 0)
++  if (threadOverride(0) > 0)
+   {
+     return true;
+   }
+@@ -519,7 +564,7 @@ bool Plugin::is_main_thread() const
+ 
+ bool Plugin::is_audio_thread() const
+ {
+-  if (g_audio_thread_override > 0)
++  if (threadOverride(1) > 0)
+   {
+     return true;
+   }
+@@ -528,12 +573,12 @@ bool Plugin::is_audio_thread() const
+ 
+ CLAP_NODISCARD Raise Plugin::AlwaysAudioThread()
+ {
+-  return Raise(g_audio_thread_override);
++  return Raise(1);
+ }
+ 
+ CLAP_NODISCARD Raise Plugin::AlwaysMainThread()
+ {
+-  return Raise(g_main_thread_override);
++  return Raise(0);
+ }
+ 
+ void Plugin::param_rescan(clap_param_rescan_flags flags)
+diff --git a/src/clap_proxy.h b/src/clap_proxy.h
+index d1c9830..e0c490a 100644
+--- a/src/clap_proxy.h
++++ b/src/clap_proxy.h
+@@ -125,20 +125,17 @@ struct ClapPluginExtensions
+ #endif
+ };
+ 
++// Raise marks the current thread as main (0) or audio (1) thread while it lives. The per-thread counters
++// live in pthread keys on macOS/Linux: a thread_local is allocated lazily by dyld (calloc) on its first
++// access in a thread, which happened on the audio thread in Render/process (pluginval --rtcheck).
+ class Raise
+ {
+  public:
+-  Raise(uint32_t &counter) : ctx(counter)
+-  {
+-    ++ctx;
+-  }
+-  ~Raise()
+-  {
+-    ctx--;
+-  }
++  explicit Raise(int which);
++  ~Raise();
+ 
+  private:
+-  uint32_t &ctx;
++  int _which;
+ };
+ 
+ /// <summary>
