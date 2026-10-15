@@ -47,9 +47,36 @@ await page.click('text=▶ speel');
 await page.waitForTimeout(1200);
 const modus = await page.evaluate(() => globalThis.PB.speler.modus);
 ok(/AudioWorklet|hoofdthread/.test(modus), 'horen start: ' + modus);
+// zonder dit liep de worklet tot 15 okt 2026 ongemerkt droog door (de motor kwam er nooit aan)
+ok(await page.evaluate(() => globalThis.PB.speler.motorDraait), 'de motor draait echt (hij meldde zich geladen)');
 const meter = await page.evaluate(() => parseFloat(document.querySelector('#meter')?.style.width || '0'));
 ok(meter > 0, `er komt geluid uit de motor (meter ${meter.toFixed(0)} %)`);
 await page.click('text=■ stop');
+
+// voorbeelden: elk knopje laadt het ontwerp en speelt meteen; instrumenten zonder ingang, effecten op de groove.
+// Gemeten: de hoogste stand van de meter in 1,5 s na de klik (piek, lineair; 0,03 = −30 dBFS).
+const namen = await page.evaluate(() => [...document.querySelectorAll('.voorbeelden button')].map((b) => b.textContent));
+ok(namen.length >= 20, `${namen.length} voorbeelden onder Horen`);
+const stil = [];
+for (const naam of namen) {
+  await page.evaluate(() => { globalThis.__max = 0; clearInterval(globalThis.__peil); globalThis.__peil = setInterval(() => { globalThis.__max = Math.max(globalThis.__max, parseFloat(document.querySelector('#meter')?.style.width || '0') / 100); }, 40); });
+  await page.click(`.voorbeelden button:text-is("${naam}")`);
+  if (naam === 'Toetsenpad') { await page.waitForTimeout(300); for (const k of ['a', 'f', 'h']) { await page.keyboard.down(k); await page.waitForTimeout(350); await page.keyboard.up(k); } }
+  await page.waitForTimeout(1500);
+  const r = await page.evaluate(() => ({ max: globalThis.__max, fouten: globalThis.PB.compileer().fouten, speelt: globalThis.PB.speler.speelt() }));
+  if (r.fouten.length || !r.speelt || r.max < 0.03) stil.push(`${naam} (meter ${r.max.toFixed(3)}, ${r.fouten.length} fouten, speelt ${r.speelt})`);
+}
+await page.evaluate(() => clearInterval(globalThis.__peil));
+ok(stil.length === 0, 'elk voorbeeld klinkt meteen na één klik' + (stil.length ? ': niet — ' + stil.join('; ') : ''));
+await page.click('.voorbeelden button:text-is("Dubbas")');
+await page.waitForFunction(() => globalThis.PB.S.readout?.instrument, null, { timeout: 30000 });
+const ri = await page.evaluate(() => ({ ...globalThis.PB.S.readout, tekst: document.querySelector('#readout').innerText }));
+ok(ri.rmsDb > -40 && ri.piekDb <= 0 && /niveau/i.test(ri.tekst), `readout van een instrument: niveau ${ri.rmsDb?.toFixed(1)} dB, piek ${ri.piekDb?.toFixed(1)} dB`);
+await page.click('text=■ stop');
+await page.click('.voorbeelden button:text-is("Dub-echo")');
+await page.waitForTimeout(400);
+await page.click('text=■ stop');
+await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.instrument && Number.isFinite(globalThis.PB.S.readout.thdDb), null, { timeout: 30000 });
 
 // tabs
 for (const t of ['Frontpaneel', 'Meten', 'Verken', 'Schetsboek', 'ABX', 'Taaktoets']) {

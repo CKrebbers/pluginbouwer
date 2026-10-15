@@ -182,3 +182,11 @@ summary { cursor: pointer; }
   .rv { min-width: 0; flex: 1 1 30%; }
   .blok { flex-basis: 100%; }
 }
+
+/* voorbeelden en toetsen (Horen) */
+.voorbeelden { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+.voorbeelden > .zacht { min-width: 96px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.voorbeelden .seg { padding: 2px 8px; font-size: 12px; }
+.pad { display: flex; flex-wrap: wrap; gap: 0; margin: 6px 0; touch-action: none; user-select: none; }
+.pad .seg { min-width: 40px; height: 44px; font-family: 'Silkscreen', monospace; }
+.pad .seg + .seg { border-left: 0; }

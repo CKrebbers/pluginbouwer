@@ -371,7 +371,7 @@ export function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronn
 export const PAKKET_BRONNEN = {
   'dsp/pb_math.h': 'dsp/pb_math.h', 'dsp/pb_core.h': 'dsp/pb_core.h', 'dsp/pb_biquad.h': 'dsp/pb_biquad.h',
   'dsp/pb_delay.h': 'dsp/pb_delay.h', 'dsp/pb_svf.h': 'dsp/pb_svf.h', 'dsp/pb_tape.h': 'dsp/pb_tape.h',
-  'dsp/pb_graaf.h': 'dsp/pb_graaf.h', 'dsp/graaf_ontwerp.h': 'dsp/graaf_ontwerp.h',
+  'dsp/pb_graaf.h': 'dsp/pb_graaf.h', 'dsp/pb_bronnen.h': 'dsp/pb_bronnen.h', 'dsp/graaf_ontwerp.h': 'dsp/graaf_ontwerp.h',
   'dsp/pb_wasm.cpp': 'dsp/pb_wasm.cpp', 'dsp/bouw-wasm.sh': 'dsp/bouw-wasm.sh',
   'host/pb-render.cpp': 'gereedschap/pb-render.cpp',
   'tools/pakket/ci-null.sh': 'gereedschap/ci-null.sh',

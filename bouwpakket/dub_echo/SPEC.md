@@ -52,7 +52,7 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 ## Budgetten
 | wat | budget | geschat/gemeten |
 |---|---|---|
-| CPU per instantie | ≤ 5 % van één kern | 1,19 % (WASM-ketenmotor in Node, Intel(R) Xeon(R) Processor @ 2.30GHz, linux x64, Node v22.22.0; native is meestal sneller) |
+| CPU per instantie | ≤ 5 % van één kern | 1,70 % (WASM-ketenmotor in Node, Intel(R) Xeon(R) Processor @ 2.10GHz, linux x64, Node v22.22.0; native is meestal sneller) |
 | latency | 0 samples | 0 samples (fracties worden in de vertraging gecompenseerd) |
 | staart | gemeld aan de host | oneindig bij een lusversterking ≥ 1, anders tot −90 dB (formule in pb_graaf.h staartSec) |
 | geheugen | vooraf, nooit in process | vertragingslijnen op de hoogste samplerate van activate |
