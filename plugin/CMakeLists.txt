@@ -56,13 +56,17 @@ FetchContent_MakeAvailable(clap)
 
 set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "" FORCE)
 set(CLAP_WRAPPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-# valkuil 1: AU-parameters vóór Initialize bereiken de CLAP anders niet. git apply faalt hard als de patch niet past.
+# Patches op clap-wrapper (git apply faalt hard als een patch niet past):
+#  - valkuil 1: AU-parameters vóór Initialize bereiken de CLAP anders niet.
+#  - geen thread_local in process: de AU/VST3-render zet een thread_local-teller; op macOS laat dyld de eerste
+#    aanraking per thread calloc doen (pluginval --rtcheck: "Real-time violation ... calloc"). Nu een pthread-key.
 find_package(Git REQUIRED)
 FetchContent_Declare(clap-wrapper
   GIT_REPOSITORY https://github.com/free-audio/clap-wrapper.git
   GIT_TAG v0.16.0
   GIT_SHALLOW TRUE
   PATCH_COMMAND "${GIT_EXECUTABLE}" apply --whitespace=nowarn "${PB_PAKKET}/patches/clap-wrapper-auv2-params-voor-init.patch"
+    "${PB_PAKKET}/patches/clap-wrapper-geen-thread-local-in-process.patch"
   UPDATE_DISCONNECTED TRUE)
 FetchContent_MakeAvailable(clap-wrapper)
 
