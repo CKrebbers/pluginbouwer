@@ -1,0 +1,41 @@
+{
+  "gemeten": "2026-10-15",
+  "machine": "Intel(R) Xeon(R) Processor @ 2.30GHz, linux x64, Node v22.22.0",
+  "methode": "WASM-ketenmotor, 10 s stereo 48 kHz, blok 128, beste van 5, min de lege keten",
+  "motorProcent": 0.09626653,
+  "blokken": {
+    "som": {
+      "cpuProcent": 0.03850058
+    },
+    "versterker": {
+      "cpuProcent": 0.11988398
+    },
+    "tape": {
+      "cpuProcent": 0.42634028000000007
+    },
+    "vertraging": {
+      "cpuProcent": 0.11925128999999998
+    },
+    "hoogdoor1": {
+      "cpuProcent": 0.05889014999999999
+    },
+    "laagdoor1": {
+      "cpuProcent": 0.11191707000000001
+    },
+    "svf": {
+      "cpuProcent": 0.17007803000000002
+    },
+    "biquad": {
+      "cpuProcent": 0.07173103999999998
+    },
+    "bandbeweging": {
+      "cpuProcent": 0.11037237999999999
+    },
+    "lfo": {
+      "cpuProcent": 0.09742118
+    },
+    "mix": {
+      "cpuProcent": 0.051837369999999994
+    }
+  }
+}

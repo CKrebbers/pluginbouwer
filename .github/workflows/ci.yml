@@ -13,7 +13,7 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: 0.4.1
-  ONTWERPEN: pijplijn_biquad proef_delay dub_echo
+  ONTWERPEN: pijplijn_biquad proef_delay dub_echo keten_dub_echo
 
 jobs:
   toetsen:
@@ -37,14 +37,20 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"; cat tests/uit/dubecho.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Verwachte uitvoer opnieuw maken — moet bit voor bit gelijk zijn aan wat in git staat
         run: |
-          for o in pijplijn_biquad dub_echo; do node tools/null.mjs maak "$o"; done
+          for o in pijplijn_biquad dub_echo keten_dub_echo; do node tools/null.mjs maak "$o"; done
+      - name: Gegenereerde header en bouwpakket kloppen met de generator (DSP, WASM, testsignalen)
+        run: |
+          sh dsp/bouw-wasm.sh graaf
+          node tools/keten-header.mjs dub_echo
+          node tools/bouwpakket.mjs dub_echo
+          git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/dub_echo/dsp bouwpakket/dub_echo/testsignalen bouwpakket/dub_echo/wasm bouwpakket/dub_echo/gereedschap
           git diff --stat --exit-code testsignalen/
 
   linux:
     strategy:
       fail-fast: false
       matrix:
-        ontwerp: [pijplijn_biquad, dub_echo]
+        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +70,9 @@ jobs:
           rustup update stable --no-self-update
           cargo install --locked --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" clap-validator
           clap-validator validate build/plugins/*.clap
+      - name: Droogtest van het bouwpakket (zijn eigen gereedschap op deze build)
+        if: matrix.ontwerp == 'keten_dub_echo'
+        run: CLAP="$(ls -d $PWD/build/plugins/*.clap)" PB_RENDER=$PWD/build/pb-render sh bouwpakket/dub_echo/gereedschap/ci-null.sh clap /tmp
       - name: pluginval ophalen
         run: |
           curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -167,7 +176,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ontwerp: [pijplijn_biquad, dub_echo]
+        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4

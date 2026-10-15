@@ -1,0 +1,365 @@
+// bouwpakket.js — wat de tool exporteert: alles wat een vers Claude Code-gesprek nodig heeft om de plugin te bouwen.
+// Puur: (ontwerp, metingen, bronbestanden, testsignalen) → { pad: inhoud }. Gebruikt door tools/bouwpakket.mjs en de
+// exportknop van de tool. De teksten zijn het product: een vers gesprek krijgt ALLEEN dit pakket.
+import { compileer, BIB, latentie, volgorde } from './keten.js';
+import { ketenHeader, auSubtype } from './codegen.js';
+
+const PROMPT_VERSIE = 'v1 (15 okt 2026)';
+
+const fmt = (x, d = 2) => (x === undefined || x === null || Number.isNaN(x) ? '—' : (Math.abs(x) === Infinity ? (x < 0 ? '−∞' : '∞') : Number(x).toFixed(d)).replace('-', '−').replace('.', ','));
+
+function ketenTekst(ontwerp, c) {
+  const naam = (id) => { const k = ontwerp.knopen.find((x) => x.id === id); return `${id} (${BIB[k.type].naam})`; };
+  const { terug } = volgorde(ontwerp);
+  const regels = c.orde.map((id, i) => {
+    const kn = ontwerp.knopen.find((k) => k.id === id);
+    const ins = BIB[kn.type].in.map((poort) => {
+      const kab = ontwerp.kabels.find((k) => k.naar[0] === id && k.naar[1] === poort);
+      if (!kab) return null;
+      const t = terug.includes(kab) ? ' (vorige sample: terugkoppeling)' : '';
+      return `${poort} ← ${kab.van[0]}.${kab.van[1]}${t}`;
+    }).filter(Boolean);
+    return `${i + 1}. ${naam(id)}${ins.length ? ': ' + ins.join(', ') : ''}`;
+  });
+  return regels.join('\n');
+}
+
+export function cpuSchatting(ontwerp, metingBlokken) {
+  let som = metingBlokken?.motorProcent ?? 0;
+  for (const k of ontwerp.knopen) som += metingBlokken?.blokken?.[k.type]?.cpuProcent ?? 0;
+  return som;
+}
+
+export function spec(ontwerp, { metingen = {}, metingBlokken = null } = {}) {
+  const c = compileer(ontwerp);
+  const cpu = cpuSchatting(ontwerp, metingBlokken);
+  const terugkoppeling = volgorde(ontwerp).terug.length > 0;
+  const m = metingen;
+  const p = c.params.map((q, i) => `| ${i + 1} | ${q.naam} | ${q.min} – ${q.max} | ${q.eenheid || '—'} | ${q.standaard} | ${q.glijMs} ms | ${q.glijden === 'overvloeien' ? 'overvloeien' : 'glijden'} | ${q.uitleg || ''} |`);
+  return `# SPEC — ${ontwerp.naam}
+
+Gegenereerd door de Pluginbouwer uit het ontwerp \`${ontwerp.id}\`. De DSP staat
+vast in \`dsp/\` (één bron voor browser en plugin); deze SPEC zegt wat de plugin eromheen moet doen en waaraan hij
+getoetst wordt.
+
+## Doel
+${ontwerp.uitleg}
+
+## Doelgeluid
+${ontwerp.doelgeluid || `**Nog niet vastgelegd.** Er is (nog) geen referentieopname van een echte tape-echo. Tot die er is, toetst
+de plugin alleen tegen zijn eigen ontwerp (null-test) en tegen de theorie; "klinkt als een tape-echo" is niet bewezen.
+Wat Clay kan leveren: een opname van een tape-echo (droog en nat, zelfde fragment), met de instellingen erbij.
+
+Over het voorbeeld (Roland RE-201): één opneemkop, drie weergavekoppen, de echotijd via de bandsnelheid
+(Repeat Rate), intensity = terugkoppeling, bass/treble op de echo. **Niet bevestigd**: tijden in ms, bandsnelheid,
+kopafstanden, wow/flutter-getallen. Gezocht (15 okt 2026): websearch op service notes en specificaties; het
+service-handboek staat op archive.org ("Roland_RE-101_RE-201_Service_Manual") en ManualsLib (999287), maar die waren
+vanuit de bouwomgeving niet te openen. De bereiken hieronder zijn ontwerpkeuzes, geen RE-201-waarden.`}
+
+## Keten (uitvoervolgorde per sample)
+${ketenTekst(ontwerp, c)}
+
+Terugkoppeling: ${terugkoppeling ? 'ja — een kabel naar een eerdere knoop leest de uitgang van de vorige sample (z⁻¹).' : 'nee.'}
+
+## Parameters (plugin-id = het nummer; nooit hergebruiken of hernummeren)
+| id | naam | bereik | eenheid | standaard | glijtijd | bij draaien | wat het doet |
+|---|---|---|---|---|---|---|---|
+${p.join('\n')}
+
+- De host geeft parameters lineair genormaliseerd door (0..1 → min..max). Grenzen en standaarden zijn exact in
+  float32, omdat een AU float doorgeeft: zo krijgt elk formaat bit voor bit dezelfde waarde.
+- "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
+
+## Budgetten
+| wat | budget | geschat/gemeten |
+|---|---|---|
+| CPU per instantie | ≤ 5 % van één kern | ${fmt(cpu)} % (WASM-ketenmotor in Node, ${metingBlokken?.machine ?? 'onbekend'}; native is meestal sneller) |
+| latency | 0 samples | ${latentie(ontwerp)} samples (fracties worden in de vertraging gecompenseerd) |
+| staart | gemeld aan de host | ${terugkoppeling ? 'oneindig bij een lusversterking ≥ 1, anders tot −90 dB (formule in pb_graaf.h staartSec)' : '50 ms'} |
+| geheugen | vooraf, nooit in process | vertragingslijnen op de hoogste samplerate van activate |
+
+## Toleranties (per meting, met reden)
+| meting | grens | reden | gemeten |
+|---|---|---|---|
+| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | PROMPT.md; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | ${m.null ?? 'bit voor bit (CLAP, VST3, AU; Linux en macOS)'} |
+| zelfoscillatie (chaotisch) | terts-spectrum en omhullende binnen 1 dB | 1 ULP groeit in een lus; statistisch wat je hoort | ${m.statistisch ?? '0,000 dB'} |
+| lineair deel tegen de formules | ≤ 0,01 dB, ≤ 0,05° | kubische term van tanh op −60 dBFS, float32-uitvoer | ${m.lineair ? fmt(m.lineair.maxDb, 4) + ' dB, ' + fmt(m.lineair.maxGraad, 3) + '°' : '—'} |
+| tegen een onafhankelijke float64-referentie (Python) | ≤ −120 dBFS | libm tegen pb_math, float32-uitvoer | ${m['referentie-gewoon'] ? fmt(m['referentie-gewoon'].piekDb, 1) + ' / ' + fmt(m['referentie-heet']?.piekDb, 1) + ' dBFS' : '—'} |
+| harmonischen (ESS) tegen ideale saturatie op 16× | H3 en H5 binnen 1 dB | PROMPT.md | ${m.harmonischen ? 'H3 ' + fmt(m.harmonischen.wasm.H3 - m.harmonischen.ideaal.H3) + ' dB, H5 ' + fmt(m.harmonischen.wasm.H5 - m.harmonischen.ideaal.H5) + ' dB' : '—'} |
+| intermodulatie (SMPTE 60 Hz + 7 kHz) | binnen 1 dB van ideaal | PROMPT.md | ${m.imd ? fmt(m.imd.verschilDb) + ' dB' : '—'} |
+| aliasing, keten zoals je hem hoort (toon 3 kHz, 12 dB) | ≤ −60 dB onder de grondtoon | ruim onder de ruisvloer van een tape-echo **[RE-201-waarde niet bevestigd]** | ${m.aliasingKeten ? fmt(m.aliasingKeten.wasm, 1) + ' dB' : '—'} |
+| stabiliteit (324 combinaties) | nooit NaN/Inf, piek ≤ 8 | saturatie houdt de lus onder 1/g | ${m.stabiliteit ? 'piek ' + fmt(m.stabiliteit.hoogstePiek) : '—'} |
+| staart | onder −90 dBFS binnen de gemelde tijd | host mag na de staart stoppen met process | ${m.staart ? m.staart.map((s) => `fb ${s.terugkoppeling}: ${fmt(s.gemetenS)} s ≤ ${fmt(s.gemeldS)} s`).join('; ') : '—'} |
+
+Ter informatie (geen eis): aliasing van de saturatie los bij 5 kHz/12 dB: naïef ${m.aliasingBlok ? fmt(m.aliasingBlok.naief, 1) : '—'} dB, ADAA
+${m.aliasingBlok ? fmt(m.aliasingBlok.adaa, 1) : '—'} dB; met de toon helemaal open ${m.aliasingKeten?.toonOpen5kHz ? fmt(m.aliasingKeten.toonOpen5kHz.wasm, 1) : '—'} dB. Daar is 2× oversampling de
+volgende stap als het hoorbaar is.
+
+## Validators (CI, het log is het bewijs)
+pluginval strictness 10 (AU en VST3; met \`--rtcheck enabled\` op macOS), auval -strict, clap-validator, RTSan met een
+kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+`;
+}
+
+export function architectuur(ontwerp) {
+  const c = compileer(ontwerp);
+  return `# ARCHITECTUUR — ${ontwerp.naam}
+
+## Lagen
+\`\`\`
+dsp/                 DE DSP (gegeven, niet herschrijven): pb_*.h + de keten als constante (ontwerpen/keten_${ontwerp.id}.h)
+plugin/              de CLAP-schil (fase 0–2), clap-wrapper maakt VST3 en AUv2
+gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh
+testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
+\`\`\`
+
+## De keten
+${c.orde.length} knopen, uitgevoerd in een vaste volgorde per sample (SPEC.md "Keten"). De ketenmotor
+(\`dsp/pb_graaf.h\`) leest de beschrijving \`PB_KETEN\`; \`dsp/graaf_ontwerp.h\` zet die achter het Ontwerp-contract:
+\`geheugenNodig\`, \`activeer\`, \`reset\`, \`zetParam\`, \`leesParam\`, \`verwerk\`, \`latentie\`, \`staartSec\`, \`PARAMS\`, \`META\`.
+
+## Threads
+- **Audiothread**: alleen \`process\`. Events (parameterwaarden) worden op hun sample toegepast: het blok wordt bij elk
+  event gesplitst; de DSP rekent per sample, dus de uitvoer is gelijk aan die zonder splitsen.
+- **Mainthread**: \`init\`, \`activate\` (hier wordt geheugen gereserveerd), state, parameters lezen en tekst.
+- Geen locks, geen allocatie, geen syscalls in \`process\` (RTSan bewaakt het in CI).
+- Parameteroverdracht: alleen via CLAP-events (\`process\` en \`params.flush\`). Geen gedeelde variabelen tussen threads.
+
+## State
+Binair, klein en vooruit-compatibel: \`"PBST"\`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
+Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
+standaard. Parameter-id's veranderen nooit.
+
+## Presets (fase 4)
+Een preset is een state-blob plus naam, als JSON naast de plugin (\`presets/<naam>.json\` met de parameterwaarden
+per naam). Fabriekspresets komen uit de varianten van de tool.
+
+## Determinisme (waarom browser en plugin gelijk zijn)
+- Geen libm in de DSP: \`pb_math.h\` (alleen + − × ÷ sqrt floor). Vlaggen \`-ffp-contract=off\`, geen \`-ffast-math\`.
+- Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.
+- Denormals: de DSP poetst ze zelf weg; invoer wordt op de bits getest (\`pb::invoer\`).
+- Smoothers springen bij de eerste sample na activate/reset: het maakt niet uit of de host parameters vóór of na
+  activate zet.
+`;
+}
+
+export function claudeMd(ontwerp) {
+  return `# CLAUDE.md — bouwpakket "${ontwerp.naam}" (${ontwerp.id})
+
+Je bouwt een audioplugin uit dit pakket. Lees eerst SPEC.md, ARCHITECTUUR.md, TASKS.md en PROMPTS.md.
+Nederlands in docs, commits en comments; code-identifiers Engels. De gebruiker (Clay) programmeert geen C++ en test in
+Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
+
+## Wat vaststaat (niet veranderen)
+- **De DSP in \`dsp/\` is gegeven.** Herschrijf hem niet, "verbeter" hem niet, kopieer hem niet naar een andere vorm.
+  De plugin moet bit voor bit klinken als de WASM van de tool; de verwachte uitvoer in \`testsignalen/\` komt daaruit.
+- Compileer \`dsp/\` met \`-ffp-contract=off -fno-fast-math -fno-math-errno\` (ook op macOS met Apple clang).
+- Stack: CLAP-first (\`clap/clap.h\`), en **clap-wrapper v0.16.0** (MIT) via CMake \`make_clapfirst_plugins\` voor VST3 en
+  AUv2 (\`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON\`). AU-codes: maker \`Vrve\`, subtype \`${auSubtype(ontwerp.id)}\` (staan ook als
+  #define in \`dsp/ontwerpen/keten_${ontwerp.id}.h\`).
+- Geen betaalde diensten of licenties. Ad-hoc signeren (\`codesign --sign -\`) is genoeg voor Clay's eigen Mac.
+
+## Bekende valkuilen (al eens misgegaan; zo los je ze op)
+1. **AU-parameters vóór Initialize bereiken de CLAP niet** (clap-wrapper v0.16.0, \`wrapasauv2.cpp\` SetParameter).
+   pluginval zet de state vóór prepareToPlay; de AU-null-test faalt dan met "gelijk aan de standaardwaarden".
+   Oplossing: \`patches/clap-wrapper-auv2-params-voor-init.patch\` via \`PATCH_COMMAND\` in FetchContent.
+2. **Linux-VST3 crasht na "SUCCESS" in pluginval**: statics in de VST3 SDK draaien bij exit in uitgeladen geheugen.
+   Oplossing: \`target_link_options(<vst3-target> PRIVATE -Wl,-z,nodelete)\` op Linux.
+3. **macOS: CMAKE_OBJCXX_COMPILE_OBJECT ontbreekt** → \`enable_language(OBJC)\` en \`enable_language(OBJCXX)\` in jouw project.
+4. **RTSan vangt niets**: markeer de functie die process aanroept \`[[clang::nonblocking]]\` (achter de parameterlijst) én
+   \`noinline\`, en maak een kanarie (malloc in process, pointer naar een globale variabele) die MOET falen.
+5. **auval vindt de AU niet**: kopieer naar \`~/Library/Audio/Plug-Ins/Components\`, dan \`killall -9 AudioComponentRegistrar\`.
+6. **Denormale invoer**: de DSP regelt het zelf; zet geen eigen FTZ-truc ervoor.
+
+## Hoe je weet dat het klopt
+De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
+beschrijf wat je zag en wat je probeerde in \`VERSLAG.md\`; zet een toets nooit uit om groen te worden.
+`;
+}
+
+export function tasksMd(ontwerp) {
+  return `# TASKS — ${ontwerp.naam}
+
+- [ ] Fase 0 — skelet, CI en alle validators (PROMPTS.md §0)
+- [ ] Fase 1 — DSP aansluiten; null-test door het binary groen (§1)
+- [ ] Fase 2 — parameters, automatisering, state (§2)
+- [ ] Fase 3 — UI: het frontpaneel uit design.md (§3)
+- [ ] Fase 4 — presets (§4)
+- [ ] Fase 5 — formaten AU/VST3/CLAP compleet, mono en stereo (§5)
+- [ ] Fase 6 — ad-hoc signeren en installeren (§6)
+- [ ] Fase 7 — test in Logic (checklist voor Clay, §7)
+`;
+}
+
+export function designMd(ontwerp) {
+  const c = compileer(ontwerp);
+  return `# design.md — frontpaneel van ${ontwerp.naam}
+
+Zelfde taal als de Pluginbouwer: hoeken 0, rand 2 px, harde schaduw (3 px 3 px 0), geen gradiënten, geen
+glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen.
+
+| token | waarde | gebruik |
+|---|---|---|
+| paneel | #232629 | achtergrond |
+| inkt | #e7e5dd | tekst, knopranden |
+| tape | #f2c200 | naamlabel, de boog van de gekozen knop |
+| spoor | #40cbda | boog van de knoppen |
+
+Indeling: één rij van ${c.params.length} draaiknoppen (270°, −135° tot +135°), naam erboven, waarde in gewone eenheden
+eronder, in de volgorde van SPEC.md. Dubbelklik = standaard. Shift + slepen = fijn.
+Minimaal 560 × 220 px, schaalbaar. De mockup staat in de tool (stand Ontwerpen, "Frontpaneel").
+`;
+}
+
+export function leerpad(ontwerp) {
+  return `# LEERPAD — wat Clay zelf doet
+
+## Installeren (gratis, geen Apple Developer-account)
+1. Download in GitHub bij de laatste groene CI-run het artefact \`macos-keten_${ontwerp.id}\` (een zip).
+2. Uitpakken. macOS zet een quarantainevlag op downloads: \`xattr -dr com.apple.quarantine "PB ${ontwerp.naam}.component"\`
+   (en hetzelfde voor .vst3 en .clap).
+3. Kopieer \`PB ${ontwerp.naam}.component\` naar \`~/Library/Audio/Plug-Ins/Components/\`.
+4. Terminal: \`killall -9 AudioComponentRegistrar\` (anders ziet Logic hem niet meteen).
+5. Logic: Instellingen → Plug-in Manager → "Reset & Rescan Selection" op PB ${ontwerp.naam}. Status moet "geslaagd" zijn.
+
+## Kosten en het gratis alternatief
+| wat | kost | gratis alternatief | wanneer je wél moet betalen |
+|---|---|---|---|
+| signeren voor je eigen Mac | 0 | ad-hoc (\`codesign --sign -\`), CI doet het | als anderen hem moeten kunnen installeren zonder terminal |
+| notariseren | Apple Developer Program **[bedrag niet bevestigd, ±€ 99/jaar]** | niet nodig voor eigen gebruik | distributie |
+| AUv3 op iPad/iPhone | idem (gratis account: 7 dagen geldig) | gratis account, elke week opnieuw | blijvend op je toestel |
+| CI op macOS | 0 (publieke repo) | — | een privérepo telt macOS-minuten zwaarder **[factor niet bevestigd]** |
+
+## Wat je kunt leren (niet nodig om te bouwen)
+- Wat een null-test is: twee renders van elkaar aftrekken; stilte = gelijk.
+- Een terugkoppeling: hoe de lusversterking (terugkoppeling × filter × saturatie) bepaalt of hij uitsterft of doorgaat.
+`;
+}
+
+export function promptsMd(ontwerp, { uitslagen = {} } = {}) {
+  const id = ontwerp.id, au = auSubtype(id);
+  const u = (f) => uitslagen[f] ? uitslagen[f] : 'nog niet getoetst';
+  return `# PROMPTS — ${ontwerp.naam} (${PROMPT_VERSIE})
+
+Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
+Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de
+losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
+
+---
+## Fase 0 — skelet, CI en alle validators
+**Prompt**
+> Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "${ontwerp.naam}": een CLAP-plugin in
+> \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patch uit \`patches/\`) voor VST3 en AUv2
+> (\`make_clapfirst_plugins\`, AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
+> \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase mag process nog stil zijn of doorgeven.
+> Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
+> pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, \`gereedschap/pb-render\`
+> gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
+> installeren in ~/Library/Audio/Plug-Ins, \`killall -9 AudioComponentRegistrar\`, \`auval -strict -v aufx ${au} Vrve\`,
+> pluginval strictness 10 met \`--rtcheck enabled\` op AU en VST3, de plugins als artefact
+> \`macos-keten_${id}\`). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
+
+**Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
+VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
+**Uitslag**: ${u('0')}
+
+---
+## Fase 1 — DSP aansluiten; null-test door het binary
+**Prompt**
+> Sluit het Ontwerp uit \`dsp/\` aan in process: parameters als CLAP-params (id = nummer in SPEC.md, bereik en standaard
+> uit \`PARAMS\`), events op hun sample (blok splitsen bij elk event), \`latency\` en \`tail\` uit het Ontwerp, state zoals
+> ARCHITECTUUR.md. Voeg aan CI de null-test toe: \`sh gereedschap/ci-null.sh clap <build>\` (pb-render, blok 512,
+> wisselende blokken, state-rondje) en \`sh gereedschap/ci-null.sh pluginval <plugin> <pluginval> <label>\` voor de VST3
+> (Linux en macOS) en de AU (macOS). Verander \`dsp/\` en \`testsignalen/\` niet. Als een render "gelijk aan de
+> standaardwaarden" zegt: lees valkuil 1.
+
+**Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit), de statistische toets (zelfoscillatie)
+binnen 1 dB, en de validators van fase 0 nog groen.
+**Uitslag**: ${u('1')}
+
+---
+## Fase 2 — parameters, automatisering, state
+**Prompt**
+> Maak de parameters af: tekst ↔ waarde in gewone eenheden (ms, Hz, dB), stapjes waar nodig, \`params.flush\` buiten
+> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets: state van een build zonder
+> parameter N laadt in een build mét (vooruit-compatibel). Automatisering in een DAW verandert niets aan de null-test.
+**Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
+**Uitslag**: ${u('2')}
+
+---
+## Fase 3 — UI
+**Prompt**
+> Bouw het frontpaneel uit design.md (CLAP gui-extensie; clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
+> parameters via de host, nooit rechtstreeks de DSP. Geen audiothread-toegang vanuit de UI.
+**Stopcriterium**: pluginval 10 zonder \`--skip-gui-tests\` groen op macOS; een schermafbeelding in CI als artefact.
+**Uitslag**: ${u('3')}
+
+---
+## Fase 4 — presets
+**Prompt**
+> Fabriekspresets uit \`presets/\` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets.
+**Stopcriterium**: clap-validator preset-tests groen; auval toont de presets.
+**Uitslag**: ${u('4')}
+
+---
+## Fase 5 — formaten compleet
+**Prompt**
+> Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
+> CI-matrix uit (samplerates in de null-test).
+**Stopcriterium**: CI groen met de uitgebreide matrix.
+**Uitslag**: ${u('5')}
+
+---
+## Fase 6 — signeren en installeren
+**Prompt**
+> Maak een installatiepakket (\`.pkg\` via pkgbuild, ad-hoc gesigneerd) dat de AU, VST3 en CLAP op de juiste plek zet.
+> Notarisatie alleen als optie in de docs, met de kosten.
+**Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
+**Uitslag**: ${u('6')}
+
+---
+## Fase 7 — test in Logic (checklist voor Clay)
+- [ ] Plug-in Manager: PB ${ontwerp.naam} "geslaagd" (na LEERPAD.md "Installeren").
+- [ ] Op een audiospoor laden; geluid gaat erdoor; knoppen doen wat SPEC.md zegt.
+- [ ] Een knop automatiseren (Tijd van langzaam naar snel): de toon glijdt, geen tikken.
+- [ ] Terugkoppeling boven 1: hij gaat vanzelf door en blijft begrensd.
+- [ ] Bouncen met de staart: Bestand → Bounce, met "Staart van audio opnemen"/"Include Audio Tail" aan; de echo
+      loopt door na het einde van de regio.
+- [ ] Project bewaren, Logic sluiten, opnieuw openen: alle knoppen staan waar ze stonden.
+`;
+}
+
+// Alle bestanden van het pakket. bronnen = { 'dsp/pb_math.h': tekst, … } (de tool bakt ze in, Node leest ze);
+// testsignalen = { 'testsignalen/x.wav': Uint8Array, … }; extra = { pad: inhoud } (patch, gereedschap).
+export function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronnen = {}, testsignalen = {}, extra = {}, uitslagen = {} } = {}) {
+  const c = compileer(ontwerp);
+  if (c.fouten.length) throw new Error('het ontwerp heeft fouten: ' + c.fouten.join('; '));
+  const pak = {
+    'SPEC.md': spec(ontwerp, { metingen, metingBlokken }),
+    'ARCHITECTUUR.md': architectuur(ontwerp),
+    'CLAUDE.md': claudeMd(ontwerp),
+    'TASKS.md': tasksMd(ontwerp),
+    'PROMPTS.md': promptsMd(ontwerp, { uitslagen }),
+    'design.md': designMd(ontwerp),
+    'LEERPAD.md': leerpad(ontwerp),
+    'ontwerp.json': JSON.stringify(ontwerp, null, 2) + '\n',
+    'metingen.json': JSON.stringify({ metingen, metingBlokken }, null, 2) + '\n',
+    [`dsp/ontwerpen/keten_${ontwerp.id}.h`]: ketenHeader(ontwerp),
+  };
+  for (const [pad, inhoud] of Object.entries(bronnen)) pak[pad] = inhoud;
+  for (const [pad, inhoud] of Object.entries(testsignalen)) pak[pad] = inhoud;
+  for (const [pad, inhoud] of Object.entries(extra)) pak[pad] = inhoud;
+  return pak;
+}
+
+// De bronbestanden die in elk pakket gaan (paden in deze repo → paden in het pakket)
+export const PAKKET_BRONNEN = {
+  'dsp/pb_math.h': 'dsp/pb_math.h', 'dsp/pb_core.h': 'dsp/pb_core.h', 'dsp/pb_biquad.h': 'dsp/pb_biquad.h',
+  'dsp/pb_delay.h': 'dsp/pb_delay.h', 'dsp/pb_svf.h': 'dsp/pb_svf.h', 'dsp/pb_tape.h': 'dsp/pb_tape.h',
+  'dsp/pb_graaf.h': 'dsp/pb_graaf.h', 'dsp/graaf_ontwerp.h': 'dsp/graaf_ontwerp.h',
+  'dsp/pb_wasm.cpp': 'dsp/pb_wasm.cpp', 'dsp/bouw-wasm.sh': 'dsp/bouw-wasm.sh',
+  'host/pb-render.cpp': 'gereedschap/pb-render.cpp',
+  'tools/pakket/ci-null.sh': 'gereedschap/ci-null.sh',
+  'tools/pakket/vergelijk.mjs': 'gereedschap/vergelijk.mjs',
+  'plugin/patches/clap-wrapper-auv2-params-voor-init.patch': 'patches/clap-wrapper-auv2-params-voor-init.patch',
+};

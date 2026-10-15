@@ -38,7 +38,7 @@ elif [ "$SOORT" = pluginval ]; then
       c.input.audio = '$MAP/' + c.input.audio.replace('../', '');
       c.reference = '$UIT/' + c.name + '.wav';
       require('fs').writeFileSync('$UIT/cfg/$geval.json', JSON.stringify(c, null, 2));"
-    rm -f "$UIT/$geval.wav" "$UIT/$geval.wav.json"
+    rm -f "${UIT:?}/${geval:?}.wav" "${UIT:?}/${geval:?}.wav.json"
     $PV test --record-missing --plugin "$PLUGIN" "$UIT/cfg/$geval.json"
   done
   { echo "### Null-test $LABEL: WASM tegen pluginval-render door het binary (blok 512)"; echo;

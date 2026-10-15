@@ -5,36 +5,18 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, render, uitNorm, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
-import { sinus, ruis, sweep, stukjes, impuls, stereo } from '../tests/lib/signalen.mjs';
+import { toetsgevallen, maakInvoer } from '../tool/src/testsignalen.js';
+import { ARCHETYPEN } from '../tool/src/archetypen.js';
 import * as SPEC from '../tests/lib/fft.mjs';
 
 const GRENS_DB = -90;
 const [, , opdracht, a1, a2] = process.argv;
 
-// Elk geval: invoer + parameters (genormaliseerd, zoals een host ze zet; waarden exact in float32).
-// statistisch: zelfoscillatie is chaotisch (1 ULP groeit). Dan geldt naast de strenge toets ook de statistische:
-// spectrum per terts en omhullende per 100 ms binnen 1 dB (PROMPT.md).
+// De toetsgevallen komen uit tool/src/testsignalen.js (zelfde bron als de exportknop van de tool). Voor de
+// handgeschreven dub-echo de gevallen van het archetype, zodat hij en de keten-dub-echo dezelfde verwachting hebben.
 function gevallen(o, naam) {
-  const sr = 48000;
-  const norm = (lijst) => Object.fromEntries(lijst.map((n, i) => [i, n]));
-  const lang = (x, sec, sr2 = sr) => { const y = new Float32Array(Math.round(sec * sr2)); y.set(x.subarray(0, Math.min(x.length, y.length))); return y; };
-  if (naam === 'dub_echo') {
-    //          Tijd    Terug   Toon    Laag    Reso   Verz   Haper  Mix
-    return [
-      { naam: 'echo-standaard', sr, in: stereo(lang(stukjes(sr, 2), 4)), norm: norm([0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]) },
-      { naam: 'echo-heet', sr, in: stereo(lang(ruis(sr, 0.3, 0.5, 11), 8), lang(stukjes(sr, 2), 8)), norm: norm([0.125, 0.75, 0.125, 0.0625, 0.25, 0.5, 0.5, 0.75]) },
-      { naam: 'zelfoscillatie', sr, statistisch: true, in: stereo(lang(stukjes(sr, 1), 8)), norm: norm([0.0625, 0.875, 0.25, 0.0625, 0.125, 0.25, 0.25, 1]) },
-      { naam: 'sweep-441', sr: 44100, in: stereo(lang(sweep(30, 18000, 44100, 3, 0.4), 5, 44100)), norm: norm([0.5, 0.5, 0.5, 0.125, 0.125, 0.75, 0.75, 0.5]) },
-    ];
-  }
-  const half = o.params.map(() => 0.5), kwart = o.params.map(() => 0.25), laag = o.params.map((_, i) => (i === 0 ? 0.0625 : 0.75));
-  return [
-    { naam: 'ruis-half', sr, in: stereo(ruis(sr, 2, 0.3, 1), ruis(sr, 2, 0.3, 2)), norm: norm(half) },
-    { naam: 'sweep-kwart', sr, in: stereo(sweep(20, 20000, sr, 3, 0.5)), norm: norm(kwart) },
-    { naam: 'stukjes-laag', sr, in: stereo(stukjes(sr, 2.5)), norm: norm(laag) },
-    { naam: 'sinus-441', sr: 44100, in: stereo(sinus(997, 44100, 1, 0.7)), norm: norm(half) },
-    { naam: 'impuls-96k', sr: 96000, in: stereo(impuls(96000)), norm: norm(kwart) },
-  ];
+  const ontwerp = ARCHETYPEN.find((a) => a.id === naam.replace(/^keten_/, ''));
+  return toetsgevallen(ontwerp, o.params.length).map((g) => ({ ...g, in: maakInvoer(g), norm: Object.fromEntries(g.norm.map((n, i) => [i, n])) }));
 }
 
 // statistische vergelijking: energie per terts (20 Hz – 20 kHz) en RMS per 100 ms, waar er iets klinkt

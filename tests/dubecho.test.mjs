@@ -242,3 +242,19 @@ test('staart: komt onder −90 dBFS binnen de gemelde staarttijd', () => {
   meting.staart = uit;
   bewaar();
 });
+
+// ---------------------------------------------------------------------------------------------------- IMD
+test('intermodulatie (SMPTE, 60 Hz + 7 kHz, 4:1) tegen de ideale saturatie op 16×', () => {
+  // coherente bins: 60 Hz = bin 82, 7 kHz = bin 9557 (N = 2^16); zijbanden op 9557 ± n·82
+  const kL = 82, kH = 9557, x = new Float32Array(N_AL + 2 * EXTRA);
+  for (let i = 0; i < x.length; i++) x[i] = 0.4 * Math.sin(2 * Math.PI * kL * i / N_AL) + 0.1 * Math.sin(2 * Math.PI * kH * i / N_AL);
+  const p = { Tijd: 20, Terugkoppeling: 0, Verzadiging: 12, Toon: 12000, 'Laag weg': 20, Resonantie: 0.70703125, Haperen: 0, Mix: 1 };
+  const [w] = render(o, [x], { waarden: met(p) });
+  const r = Float32Array.from(python(x, SR, p, 16));
+  const imd = (y) => { const s = spectrum(y.subarray(EXTRA, EXTRA + N_AL)); let zb = 0; for (let n = 1; n <= 4; n++) zb += s[kH + n * kL] + s[kH - n * kL]; return 10 * Math.log10(zb / s[kH]); };
+  const res = { wasm: imd(w), ideaal: imd(r) };
+  meting.imd = { ...res, verschilDb: res.wasm - res.ideaal };
+  bewaar();
+  // grens 1 dB (PROMPT.md): de saturatie moet hetzelfde mengen als de ideale kromme
+  assert.ok(Math.abs(res.wasm - res.ideaal) <= 1, `IMD ${res.wasm.toFixed(2)} dB tegen ideaal ${res.ideaal.toFixed(2)} dB`);
+});

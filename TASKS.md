@@ -23,11 +23,12 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] KEUZE-STACK.md met metingen; besluit in CLAUDE.md — checkpoint B
 
 ## C. Doelgeluid en de dub-echo
-- [ ] SPEC.md: doelgeluid (RE-201-gegevens, gemarkeerd wat niet bevestigd is), parameters, budgetten, toleranties
+- [x] SPEC.md (gegenereerd: bouwpakket/dub_echo/SPEC.md): doelgeluid **nog niet vastgelegd** (geen referentieopname; RE-201-getallen niet bevestigd), parameters, budgetten, toleranties
 - [x] DSP-blokken: fractionele delay (Lagrange-3), tape-saturatie met ADAA, TPT-SVF in de lus, wow/flutter, mix
 - [x] Python float64-referentie (andere code), 16× oversampling voor de niet-lineaire delen
-- [~] metingen: ESS, aliasing, stabiliteit, staart, null, statistische zelfoscillatietoets gedaan; **IMD nog niet**
-- [ ] checkpoint C
+- [x] metingen: ESS, IMD, aliasing, stabiliteit, staart, null, statistische zelfoscillatietoets (tests/dubecho.test.mjs)
+- [x] checkpoint C
+- [x] ketenmotor (dsp/pb_graaf.h): de dub-echo als ketendata klinkt bit voor bit als de handgeschreven (tests/graaf.test.mjs)
 
 ## D. De ontwerper
 - [ ] BIB met de blokken van de dub-echo (+ de rest als lijst hieronder), getallen uit de meetharnas
