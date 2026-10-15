@@ -1,0 +1,6 @@
+{
+  "dub_echo": {
+    "0": "**3/3** (15 okt 2026, pakket v1; tak proef/e1–e3, CI-runs 16, 17, 18 groen). Alle drie hadden twee CI-ronden nodig: pluginval `--rtcheck` op macOS ving calloc uit dyld in clap-wrapper (thread_local). Elk vond en patchte het los; sinds pakket v2 staat de patch erin (valkuil 7). Daarnaast: clap-validator kleurt altijd (valkuil 8); twee van de drie sloten de DSP al in fase 0 aan.",
+    "1": "**3/3** (15 okt 2026, op de fase 0 van dezelfde tak; CI-runs 22, 24, 25 groen, elk de eerste push). Alle null-tests bit voor bit (−∞ dBFS): CLAP Linux en macOS (blok 512, wisselend, state-rondje), VST3 Linux en macOS en AU macOS via `pluginval test`; zelfoscillatie terts en omhullende 0,000 dB. Gevonden: SPEC zei \"genormaliseerd\" (CLAP-params zijn eenheden), `zetParam` neemt een index, `staartSec` hoort bij de audiothread; nu in SPEC/ARCHITECTUUR."
+  }
+}

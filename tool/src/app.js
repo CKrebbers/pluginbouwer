@@ -644,7 +644,7 @@ function maakPakket() {
   const testsignalen = maakTestsignalen(E, c.rij, c.params, ontwerp, { terugkoppeling: volgorde(ontwerp).terug.length > 0, render: renderKeten });
   const extra = { 'wasm/graaf.wasm': MOTOR_BYTES, 'wasm/keten.json': JSON.stringify({ rij: Array.from(c.rij), params: c.params }, null, 1) + '\n' };
   const metingen = ontwerp.id === 'dub_echo' ? DATA.metingen : {};
-  return bouwpakket(ontwerp, { metingen, metingBlokken: DATA.metingBlokken, bronnen: DATA.bronnen, testsignalen, extra });
+  return bouwpakket(ontwerp, { metingen, metingBlokken: DATA.metingBlokken, bronnen: DATA.bronnen, testsignalen, extra, uitslagen: DATA.uitslagen?.[ontwerp.id] || {} });
 }
 void spec;
 

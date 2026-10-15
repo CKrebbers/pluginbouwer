@@ -43,8 +43,10 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 
 ## E. Bouwpakket en prompts
 - [x] export: SPEC, ARCHITECTUUR, design, CLAUDE, TASKS, PROMPTS, testsignalen, dsp/, CI-sjabloon
-- [ ] 3 verse sessies bouwen fase 0 en 1 met alleen het pakket; pass@3 in PROMPTS.md
-- [ ] de AU van zo'n run haalt auval en pluginval 10 in CI; null-test binnen tolerantie
+- [x] 3 verse sessies bouwen fase 0 en 1 met alleen het pakket; pass@3 in PROMPTS.md — fase 0 **3/3**, fase 1 **3/3**
+  (tak proef/e1–e3, UITSLAG-fase0/1.md per tak; uitslagen in tools/pakket/uitslagen.json). Pakket v2 (tweede patch, SPEC/
+  ARCHITECTUUR-verduidelijkingen) is gemaakt NA de proef en nog niet door verse sessies getoetst.
+- [x] de AU van zo'n run haalt auval en pluginval 10 in CI; null-test binnen tolerantie (alle drie: bit voor bit)
 - [ ] Clay laadt hem in Logic (checklist fase 7) — **wacht op Clay**
 
 ## Bibliotheek later (niet bouwen vóór de dub-echo de hele keten gehaald heeft)

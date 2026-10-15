@@ -10,7 +10,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Dub-echo": een CLAP-plugin in
 > `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit `patches/`, in naamvolgorde) voor VST3 en AUv2
 > (`make_clapfirst_plugins`, AU maker `Vrve`, subtype `PDca`, type `aufx`). De plugin gebruikt het Ontwerp uit
-> `dsp/ontwerpen/keten_dub_echo.h` (include-pad `dsp/`); in deze fase mag process nog stil zijn of doorgeven.
+> `dsp/ontwerpen/keten_dub_echo.h` (include-pad `dsp/`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf `.github/workflows/ci.yml` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, `gereedschap/pb-render`
 > gebouwd met `-fsanitize=realtime`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
@@ -20,7 +20,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
 VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (15 okt 2026, pakket v1; tak proef/e1–e3, CI-runs 16, 17, 18 groen). Alle drie hadden twee CI-ronden nodig: pluginval `--rtcheck` op macOS ving calloc uit dyld in clap-wrapper (thread_local). Elk vond en patchte het los; sinds pakket v2 staat de patch erin (valkuil 7). Daarnaast: clap-validator kleurt altijd (valkuil 8); twee van de drie sloten de DSP al in fase 0 aan.
 
 ---
 ## Fase 1 — DSP aansluiten; null-test door het binary
@@ -34,7 +34,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 
 **Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit), de statistische toets (zelfoscillatie)
 binnen 1 dB, en de validators van fase 0 nog groen.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (15 okt 2026, op de fase 0 van dezelfde tak; CI-runs 22, 24, 25 groen, elk de eerste push). Alle null-tests bit voor bit (−∞ dBFS): CLAP Linux en macOS (blok 512, wisselend, state-rondje), VST3 Linux en macOS en AU macOS via `pluginval test`; zelfoscillatie terts en omhullende 0,000 dB. Gevonden: SPEC zei "genormaliseerd" (CLAP-params zijn eenheden), `zetParam` neemt een index, `staartSec` hoort bij de audiothread; nu in SPEC/ARCHITECTUUR.
 
 ---
 ## Fase 2 — parameters, automatisering, state
@@ -64,7 +64,8 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ## Fase 5 — formaten compleet
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
-> CI-matrix uit (samplerates in de null-test).
+> CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
+> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst.
 **Stopcriterium**: CI groen met de uitgebreide matrix.
 **Uitslag**: nog niet getoetst
 
@@ -83,5 +84,6 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 - [ ] Een knop automatiseren (Tijd van langzaam naar snel): de toon glijdt, geen tikken.
 - [ ] Terugkoppeling boven 1: hij gaat vanzelf door en blijft begrensd.
 - [ ] Bouncen met de staart: Bestand → Bounce, met "Staart van audio opnemen"/"Include Audio Tail" aan; de echo
-      loopt door na het einde van de regio.
+      loopt door na het einde van de regio. (De plugin meldt een andere staart niet actief met `tail.changed`; de
+      host vraagt hem op bij de bounce. Stopt de echo te vroeg, dan is dit de plek.)
 - [ ] Project bewaren, Logic sluiten, opnieuw openen: alle knoppen staan waar ze stonden.

@@ -25,7 +25,9 @@ const metingPad = join(ROOT, 'tests', 'uit', 'dubecho.json');
 const metingen = existsSync(metingPad) && id === 'dub_echo' ? JSON.parse(readFileSync(metingPad, 'utf8')) : {};
 const metingBlokken = JSON.parse(readFileSync(join(ROOT, 'tool', 'src', 'meting-blokken.json'), 'utf8'));
 const extra = { 'wasm/graaf.wasm': motorBytes, 'wasm/keten.json': JSON.stringify({ rij: Array.from(c.rij), params: c.params }, null, 1) + '\n' };
-const pak = bouwpakket(ontwerp, { metingen, metingBlokken, bronnen, testsignalen, extra });
+const uitslagPad = join(ROOT, 'tools', 'pakket', 'uitslagen.json');   // pass@3 per fase, uit de verse sessies van fase E
+const uitslagen = existsSync(uitslagPad) ? JSON.parse(readFileSync(uitslagPad, 'utf8'))[id] || {} : {};
+const pak = bouwpakket(ontwerp, { metingen, metingBlokken, bronnen, testsignalen, extra, uitslagen });
 const doel = join(ROOT, 'bouwpakket', id);
 rmSync(doel, { recursive: true, force: true });
 for (const [pad, inhoud] of Object.entries(pak)) {

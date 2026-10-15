@@ -66,8 +66,9 @@ Terugkoppeling: ${terugkoppeling ? 'ja — een kabel naar een eerdere knoop lees
 |---|---|---|---|---|---|---|---|
 ${p.join('\n')}
 
-- De host geeft parameters lineair genormaliseerd door (0..1 → min..max). Grenzen en standaarden zijn exact in
-  float32, omdat een AU float doorgeeft: zo krijgt elk formaat bit voor bit dezelfde waarde.
+- CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
+  voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
+  bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
 
 ## Budgetten
@@ -117,6 +118,10 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
 ${c.orde.length} knopen, uitgevoerd in een vaste volgorde per sample (SPEC.md "Keten"). De ketenmotor
 (\`dsp/pb_graaf.h\`) leest de beschrijving \`PB_KETEN\`; \`dsp/graaf_ontwerp.h\` zet die achter het Ontwerp-contract:
 \`geheugenNodig\`, \`activeer\`, \`reset\`, \`zetParam\`, \`leesParam\`, \`verwerk\`, \`latentie\`, \`staartSec\`, \`PARAMS\`, \`META\`.
+- \`zetParam(i, v)\` en \`leesParam(i)\` nemen de INDEX in \`PARAMS\` (0..n−1), niet het parameter-id; de schil zoekt de
+  index bij het id.
+- \`staartSec()\` leest de toestand van de smoothers en hoort dus bij de audiothread: reken hem aan het eind van process
+  (en in activate) uit en bewaar hem atomisch; \`tail.get\` leest die waarde.
 
 ## Threads
 - **Audiothread**: alleen \`process\`. Events (parameterwaarden) worden op hun sample toegepast: het blok wordt bij elk
@@ -259,7 +264,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "${ontwerp.naam}": een CLAP-plugin in
 > \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit \`patches/\`, in naamvolgorde) voor VST3 en AUv2
 > (\`make_clapfirst_plugins\`, AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
-> \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase mag process nog stil zijn of doorgeven.
+> \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, \`gereedschap/pb-render\`
 > gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
@@ -313,7 +318,8 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ## Fase 5 — formaten compleet
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
-> CI-matrix uit (samplerates in de null-test).
+> CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
+> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst.
 **Stopcriterium**: CI groen met de uitgebreide matrix.
 **Uitslag**: ${u('5')}
 
@@ -332,7 +338,8 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 - [ ] Een knop automatiseren (Tijd van langzaam naar snel): de toon glijdt, geen tikken.
 - [ ] Terugkoppeling boven 1: hij gaat vanzelf door en blijft begrensd.
 - [ ] Bouncen met de staart: Bestand → Bounce, met "Staart van audio opnemen"/"Include Audio Tail" aan; de echo
-      loopt door na het einde van de regio.
+      loopt door na het einde van de regio. (De plugin meldt een andere staart niet actief met \`tail.changed\`; de
+      host vraagt hem op bij de bounce. Stopt de echo te vroeg, dan is dit de plek.)
 - [ ] Project bewaren, Logic sluiten, opnieuw openen: alle knoppen staan waar ze stonden.
 `;
 }

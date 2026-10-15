@@ -44,8 +44,9 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 7 | Haperen | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt |
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
 
-- De host geeft parameters lineair genormaliseerd door (0..1 → min..max). Grenzen en standaarden zijn exact in
-  float32, omdat een AU float doorgeeft: zo krijgt elk formaat bit voor bit dezelfde waarde.
+- CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
+  voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
+  bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
 
 ## Budgetten

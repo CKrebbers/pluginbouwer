@@ -46,6 +46,7 @@ const data = {
   motor: lees('dsp/wasm/motor/graaf.wasm').toString('base64'),
   metingBlokken: JSON.parse(lees('tool/src/meting-blokken.json')),
   metingen: existsSync(metingPad) ? JSON.parse(readFileSync(metingPad, 'utf8')).metingen : {},
+  uitslagen: JSON.parse(lees('tools/pakket/uitslagen.json')),
   bronnen: Object.fromEntries(Object.entries(PAKKET_BRONNEN).map(([van, naar]) => [naar, lees(van).toString('utf8')])),
 };
 const veilig = (s) => s.replace(/<\/(script|style)/gi, '<\\/$1').replace(/<!--/g, '<\\!--');
