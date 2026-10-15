@@ -1,6 +1,7 @@
 {
   "naam": "Dub-echo",
   "id": "dub_echo",
+  "voorbeeld": "effect",
   "uitleg": "Tape-echo voor dub: saturatie en een filter in de terugkoppeling. Boven terugkoppeling 1 gaat hij vanzelf door, en de band houdt hem in toom.",
   "knopen": [
     {

@@ -46,5 +46,17 @@ waar gezocht is. Gelezen = de broncode of het LICENSE-bestand zelf (git clone), 
 | A. Farina, "Simultaneous measurement of impulse response and distortion with a swept-sine technique", AES 2000 | — | ESS-meting in `tests/` en `ref/` |
 | J. Chowdhury, "Real-time physical modelling for analog tape machines", DAFx 2019 + CHOWTapeModel | https://github.com/jatinchowdhury18/AnalogTapeModel 604372e / v2.11.4, **GPLv3** | tweede mening voor hysterese (niet overnemen) |
 
+### Blokken van 15 okt 2026 (`dsp/pb_bronnen.h`)
+Uit eigen kennis opgeschreven, **niet opgehaald in deze sessie**. Elk blok is getoetst tegen de theorie die de bron
+geeft, niet tegen de tekst van de bron (tests/bronnen.test.mjs).
+| Bron | Gebruikt voor | Toets |
+|---|---|---|
+| V. Välimäki, A. Huovilainen, "Antialiasing Oscillators in Subtractive Synthesis", IEEE SP Magazine 24(2), 2007 | polyBLEP in de oscillator (zaag, blok) | boventonen = Fourier-reeks ±0,3 dB tot H7; ≥ 10 dB minder aliasing dan naïef op 5 kHz |
+| K. Karplus, A. Strong, "Digital Synthesis of Plucked-String and Drum Timbres", CMJ 7(2), 1983 | snaar | — |
+| D. Jaffe, J. O. Smith, "Extensions of the Karplus-Strong Plucked-String Algorithm", CMJ 7(2), 1983 | stemming van de snaar (lusvertraging incl. het middelende filter, fractioneel) | toonhoogte ±0,5 % op 110–880 Hz |
+| J.-M. Jot, A. Chaigne, "Digital Delay Networks for Designing Artificial Reverberators", AES 90th Convention, 1991 | galm: 8 lijnen, Hadamard-terugkoppeling, g = 10^(−3L/(T60·sr)) | nagalmtijd (Schroeder-integraal) ±15 % van de knop |
+| M. R. Schroeder, "New Method of Measuring Reverberation Time", JASA 37, 1965 | de meting van de nagalmtijd in de toets | — |
+| Feed-forward compressor met harde knie (leerboekvorm) | compressor | statische kromme ±0,5 dB |
+
 ## Doelgeluid
 Zie SPEC.md van de dub-echo. Elk getal over de RE-201 staat daar met bron of als **[niet bevestigd]**.
