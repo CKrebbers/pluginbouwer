@@ -54,3 +54,22 @@ export function pluginvalConfig(g, paramNamen, grensDb = -90) {
     sample_rate: g.sr, block_size: 512, comparison: { sample: Number(Math.pow(10, grensDb / 20).toPrecision(6)) },
   };
 }
+
+// Alle testsignaalbestanden van een ontwerp, gerekend op de ketenmotor (e = pg_*-exports, rij = compileer().rij).
+// Zelfde vorm als tools/null.mjs "maak" schrijft (tests/pakket.test.mjs vergelijkt ze byte voor byte).
+export function maakTestsignalen(e, rij, params, ontwerp, { terugkoppeling = false, render } = {}) {
+  const enc = (o) => JSON.stringify(o, null, 2) + '\n';
+  const bestanden = {}, index = [];
+  for (const g of toetsgevallen(ontwerp, params.length, { terugkoppeling })) {
+    const invoer = maakInvoer(g);
+    const waarden = Object.fromEntries(g.norm.map((n, i) => [i, params[i].min + n * (params[i].max - params[i].min)]));
+    const uit = render(e, rij, invoer, { sr: g.sr, waarden, blok: 128 }).uit;
+    bestanden[`testsignalen/${g.naam}.in.wav`] = wavBytes(invoer, g.sr);
+    bestanden[`testsignalen/${g.naam}.verwacht.wav`] = wavBytes(uit, g.sr);
+    const norm = Object.fromEntries(g.norm.map((n, i) => [i, n]));
+    index.push({ naam: g.naam, sr: g.sr, norm, waarden, pbRender: params.map((p, i) => `${i + 1}=${waarden[i]}`), statistisch: !!g.statistisch });
+    bestanden[`testsignalen/pluginval/${g.naam}.json`] = enc(pluginvalConfig(g, params.map((p) => p.naam)));
+  }
+  bestanden['testsignalen/gevallen.json'] = enc(index);
+  return bestanden;
+}

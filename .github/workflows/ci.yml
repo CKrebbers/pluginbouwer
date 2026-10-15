@@ -1,5 +1,6 @@
 # CI — het bewijs (CLAUDE.md regel 5). Elke stap faalt hard; niets wordt overgeslagen om groen te worden.
-#   toetsen   Node-toetsen, WASM opnieuw bouwen en controleren dat de verwachte uitvoer bit voor bit gelijk blijft
+#   toetsen   Node-toetsen, WASM opnieuw bouwen en controleren dat de verwachte uitvoer bit voor bit gelijk blijft;
+#             de tool in Chrome (laden, meten, horen, export)
 #   linux     CLAP + VST3 bouwen, clap-validator, pluginval 10 (VST3), null-test door het binary (CLAP en VST3)
 #   rtsan     RTSan (clang 20) met een kanarie die moet falen, en ASan/UBSan
 #   macos     arm64: CLAP + VST3 + AU, ad-hoc gesigneerd, auval -strict, pluginval 10 met rtcheck (AU en VST3),
@@ -45,6 +46,18 @@ jobs:
           node tools/bouwpakket.mjs dub_echo
           git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/dub_echo/dsp bouwpakket/dub_echo/testsignalen bouwpakket/dub_echo/wasm bouwpakket/dub_echo/gereedschap
           git diff --stat --exit-code testsignalen/
+      - name: De tool (tool/index.html) in Chrome — laden, meten, horen, export = de testsignalen van CI
+        run: |
+          node tool/bouw.mjs
+          npm i --no-save --no-package-lock playwright@1.56.1
+          PB_CHROME="$(command -v google-chrome || command -v chromium)" node tools/headless/tool.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tool
+          path: |
+            tool/index.html
+            tools/headless/uit/
 
   linux:
     strategy:

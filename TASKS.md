@@ -31,17 +31,18 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] ketenmotor (dsp/pb_graaf.h): de dub-echo als ketendata klinkt bit voor bit als de handgeschreven (tests/graaf.test.mjs)
 
 ## D. De ontwerper
-- [ ] BIB met de blokken van de dub-echo (+ de rest als lijst hieronder), getallen uit de meetharnas
-- [ ] keten tekenen (slepen, kabels, feedback), draaiknoppen, modulatie slepen, pijltjes bij de laatste wijziging
-- [ ] horen (AudioWorklet + dezelfde WASM), eigen audio of testsignalen, mockup frontpaneel
-- [ ] meten live (respons, harmonischen, aliasing, latency, CPU)
-- [ ] verken: varianten, archetypes (dub-echo, veerreverb, sidechain-pomp), schetsboek
-- [ ] bouwen-stand: stack, formaten, moeite, kosten, risico's, leerpad
-- [ ] ABX tegen een referentie; taaktoets-log
+- [x] BIB met de blokken van de dub-echo (+ de rest als lijst hieronder), getallen uit de meetharnas
+- [x] keten tekenen (slepen, kabels, feedback), draaiknoppen, modulatie slepen, pijltjes bij de laatste wijziging
+- [x] horen (AudioWorklet + dezelfde WASM), eigen audio of testsignalen, mockup frontpaneel
+- [x] meten live (respons, harmonischen, aliasing, latency, CPU)
+- [x] verken: varianten, archetypes (dub-echo, veerreverb, sidechain-pomp), schetsboek
+- [x] bouwen-stand: stack, formaten, moeite, kosten, risico's, leerpad
+- [x] ABX tegen een referentie; taaktoets-log
+  - De tool staat in tool/index.html (één bestand, `node tool/bouw.mjs`); toets in Chrome: `node tools/headless/tool.mjs` (ook in CI). Readout meet met bandbeweging en modulatie stil en na het inlopen van de echo; zelfoscillatie geeft "n.v.t." met de reden.
 - [ ] artifact + losse pagina — checkpoint D
 
 ## E. Bouwpakket en prompts
-- [ ] export: SPEC, ARCHITECTUUR, design, CLAUDE, TASKS, PROMPTS, testsignalen, dsp/, CI-sjabloon
+- [x] export: SPEC, ARCHITECTUUR, design, CLAUDE, TASKS, PROMPTS, testsignalen, dsp/, CI-sjabloon
 - [ ] 3 verse sessies bouwen fase 0 en 1 met alleen het pakket; pass@3 in PROMPTS.md
 - [ ] de AU van zo'n run haalt auval en pluginval 10 in CI; null-test binnen tolerantie
 - [ ] Clay laadt hem in Logic (checklist fase 7) — **wacht op Clay**

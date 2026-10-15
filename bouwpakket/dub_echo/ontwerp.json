@@ -6,13 +6,13 @@
     {
       "id": "in",
       "type": "in",
-      "x": 40,
+      "x": 20,
       "y": 200
     },
     {
       "id": "band",
       "type": "bandbeweging",
-      "x": 300,
+      "x": 360,
       "y": 60,
       "waarden": {
         "diepte": 0.25
@@ -21,13 +21,13 @@
     {
       "id": "som",
       "type": "som",
-      "x": 160,
+      "x": 130,
       "y": 200
     },
     {
       "id": "tape",
       "type": "tape",
-      "x": 280,
+      "x": 240,
       "y": 200,
       "waarden": {
         "verzadiging": 6
@@ -36,7 +36,7 @@
     {
       "id": "lijn",
       "type": "vertraging",
-      "x": 420,
+      "x": 360,
       "y": 200,
       "waarden": {
         "tijd": 375
@@ -48,7 +48,7 @@
     {
       "id": "laag",
       "type": "hoogdoor1",
-      "x": 560,
+      "x": 480,
       "y": 200,
       "waarden": {
         "freq": 100
@@ -57,7 +57,7 @@
     {
       "id": "toon",
       "type": "svf",
-      "x": 700,
+      "x": 600,
       "y": 200,
       "waarden": {
         "freq": 3000,
@@ -67,8 +67,8 @@
     {
       "id": "terug",
       "type": "versterker",
-      "x": 430,
-      "y": 340,
+      "x": 380,
+      "y": 360,
       "waarden": {
         "hoeveel": 0.5
       }
@@ -76,7 +76,7 @@
     {
       "id": "mix",
       "type": "mix",
-      "x": 840,
+      "x": 790,
       "y": 200,
       "waarden": {
         "mix": 0.375
@@ -85,7 +85,7 @@
     {
       "id": "uit",
       "type": "uit",
-      "x": 960,
+      "x": 910,
       "y": 200
     }
   ],

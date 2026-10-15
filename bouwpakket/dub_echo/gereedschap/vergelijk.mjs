@@ -2,7 +2,7 @@
 // render door het gebouwde binary. Staat los: alleen Node, geen andere bestanden dan testsignalen/ en wasm/.
 //   node gereedschap/vergelijk.mjs <map met renders>      exit 1 als iets boven de grens komt
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,16 +77,19 @@ function statistisch(a, b, sr) {
   }
   return { band, omh };
 }
-// diagnose: klinkt de render als de STANDAARDwaarden? (de WASM uit het pakket, pb_*-ABI)
+// diagnose: klinkt de render als de STANDAARDwaarden? Op de ketenmotor uit het pakket (wasm/graaf.wasm + keten.json).
 function standaardRender(invoer, sr) {
-  const wasm = readdirSync(join(PAKKET, 'wasm')).find((f) => f.endsWith('.wasm'));
-  const { exports: e } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(join(PAKKET, 'wasm', wasm))), {});
-  const h = e.pb_maak(sr), n = invoer[0].length, uit = invoer.map(() => new Float32Array(n));
+  const { exports: e } = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(join(PAKKET, 'wasm', 'graaf.wasm'))), {});
+  const { rij } = JSON.parse(readFileSync(join(PAKKET, 'wasm', 'keten.json'), 'utf8'));
+  const h = e.pg_maak(sr);
+  new Float64Array(e.memory.buffer, e.pg_rij(), rij.length).set(rij);
+  e.pg_laad(h, rij.length);
+  const n = invoer[0].length, uit = invoer.map(() => new Float32Array(n));
   for (let p = 0; p < n; p += 128) {
     const m = Math.min(128, n - p);
-    for (let c = 0; c < invoer.length; c++) new Float32Array(e.memory.buffer, e.pb_in(h, c), m).set(invoer[c].subarray(p, p + m));
-    e.pb_verwerk(h, invoer.length, m);
-    for (let c = 0; c < invoer.length; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pb_uit(h, c), m), p);
+    for (let c = 0; c < invoer.length; c++) new Float32Array(e.memory.buffer, e.pg_in(h, c), m).set(invoer[c].subarray(p, p + m));
+    e.pg_verwerk(h, invoer.length, m);
+    for (let c = 0; c < invoer.length; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pg_uit(h, c), m), p);
   }
   return uit;
 }

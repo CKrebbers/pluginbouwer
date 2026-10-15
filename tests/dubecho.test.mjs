@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { laadOntwerp, render, nullTest, ROOT } from './lib/pb.mjs';
 import { sweep, stukjes, ruis, impuls } from './lib/signalen.mjs';
 import { spectrum, fft, volgendeMacht } from './lib/fft.mjs';
+import { aliasing as aliasingGedeeld, harmonischeNiveausESS } from '../tool/src/meten.js';
 
 const o = laadOntwerp('dub_echo');
 const P = Object.fromEntries(o.params.map((p) => [p.naam, p.index]));
@@ -90,35 +91,8 @@ for (const set of REF_SETS) {
 }
 
 // ------------------------------------------------------------------------------------- harmonischen (ESS)
-function ess(y, x, f1, f2, T) {
-  // Farina 2000: inverse = tijdomgekeerde sweep × e^{−t/L} (compenseert de 6 dB/oct roze tilt); IR = y ∗ inverse
-  const n = x.length, L = T / Math.log(f2 / f1);
-  const inv = new Float64Array(n);
-  for (let i = 0; i < n; i++) inv[i] = x[n - 1 - i] * Math.exp(-(i / SR) / L);
-  const m = volgendeMacht(2 * n);
-  const ar = new Float64Array(m), ai = new Float64Array(m), br = new Float64Array(m), bi = new Float64Array(m);
-  ar.set(y); br.set(inv);
-  fft(ar, ai); fft(br, bi);
-  for (let k = 0; k < m; k++) { const r = ar[k] * br[k] - ai[k] * bi[k], i = ar[k] * bi[k] + ai[k] * br[k]; ar[k] = r; ai[k] = i; }
-  fft(ar, ai, true);
-  return { ir: ar, nul: n - 1, L };
-}
-function harmonischeNiveaus(y, x, f1, f2, T, delay) {
-  const { ir, nul, L } = ess(y, x, f1, f2, T);
-  const uit = {};
-  const lin = nul + delay;
-  for (const k of [1, 2, 3, 5]) {
-    const plek = Math.round(lin - L * Math.log(k) * SR);
-    const len = 2048, re = new Float64Array(len), im = new Float64Array(len);
-    for (let i = 0; i < len; i++) re[i] = ir[plek - 256 + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (len - 1)));
-    fft(re, im);
-    // gemiddeld niveau over 300–3000 Hz (de grondtoon die de harmonische opwekt)
-    let som = 0, nb = 0;
-    for (let b = 0; b < len / 2; b++) { const f = b * SR / len / k; if (f >= 300 && f <= 3000) { som += re[b] * re[b] + im[b] * im[b]; nb++; } }
-    uit[k] = 10 * Math.log10(som / nb + 1e-300);
-  }
-  return uit;
-}
+const harmonischeNiveaus = (y, x, f1, f2, T, delay) => harmonischeNiveausESS(y, x, f1, f2, T, delay, SR);   // gedeeld met de tool
+
 test('harmonischen (exponential sine sweep) tegen de ideale saturatie op 16×', () => {
   const T = 4, f1 = 50, f2 = 20000;
   const x = sweep(f1, f2, SR, T, 0.5);
@@ -138,13 +112,8 @@ test('harmonischen (exponential sine sweep) tegen de ideale saturatie op 16×', 
 });
 
 // ---------------------------------------------------------------------------------------------------- aliasing
-function aliasing(y, k0) {
-  const p = spectrum(y), N = y.length;
-  const harm = new Set(); for (let k = 1; k * k0 <= N / 2; k++) harm.add(k * k0);
-  let grond = p[k0], rest = 0;
-  for (let b = 1; b <= N / 2; b++) if (!harm.has(b)) rest += p[b];
-  return 10 * Math.log10(rest / grond);
-}
+// gedeeld met de tool (tool/src/meten.js): de tool laat dezelfde meting zien
+const aliasing = aliasingGedeeld;
 function saturatieAdaa(x, drive) {
   // het echte blok (pb_t_tape), het hele signaal door één TapeVerzadiging: in stukken met overlap
   const { e } = o, n = x.length, uit = new Float32Array(n), stuk = 4096, overlap = 64;
