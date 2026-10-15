@@ -60,6 +60,10 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **Een Ontwerp zet zijn standaardwaarden zelf** (constructor); niet erop rekenen dat de schil dat doet.
 - **AU-parameters vóór Initialize** bereikten de CLAP niet (clap-wrapper v0.16.0). Gepatcht in `plugin/patches/`;
   bij een nieuwe clap-wrapper eerst kijken of de patch nog nodig is (de null-test op macOS zegt het).
+- **thread_local in clap-wrapper alloceert op macOS** (dyld, calloc bij de eerste render op elke audiothread);
+  pluginval `--rtcheck` vangt het. Tweede patch `plugin/patches/clap-wrapper-geen-thread-local-in-process.patch`,
+  gevonden door alle drie de verse sessies van fase E (onze eigen CI ving het niet; waarom niet is niet uitgezocht).
+  Patches gaan erop via `plugin/cmake/pas-patches-toe.sh` (een `;` direct in PATCH_COMMAND splitst CMake).
 - **Linux-VST3 met `-z nodelete`**: anders crasht pluginval na "SUCCESS" (statics in de VST3 SDK, exit na dlclose).
 - **RTSan-kanarie via een globale sink**: clang -O2 haalt een malloc/free-paar weg, ook met een volatile lokale pointer.
 - **Denormale invoer** nooit als float omzetten om te testen (`pb::invoer` kijkt naar de bits).

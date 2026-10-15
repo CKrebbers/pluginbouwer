@@ -59,12 +59,12 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 ## Toleranties (per meting, met reden)
 | meting | grens | reden | gemeten |
 |---|---|---|---|
-| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | PROMPT.md; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | bit voor bit (CLAP, VST3, AU; Linux en macOS) |
+| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | de opdracht van de Pluginbouwer; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | bit voor bit (CLAP, VST3, AU; Linux en macOS) |
 | zelfoscillatie (chaotisch) | terts-spectrum en omhullende binnen 1 dB | 1 ULP groeit in een lus; statistisch wat je hoort | 0,000 dB |
 | lineair deel tegen de formules | ≤ 0,01 dB, ≤ 0,05° | kubische term van tanh op −60 dBFS, float32-uitvoer | 0,0008 dB, 0,005° |
 | tegen een onafhankelijke float64-referentie (Python) | ≤ −120 dBFS | libm tegen pb_math, float32-uitvoer | −180,6 / −162,6 dBFS |
-| harmonischen (ESS) tegen ideale saturatie op 16× | H3 en H5 binnen 1 dB | PROMPT.md | H3 −0,27 dB, H5 −0,68 dB |
-| intermodulatie (SMPTE 60 Hz + 7 kHz) | binnen 1 dB van ideaal | PROMPT.md | 0,06 dB |
+| harmonischen (ESS) tegen ideale saturatie op 16× | H3 en H5 binnen 1 dB | de opdracht van de Pluginbouwer | H3 −0,27 dB, H5 −0,68 dB |
+| intermodulatie (SMPTE 60 Hz + 7 kHz) | binnen 1 dB van ideaal | de opdracht van de Pluginbouwer | 0,06 dB |
 | aliasing, keten zoals je hem hoort (toon 3 kHz, 12 dB) | ≤ −60 dB onder de grondtoon | ruim onder de ruisvloer van een tape-echo **[RE-201-waarde niet bevestigd]** | −142,9 dB |
 | stabiliteit (324 combinaties) | nooit NaN/Inf, piek ≤ 8 | saturatie houdt de lus onder 1/g | piek 5,04 |
 | staart | onder −90 dBFS binnen de gemelde tijd | host mag na de staart stoppen met process | fb 0.3: 1,60 s ≤ 2,04 s; fb 0.8: 7,24 s ≤ 9,68 s; fb 0.95: 26,04 s ≤ 41,11 s |

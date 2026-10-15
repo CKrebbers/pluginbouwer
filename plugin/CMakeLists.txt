@@ -45,12 +45,13 @@ set(CLAP_WRAPPER_BUILD_AUV2 TRUE CACHE BOOL "" FORCE)
 # Patch: een AU-parameter die de host vóór Initialize() zet, bereikte de CLAP nooit (clap-wrapper v0.16.0,
 # src/wrapasauv2.cpp SetParameter: alleen met een process adapter). Gevonden door de null-test op macOS:
 # pluginval zet de state vóór prepareToPlay. Zie plugin/patches/ en KEUZE-STACK.md.
-set(PB_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/clap-wrapper-auv2-params-voor-init.patch")
+# Tweede patch: de thread_local-tellers van clap-wrapper alloceerden op macOS bij de eerste render op elke audiothread
+# (dyld, calloc); pluginval --rtcheck vangt het. Gevonden door de verse sessies van fase E (zie de kop van de patch).
 FetchContent_Declare(clap-wrapper
   GIT_REPOSITORY https://github.com/free-audio/clap-wrapper.git
   GIT_TAG v0.16.0
   GIT_SHALLOW TRUE
-  PATCH_COMMAND sh -c "git apply --reverse --check '${PB_PATCH}' 2>/dev/null || git apply '${PB_PATCH}'"
+  PATCH_COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/cmake/pas-patches-toe.sh" "${CMAKE_CURRENT_SOURCE_DIR}/patches"
   UPDATE_DISCONNECTED TRUE)
 FetchContent_MakeAvailable(clap-wrapper)
 

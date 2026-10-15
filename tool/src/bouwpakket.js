@@ -81,12 +81,12 @@ ${p.join('\n')}
 ## Toleranties (per meting, met reden)
 | meting | grens | reden | gemeten |
 |---|---|---|---|
-| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | PROMPT.md; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | ${m.null ?? 'bit voor bit (CLAP, VST3, AU; Linux en macOS)'} |
+| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | de opdracht van de Pluginbouwer; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | ${m.null ?? 'bit voor bit (CLAP, VST3, AU; Linux en macOS)'} |
 | zelfoscillatie (chaotisch) | terts-spectrum en omhullende binnen 1 dB | 1 ULP groeit in een lus; statistisch wat je hoort | ${m.statistisch ?? '0,000 dB'} |
 | lineair deel tegen de formules | ≤ 0,01 dB, ≤ 0,05° | kubische term van tanh op −60 dBFS, float32-uitvoer | ${m.lineair ? fmt(m.lineair.maxDb, 4) + ' dB, ' + fmt(m.lineair.maxGraad, 3) + '°' : '—'} |
 | tegen een onafhankelijke float64-referentie (Python) | ≤ −120 dBFS | libm tegen pb_math, float32-uitvoer | ${m['referentie-gewoon'] ? fmt(m['referentie-gewoon'].piekDb, 1) + ' / ' + fmt(m['referentie-heet']?.piekDb, 1) + ' dBFS' : '—'} |
-| harmonischen (ESS) tegen ideale saturatie op 16× | H3 en H5 binnen 1 dB | PROMPT.md | ${m.harmonischen ? 'H3 ' + fmt(m.harmonischen.wasm.H3 - m.harmonischen.ideaal.H3) + ' dB, H5 ' + fmt(m.harmonischen.wasm.H5 - m.harmonischen.ideaal.H5) + ' dB' : '—'} |
-| intermodulatie (SMPTE 60 Hz + 7 kHz) | binnen 1 dB van ideaal | PROMPT.md | ${m.imd ? fmt(m.imd.verschilDb) + ' dB' : '—'} |
+| harmonischen (ESS) tegen ideale saturatie op 16× | H3 en H5 binnen 1 dB | de opdracht van de Pluginbouwer | ${m.harmonischen ? 'H3 ' + fmt(m.harmonischen.wasm.H3 - m.harmonischen.ideaal.H3) + ' dB, H5 ' + fmt(m.harmonischen.wasm.H5 - m.harmonischen.ideaal.H5) + ' dB' : '—'} |
+| intermodulatie (SMPTE 60 Hz + 7 kHz) | binnen 1 dB van ideaal | de opdracht van de Pluginbouwer | ${m.imd ? fmt(m.imd.verschilDb) + ' dB' : '—'} |
 | aliasing, keten zoals je hem hoort (toon 3 kHz, 12 dB) | ≤ −60 dB onder de grondtoon | ruim onder de ruisvloer van een tape-echo **[RE-201-waarde niet bevestigd]** | ${m.aliasingKeten ? fmt(m.aliasingKeten.wasm, 1) + ' dB' : '—'} |
 | stabiliteit (324 combinaties) | nooit NaN/Inf, piek ≤ 8 | saturatie houdt de lus onder 1/g | ${m.stabiliteit ? 'piek ' + fmt(m.stabiliteit.hoogstePiek) : '—'} |
 | staart | onder −90 dBFS binnen de gemelde tijd | host mag na de staart stoppen met process | ${m.staart ? m.staart.map((s) => `fb ${s.terugkoppeling}: ${fmt(s.gemetenS)} s ≤ ${fmt(s.gemeldS)} s`).join('; ') : '—'} |
@@ -170,6 +170,14 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    \`noinline\`, en maak een kanarie (malloc in process, pointer naar een globale variabele) die MOET falen.
 5. **auval vindt de AU niet**: kopieer naar \`~/Library/Audio/Plug-Ins/Components\`, dan \`killall -9 AudioComponentRegistrar\`.
 6. **Denormale invoer**: de DSP regelt het zelf; zet geen eigen FTZ-truc ervoor.
+7. **pluginval \`--rtcheck\` op macOS vangt calloc in clap-wrapper** (\`_tlv_get_addr\` ← \`AlwaysAudioThread\` ←
+   \`WrapAsAUV2::Render\`): twee \`thread_local\`-tellers die dyld per thread lui aanmaakt. Oplossing:
+   \`patches/clap-wrapper-geen-thread-local-in-process.patch\`. Alle patches gaan erop met
+   \`PATCH_COMMAND sh <pakket>/gereedschap/pas-patches-toe.sh <pakket>/patches\` (in naamvolgorde, overgeslagen als hij er
+   al op zit, anders faalt een tweede configure; een \`;\` direct in PATCH_COMMAND splitst CMake in losse argumenten).
+8. **clap-validator kleurt zijn uitvoer altijd** (ook met NO_COLOR): haal de ANSI-codes weg vóór je op "0 failed" grept,
+   of vertrouw op de exitcode.
+9. **pluginval v2**: \`pluginval validate …\` (de vlag \`--validate\` is verouderd); de null-test gebruikt \`pluginval test\`.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
@@ -249,7 +257,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 ## Fase 0 — skelet, CI en alle validators
 **Prompt**
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "${ontwerp.naam}": een CLAP-plugin in
-> \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patch uit \`patches/\`) voor VST3 en AUv2
+> \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit \`patches/\`, in naamvolgorde) voor VST3 en AUv2
 > (\`make_clapfirst_plugins\`, AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
 > \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase mag process nog stil zijn of doorgeven.
 > Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
@@ -362,4 +370,6 @@ export const PAKKET_BRONNEN = {
   'tools/pakket/ci-null.sh': 'gereedschap/ci-null.sh',
   'tools/pakket/vergelijk.mjs': 'gereedschap/vergelijk.mjs',
   'plugin/patches/clap-wrapper-auv2-params-voor-init.patch': 'patches/clap-wrapper-auv2-params-voor-init.patch',
+  'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
+  'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };

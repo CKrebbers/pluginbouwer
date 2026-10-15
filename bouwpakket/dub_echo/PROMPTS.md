@@ -8,7 +8,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 ## Fase 0 — skelet, CI en alle validators
 **Prompt**
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Dub-echo": een CLAP-plugin in
-> `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patch uit `patches/`) voor VST3 en AUv2
+> `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit `patches/`, in naamvolgorde) voor VST3 en AUv2
 > (`make_clapfirst_plugins`, AU maker `Vrve`, subtype `PDca`, type `aufx`). De plugin gebruikt het Ontwerp uit
 > `dsp/ontwerpen/keten_dub_echo.h` (include-pad `dsp/`); in deze fase mag process nog stil zijn of doorgeven.
 > Schrijf `.github/workflows/ci.yml` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,

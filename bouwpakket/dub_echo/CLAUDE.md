@@ -24,6 +24,14 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    `noinline`, en maak een kanarie (malloc in process, pointer naar een globale variabele) die MOET falen.
 5. **auval vindt de AU niet**: kopieer naar `~/Library/Audio/Plug-Ins/Components`, dan `killall -9 AudioComponentRegistrar`.
 6. **Denormale invoer**: de DSP regelt het zelf; zet geen eigen FTZ-truc ervoor.
+7. **pluginval `--rtcheck` op macOS vangt calloc in clap-wrapper** (`_tlv_get_addr` ← `AlwaysAudioThread` ←
+   `WrapAsAUV2::Render`): twee `thread_local`-tellers die dyld per thread lui aanmaakt. Oplossing:
+   `patches/clap-wrapper-geen-thread-local-in-process.patch`. Alle patches gaan erop met
+   `PATCH_COMMAND sh <pakket>/gereedschap/pas-patches-toe.sh <pakket>/patches` (in naamvolgorde, overgeslagen als hij er
+   al op zit, anders faalt een tweede configure; een `;` direct in PATCH_COMMAND splitst CMake in losse argumenten).
+8. **clap-validator kleurt zijn uitvoer altijd** (ook met NO_COLOR): haal de ANSI-codes weg vóór je op "0 failed" grept,
+   of vertrouw op de exitcode.
+9. **pluginval v2**: `pluginval validate …` (de vlag `--validate` is verouderd); de null-test gebruikt `pluginval test`.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
