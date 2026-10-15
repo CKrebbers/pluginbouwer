@@ -71,15 +71,16 @@ ok(zipBytes.length > 100000, `zip gedownload (${(zipBytes.length / 1024).toFixed
 await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Verzadiging'); p.standaard = 6; globalThis.PB.gewijzigd('terug'); });
 await page.waitForTimeout(200);
 const lijst = await page.evaluate(() => { const pak = globalThis.PB.maakPakket(); const uit = {}; for (const [p, v] of Object.entries(pak)) if (p.startsWith('testsignalen/') && p.endsWith('.wav')) { let h = 0; const b = typeof v === 'string' ? new TextEncoder().encode(v) : v; for (let i = 0; i < b.length; i++) h = (h * 31 + b[i]) >>> 0; uit[p] = [b.length, h]; } return uit; });
-let gelijk = 0, totaal = 0;
+let gelijk = 0, totaal = 0; const anders = [];
 for (const [p, [n, h]] of Object.entries(lijst)) {
   totaal++;
   const ci = join(ROOT, 'bouwpakket', 'dub_echo', p);
-  if (!existsSync(ci)) continue;
+  if (!existsSync(ci)) { anders.push(p + ' (ontbreekt)'); continue; }
   const b = readFileSync(ci); let hh = 0; for (let i = 0; i < b.length; i++) hh = (hh * 31 + b[i]) >>> 0;
-  if (b.length === n && hh === h) gelijk++;
+  if (b.length === n && hh === h) gelijk++; else anders.push(p);
 }
-ok(totaal > 0 && gelijk === totaal, `testsignalen uit Chromium = die van CI (${gelijk}/${totaal})`);
+const versie = await browser.version();
+ok(totaal > 0 && gelijk === totaal, `testsignalen uit Chromium ${versie} = die van CI (${gelijk}/${totaal})${anders.length ? ' — anders: ' + anders.join(', ') : ''}`);
 
 // telefoonbreedte: geen horizontale scroll van de pagina
 await page.click('[data-stand="ontwerpen"]');

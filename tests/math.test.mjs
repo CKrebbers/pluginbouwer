@@ -39,3 +39,15 @@ test('tanh en logcosh op [-30, 30]', () => {
   vergelijk('tanh', e.pb_t_tanh, Math.tanh, xs, 8, 1e-16);
   vergelijk('logcosh', e.pb_t_logcosh, (x) => Math.log(Math.cosh(x)), xs.filter((x) => Math.abs(x) < 300), 64, 1e-15);
 });
+
+// tool/src/wiskunde.js (de testsignalen) = pb_math.h in WASM, bit voor bit; anders maakt een browser andere
+// testsignalen dan CI.
+import { sin_, cos_, exp_, log_ } from '../tool/src/wiskunde.js';
+test('wiskunde.js is bit voor bit pb_math.h', () => {
+  const zelfde = (naam, f, g, xs) => { for (const x of xs) { const a = f(x), b = g(x); if (!Object.is(a, b)) assert.fail(`${naam}(${x}): js ${a}, wasm ${b}`); } };
+  const fase = reeks(-1e6, 1e6, 40001).concat(reeks(-10, 10, 40001), [0, -0, 1e-300, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4]);
+  zelfde('sin', sin_, e.pb_t_sin, fase);
+  zelfde('cos', cos_, e.pb_t_cos, fase);
+  zelfde('exp', exp_, e.pb_t_exp, reeks(-746, 710, 40001).concat([0, -0, 709.78, -745.13, 1e-20, -1e-20, NaN]));
+  zelfde('log', log_, e.pb_t_log, reeks(-320, 308, 40001).map((t) => 10 ** t).concat([0, 1, 2, 0.5, 5e-324, 1e-310, Infinity, -1, NaN]));
+});

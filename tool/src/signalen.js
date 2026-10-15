@@ -1,7 +1,9 @@
-// signalen.js — testsignalen, deterministisch (eigen zaad, geen Math.random). Gedeeld door de tool, de toetsen en de export.
+// signalen.js — testsignalen, deterministisch (eigen zaad, geen Math.random, geen Math.sin/exp: die liggen niet vast
+// tussen JS-engines). Gedeeld door de tool, de toetsen en de export.
+import { sin_, exp_, log_ } from './wiskunde.js';
 export function sinus(f, sr, sec, amp = 0.5) {
   const n = Math.round(sr * sec), x = new Float32Array(n);
-  for (let i = 0; i < n; i++) x[i] = amp * Math.sin(2 * Math.PI * f * i / sr);
+  for (let i = 0; i < n; i++) x[i] = amp * sin_(2 * Math.PI * f * i / sr);
   return x;
 }
 export function impuls(n, amp = 1) { const x = new Float32Array(n); x[0] = amp; return x; }
@@ -13,8 +15,8 @@ export function ruis(sr, sec, amp = 0.25, zaad = 12345) {
 }
 // exponential sine sweep (Farina 2000): x(t) = A sin(2π f1 L (e^{t/L} − 1)), L = T / ln(f2/f1)
 export function sweep(f1, f2, sr, sec, amp = 0.5) {
-  const n = Math.round(sr * sec), x = new Float32Array(n), L = sec / Math.log(f2 / f1);
-  for (let i = 0; i < n; i++) x[i] = amp * Math.sin(2 * Math.PI * f1 * L * (Math.exp(i / sr / L) - 1));
+  const n = Math.round(sr * sec), x = new Float32Array(n), L = sec / log_(f2 / f1);
+  for (let i = 0; i < n; i++) x[i] = amp * sin_(2 * Math.PI * f1 * L * (exp_(i / sr / L) - 1));
   return x;
 }
 // een "muziekachtig" stuk: tonen met omhullenden en stiltes, om een echo-staart te zien
@@ -24,8 +26,8 @@ export function stukjes(sr, sec, amp = 0.4) {
   for (let k = 0; k < noten.length; k++) {
     const begin = Math.round(k * 0.35 * sr), len = Math.round(0.12 * sr);
     for (let i = 0; i < len && begin + i < n; i++) {
-      const env = Math.exp(-i / (0.03 * sr));
-      x[begin + i] += amp * env * Math.sin(2 * Math.PI * noten[k] * i / sr);
+      const env = exp_(-i / (0.03 * sr));
+      x[begin + i] += amp * env * sin_(2 * Math.PI * noten[k] * i / sr);
     }
   }
   return x;
