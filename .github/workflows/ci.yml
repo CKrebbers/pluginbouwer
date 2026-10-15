@@ -1,4 +1,4 @@
-# CI — Dub-echo (fase 0: skelet en alle validators). Het log is het bewijs (SPEC.md "Validators").
+# CI — Dub-echo (fase 0: skelet en alle validators; fase 1: null-test door het binary). Het log is het bewijs (SPEC.md "Validators").
 name: ci
 
 on:
@@ -17,6 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Pakketten
         run: |
           sudo apt-get update
@@ -30,6 +34,9 @@ jobs:
 
       - name: Wat er gebouwd is
         run: ls -la build/plugins build/pb-render
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
 
       - name: clap-validator uit de cache
         id: cv-cache
@@ -58,6 +65,17 @@ jobs:
 
       - name: pluginval strictness 10 (VST3, xvfb)
         run: xvfb-run -a pluginval-bin/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3"
+
+      - name: Null-test VST3 Linux (pluginval test, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "$PWD/pluginval-bin/pluginval" vst3-linux
+
+      - name: Renders (Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-test-linux
+          path: uit/
+          if-no-files-found: ignore
 
   rtsan:
     name: RTSan (clang 20, pb-render)
@@ -116,11 +134,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Configureren
         run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
 
       - name: Bouwen
         run: cmake --build build --parallel 4
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
 
       - name: Ad-hoc signeren
         run: |
@@ -160,6 +185,20 @@ jobs:
 
       - name: pluginval strictness 10 --rtcheck (VST3)
         run: '"$PV" validate --strictness-level 10 --rtcheck enabled --verbose ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3"'
+
+      - name: Null-test AU (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" "$PV" au-macos
+
+      - name: Null-test VST3 macOS (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" "$PV" vst3-macos
+
+      - name: Renders (macOS)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-test-macos
+          path: uit/
+          if-no-files-found: ignore
 
       - name: Artefact
         uses: actions/upload-artifact@v4
