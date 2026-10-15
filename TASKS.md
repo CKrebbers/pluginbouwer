@@ -1,7 +1,7 @@
 # TASKS — Dub-echo
 
 - [x] Fase 0 — skelet, CI en alle validators (PROMPTS.md §0) — zie UITSLAG-fase0.md
-- [ ] Fase 1 — DSP aansluiten; null-test door het binary groen (§1)
+- [x] Fase 1 — DSP aansluiten; null-test door het binary groen (§1) — zie UITSLAG-fase1.md
 - [ ] Fase 2 — parameters, automatisering, state (§2)
 - [ ] Fase 3 — UI: het frontpaneel uit design.md (§3)
 - [ ] Fase 4 — presets (§4)
