@@ -1,4 +1,4 @@
-# CI van Dub-echo — fase 0: bouwen en alle validators. Het log is het bewijs (SPEC.md "Validators").
+# CI van Dub-echo — fase 0: bouwen en alle validators; fase 1: de null-test door het gebouwde binary. Het log is het bewijs (SPEC.md "Validators").
 name: ci
 
 on:
@@ -30,6 +30,9 @@ jobs:
           cmake --build build
           ls -la build/plugins
 
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+
       - name: clap-validator uit de cache
         id: cv-cache
         uses: actions/cache@v4
@@ -57,6 +60,16 @@ jobs:
           unzip -o pluginval.zip
           chmod +x pluginval
           xvfb-run -a ./pluginval validate --strictness-level 10 --verbose "build/plugins/$PLUGIN_NAAM.vst3"
+
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: sh gereedschap/ci-null.sh pluginval "build/plugins/$PLUGIN_NAAM.vst3" "xvfb-run -a ./pluginval" vst3-linux
+
+      - name: Null-test-renders (Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-linux
+          path: uit/
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -90,6 +103,9 @@ jobs:
               ./build-rtsan/pb-render "build-rtsan/plugins/$PLUGIN_NAAM.clap" "$wav" /tmp/uit.wav --blok "$blok"
             done
           done
+          # ook met parameters en een state-rondje (de parameter- en state-paden van de plugin)
+          ./build-rtsan/pb-render "build-rtsan/plugins/$PLUGIN_NAAM.clap" testsignalen/echo-heet.in.wav /tmp/uit.wav \
+            --blok 3,128,1,4096,77 --state-rondje --p 1=167.5 --p 2=0.9375 --p 6=12
 
       - name: RTSan kanarie (MOET falen)
         env:
@@ -117,6 +133,9 @@ jobs:
           cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build build --config Release -j 4
           ls -la build/plugins
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
 
       - name: Ad-hoc signeren
         run: |
@@ -155,6 +174,23 @@ jobs:
         run: |
           pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
             ~/Library/Audio/Plug-Ins/VST3/"$PLUGIN_NAAM.vst3"
+
+      - name: Null-test AU (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"$PLUGIN_NAAM.component" \
+            "pluginval.app/Contents/MacOS/pluginval" au-macos
+
+      - name: Null-test VST3 (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"$PLUGIN_NAAM.vst3" \
+            "pluginval.app/Contents/MacOS/pluginval" vst3-macos
+
+      - name: Null-test-renders (macOS)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-macos
+          path: uit/
 
       - name: Artefact
         if: always()
