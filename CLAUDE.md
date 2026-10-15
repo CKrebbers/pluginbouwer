@@ -48,7 +48,8 @@ host/           pb-render: kleine CLAP-host die een WAV door een .clap stuurt (L
 ref/            onafhankelijke float64-referentie in Python/NumPy (andere code dan dsp/)
 tests/          Node-toetsen (node --test): formules, blokgrootte, null-test, statistisch
 testsignalen/   gegenereerde WAV's + verwachte uitvoer (CSV/WAV), met het script dat ze maakt
-tool/           de ontwerper: src/ → één index.html (WASM ingebakken)
+tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.html (claude.ai), via bouw.mjs; WASM ingebakken
+tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
 ```
