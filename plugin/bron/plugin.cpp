@@ -217,14 +217,13 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) {
     if (i >= 0) nieuw[i] = klem(i, waarde);
   }
   for (int i = 0; i < N; ++i) z->waarde[i].store(nieuw[i], std::memory_order_relaxed);
-  if (z->actief) {
-    z->stateNieuw.store(true, std::memory_order_release);  // process (of flush) neemt het over
-    if (z->host) {
-      auto* hp = static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS));
-      if (hp && hp->request_flush) hp->request_flush(z->host);
-    }
-  } else {
-    for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, nieuw[i]);  // niets draait: direct
+  if (z->actief) z->stateNieuw.store(true, std::memory_order_release);  // process (of flush) neemt het over
+  else for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, nieuw[i]);  // niets draait: direct
+  // de host moet de nieuwe waarden opnieuw lezen (en, als hij actief is, flush of process aanroepen)
+  auto* hp = z->host ? static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS)) : nullptr;
+  if (hp) {
+    if (hp->rescan) hp->rescan(z->host, CLAP_PARAM_RESCAN_VALUES);
+    if (z->actief && hp->request_flush) hp->request_flush(z->host);
   }
   return true;
 }
