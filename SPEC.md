@@ -115,3 +115,5 @@ clap-validator (ook de preset-tests en `layout-audio-ports-config`, `layout-conf
 `process-varying-sample-rates`/`-block-sizes`, die moeten slagen en niet overgeslagen worden), RTSan met een
 kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render), en de
 null-matrix van fase 5 (pb-render, pluginval test, en au-render voor de AU in mono, mono → stereo en stereo).
+Fase 6: het installatiepakket (`PB-Dub-echo.pkg`) wordt op een schone macOS-runner geïnstalleerd met
+`installer -pkg … -target /`; daarna auval -strict, ook na een tweede installatie eroverheen.

@@ -9,7 +9,8 @@ plugin/ui/           het frontpaneel (fase 3): paneel.h (indeling, knop <-> waar
                      paneel_mac.mm (NSView, CoreGraphics/CoreText), lettertypen/ (Plex Mono, Silkscreen; OFL, ingebed)
 gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh,
                      presets-plat.mjs (presets/*.json plat, voor de presettoetsen),
-                     wasm-render.mjs (referentie uit wasm/graaf.wasm bij elke sr en indeling), null-matrix.mjs (fase 5)
+                     wasm-render.mjs (referentie uit wasm/graaf.wasm bij elke sr en indeling), null-matrix.mjs (fase 5),
+                     maak-pkg.sh (fase 6: het installatiepakket)
 presets/             de fabriekspresets (JSON: naam, uitleg, waarden per parameternaam)
 testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
 ```
@@ -119,6 +120,19 @@ Een preset is een naam plus parameterwaarden per naam, als JSON in het pakket (`
   (`plugin/toetsen/au-render.cpp` op de geïnstalleerde AU: 6 samplerates × 3 indelingen, en BypassEffect). De
   referentie is steeds `wasm/graaf.wasm` via `gereedschap/wasm-render.mjs`; die geeft bij 48 en 44,1 kHz bit voor bit
   `testsignalen/*.verwacht.wav`. De invoer is bij elke samplerate dezelfde reeks samples.
+
+## Installatiepakket (fase 6)
+`gereedschap/maak-pkg.sh` maakt met `pkgbuild` één componentpakket (`nl.varve.pluginbouwer.dub-echo.pkg`) met:
+- `/Library/Audio/Plug-Ins/Components/PB-Dub-echo.component`, `/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3` en
+  `/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap` (voor alle gebruikers; de standaardplekken van de drie formaten);
+- een `postinstall` die `killall -9 AudioComponentRegistrar` doet (valkuil 5).
+
+De bundels zijn ad-hoc gesigneerd vóór ze erin gaan; het script eist dat `codesign --verify --strict` slaagt. Het
+pakket zelf is niet gesigneerd: een .pkg-handtekening vraagt een "Developer ID Installer"-certificaat, ad-hoc bestaat
+daar niet. In de componentenlijst staat `BundleIsRelocatable` uit: anders zoekt installer een bestaande bundel met
+dezelfde bundel-id (bv. een kopie in `~/Library` of de build-map) en zet hij de update dáár neer.
+CI: de macOS-job maakt het pakket (artefact `macos-pkg`); de job `macos-pkg` installeert het op een schone runner en
+draait auval. Notariseren staat als optie in LEERPAD.md.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
