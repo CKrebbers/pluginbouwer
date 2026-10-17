@@ -269,6 +269,18 @@ jobs:
             codesign --verify --verbose "$b"
           done
 
+      - name: Installatiepakket maken (fase 6; pkgbuild, bundels ad-hoc gesigneerd)
+        run: |
+          mkdir -p pakket
+          sh gereedschap/maak-pkg.sh build/plugins "$(sed -n 's/^project(dub_echo VERSION \([0-9.]*\).*/\1/p' plugin/CMakeLists.txt)" pakket/PB-Dub-echo.pkg
+
+      - name: Installatiepakket als artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: pakket/PB-Dub-echo.pkg
+          if-no-files-found: error
+
       - name: Installeren in ~/Library/Audio/Plug-Ins
         run: |
           P=~/Library/Audio/Plug-Ins
@@ -384,3 +396,65 @@ jobs:
             build/plugins/PB-Dub-echo.clap
             build/plugins/PB-Dub-echo.vst3
             build/plugins/PB-Dub-echo.component
+
+  macos-pkg:
+    # Fase 6: het pakket installeren op een schone runner (hier is nooit iets gebouwd of gekopieerd), daarna auval.
+    name: macOS arm64 (installatiepakket op een schone runner, auval)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pakket ophalen
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: pakket
+
+      - name: De runner is schoon (geen Dub-echo in Plug-Ins, auval kent PDca/Vrve niet)
+        run: |
+          for d in /Library/Audio/Plug-Ins ~/Library/Audio/Plug-Ins; do
+            if ls -d "$d"/*/PB-Dub-echo.* 2>/dev/null; then echo "FOUT: al aanwezig in $d"; exit 1; fi
+          done
+          if auval -a | grep -i "PDca"; then echo "FOUT: auval kent de AU al"; exit 1; fi
+          echo "schoon: geen PB-Dub-echo.* in /Library/Audio/Plug-Ins of ~/Library/Audio/Plug-Ins, geen PDca in auval -a"
+
+      - name: Pakket bekijken
+        run: |
+          pkgutil --payload-files pakket/PB-Dub-echo.pkg
+          pkgutil --check-signature pakket/PB-Dub-echo.pkg || true
+
+      - name: Installeren (installer -pkg ... -target /)
+        run: |
+          sudo installer -verbose -pkg pakket/PB-Dub-echo.pkg -target /
+          pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg
+          pkgutil --files nl.varve.pluginbouwer.dub-echo.pkg | grep -E "^Library/Audio/Plug-Ins/[^/]+/PB-Dub-echo\.[a-z0-9]+$"
+
+      - name: Op de juiste plek en de handtekening klopt
+        run: |
+          P=/Library/Audio/Plug-Ins
+          for b in "$P/Components/PB-Dub-echo.component" "$P/VST3/PB-Dub-echo.vst3" "$P/CLAP/PB-Dub-echo.clap"; do
+            test -d "$b" || { echo "FOUT: $b ontbreekt"; exit 1; }
+            codesign --verify --strict --verbose "$b"
+            codesign -dv "$b" 2>&1 | grep -E "Signature=adhoc|Identifier="
+            echo "aanwezig en geldig gesigneerd: $b"
+          done
+
+      - name: auval -strict na installatie uit het pakket
+        run: |
+          auval -a | grep -i "Vrve" || true
+          set +e
+          auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
+          status=${PIPESTATUS[0]}
+          set -e
+          grep -n -A6 "Channel Handling" auval.log || true
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+          exit $status
+
+      - name: Nogmaals installeren (bijwerken over een bestaande installatie) en opnieuw auval
+        run: |
+          sudo installer -pkg pakket/PB-Dub-echo.pkg -target /
+          test -d /Library/Audio/Plug-Ins/Components/PB-Dub-echo.component
+          codesign --verify --strict /Library/Audio/Plug-Ins/Components/PB-Dub-echo.component
+          auval -strict -v aufx PDca Vrve > auval2.log 2>&1
+          grep "AU VALIDATION SUCCEEDED" auval2.log
