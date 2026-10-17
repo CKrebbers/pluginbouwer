@@ -41,6 +41,13 @@ jobs:
           set -o pipefail
           sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
 
+      - name: Fase 2 — tekst, state-toets (build zonder parameter N), automatisering
+        run: |
+          set -o pipefail
+          # een locale met een decimale komma, zodat de teksttoets ook die host-situatie doorloopt
+          sudo localedef -i nl_NL -f UTF-8 nl_NL.UTF-8
+          PB_EIS_KOMMA=1 sh plugin/toets/toets-fase2.sh build 2>&1 | tee toets-fase2.log
+
       - name: Cache clap-validator
         uses: actions/cache@v4
         with:
@@ -84,6 +91,8 @@ jobs:
           echo "pluginval VST3 Linux: $(grep -E 'Strictness level|^SUCCESS|FAILED' pluginval-vst3.log | tr '\n' ' ')"
           echo "null-test CLAP Linux:"; grep -E '^###|^\| (echo|zelf|sweep)' null-clap.log
           echo "null-test VST3 Linux:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
+          echo "clap-validator fase 2:"; sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -A12 -E '─ (param-conversions|param-fuzz-|state-reproducibility-|param-set-)' | grep -E '─ |PASSED|FAILED|SKIPPED'
+          echo "eigen toetsen fase 2 Linux:"; grep -E '^(state-toets|tekst|automatisering):|^###|^\| (echo|zelf|sweep)|FOUT' toets-fase2.log
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -106,7 +115,7 @@ jobs:
         env: { CC: clang-20, CXX: clang++-20 }
         run: |
           cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_FORMATS=CLAP -DPB_RTSAN=ON
-          cmake --build build --target keten_dub_echo_clap pb-render
+          cmake --build build --target keten_dub_echo_clap pb-render pb-toetsen
 
       - name: RTSan schoon (alle testsignalen, blok 512 en wisselend)
         run: |
@@ -121,6 +130,9 @@ jobs:
 
       - name: Null-test CLAP met de RTSan-bouw (parameters, wisselende blokken, state-rondje)
         run: sh gereedschap/ci-null.sh clap build
+
+      - name: Fase 2-toetsen met de RTSan-bouw (events midden in blokken, state-load terwijl actief)
+        run: sh plugin/toets/toets-fase2.sh build
 
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
@@ -161,6 +173,11 @@ jobs:
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
+
+      - name: Fase 2 — tekst, state-toets (build zonder parameter N), automatisering
+        run: |
+          set -o pipefail
+          PB_EIS_KOMMA=1 sh plugin/toets/toets-fase2.sh build 2>&1 | tee toets-fase2.log
 
       - name: Ad-hoc signeren
         run: |
@@ -223,6 +240,7 @@ jobs:
           echo "null-test CLAP macOS:"; grep -E '^###|^\| (echo|zelf|sweep)' null-clap.log
           echo "null-test AU macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-au.log
           echo "null-test VST3 macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
+          echo "eigen toetsen fase 2 macOS:"; grep -E '^(state-toets|tekst|automatisering):|^###|^\| (echo|zelf|sweep)|FOUT|komma' toets-fase2.log
 
       - name: Artefact klaarzetten
         if: always()

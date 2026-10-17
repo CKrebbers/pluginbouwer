@@ -48,6 +48,8 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
+- Tekst in gewone eenheden (ms/s, Hz/kHz, dB, Q, en procenten voor de parameters zonder eenheid); zie
+  ARCHITECTUUR.md "Parameters: tekst en eenheden".
 
 ## Budgetten
 | wat | budget | geschat/gemeten |
@@ -77,3 +79,6 @@ volgende stap als het hoorbaar is.
 ## Validators (CI, het log is het bewijs)
 pluginval strictness 10 (AU en VST3; met `--rtcheck enabled` op macOS), auval -strict, clap-validator, RTSan met een
 kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+Eigen toetsen (fase 2, `plugin/toets/toets-fase2.sh`): tekst ↔ waarde, state van een build zonder parameter N in de
+echte build (en omgekeerd), automatisering op zijn sample los van de blokindeling, en de null-test met de waarden
+als automatisering (events midden in wisselende blokken).

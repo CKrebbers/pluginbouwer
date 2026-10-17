@@ -72,3 +72,41 @@ if (PB_RTSAN)
   target_compile_options(pb-render PRIVATE -fsanitize=realtime)
   target_link_options(pb-render PRIVATE -fsanitize=realtime)
 endif()
+
+# Fase 2: de eigen toetsen (plugin/toets). pb-toets is een kleine CLAP-host voor
+#   - de state-toets: state van een build zonder parameter N laadt in de echte build (en omgekeerd);
+#   - automatisering: dezelfde waarden als events midden in blokken veranderen niets aan de null-test.
+# Per parameter-id uit dsp/ontwerpen/keten_dub_echo.h een kale CLAP (build/zonder/zonder-<id>.clap) die dat id niet kent,
+# zoals een oudere versie van de plugin. Die worden nooit uitgeleverd.
+option(PB_TOETSEN "Bouw pb-toets en de CLAPs zonder parameter N (state-toets)" ON)
+if (PB_TOETSEN)
+  add_executable(pb-toets toets/pb-toets.cpp)
+  target_link_libraries(pb-toets PRIVATE clap ${CMAKE_DL_LIBS})
+  set_target_properties(pb-toets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  if (PB_RTSAN)
+    target_compile_options(pb-toets PRIVATE -fsanitize=realtime)
+    target_link_options(pb-toets PRIVATE -fsanitize=realtime)
+  endif()
+
+  # de id's uit de regels "{<id>, \"<naam>\", ..." van PB_PARAMS
+  file(READ ${PB_PAKKET}/dsp/ontwerpen/keten_dub_echo.h PB_ONTWERP)
+  string(REGEX MATCHALL "\n *\\{[0-9]+, \"" PB_PARAM_REGELS "${PB_ONTWERP}")
+  set(PB_PARAM_IDS "")
+  foreach(regel IN LISTS PB_PARAM_REGELS)
+    string(REGEX MATCH "[0-9]+" id "${regel}")
+    list(APPEND PB_PARAM_IDS ${id})
+  endforeach()
+  message(STATUS "state-toets: CLAPs zonder parameter ${PB_PARAM_IDS}")
+  set(PB_ZONDER_TARGETS "")
+  foreach(id IN LISTS PB_PARAM_IDS)
+    add_library(pb-zonder-${id}-impl STATIC bron/plugin.cpp)
+    target_link_libraries(pb-zonder-${id}-impl PUBLIC clap PRIVATE pb-dsp)
+    target_compile_definitions(pb-zonder-${id}-impl PRIVATE PB_ZONDER_PARAM=${id})
+    add_library(pb-zonder-${id} MODULE bron/entry.cpp)
+    target_link_libraries(pb-zonder-${id} PRIVATE pb-zonder-${id}-impl)
+    set_target_properties(pb-zonder-${id} PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "zonder-${id}"
+      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/zonder)
+    list(APPEND PB_ZONDER_TARGETS pb-zonder-${id})
+  endforeach()
+  add_custom_target(pb-toetsen DEPENDS pb-toets ${PB_ZONDER_TARGETS})
+endif()

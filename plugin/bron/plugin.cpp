@@ -1,11 +1,14 @@
-// plugin.cpp — de CLAP-schil rond het Ontwerp uit dsp/ (fase 1: de DSP aangesloten).
+// plugin.cpp — de CLAP-schil rond het Ontwerp uit dsp/ (fase 2: parameters af, tekst in gewone eenheden).
 // process roept Ontwerp::verwerk aan en splitst het blok bij elk parameter-event, zodat elke waarde op zijn sample
 // ingaat. Parameters: CLAP-params met id, bereik en standaard uit Ontwerp::PARAMS (de DSP neemt de INDEX).
 // Threads (ARCHITECTUUR.md): de audiothread schrijft het Ontwerp alleen in process/flush; de mainthread leest en
 // schrijft parameterwaarden via een atomische spiegel, en een state-load gaat via een vlag naar de audiothread.
+// PB_ZONDER_PARAM=<id> bouwt een schil die parameter <id> niet kent (zoals een oudere versie): alleen voor de
+// state-toets (plugin/toets), nooit voor een uitgeleverde plugin.
 #include <clap/clap.h>
 
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -48,13 +51,31 @@ const clap_plugin_descriptor_t DESCRIPTOR = {
 constexpr int N = Ontwerp::N_PARAMS;
 constexpr uint32_t STAART_ONEINDIG = UINT32_MAX;
 
+// verborgen: de parameter die deze build niet kent (alleen met PB_ZONDER_PARAM, voor de state-toets)
+constexpr bool verborgen(int i) {
+#ifdef PB_ZONDER_PARAM
+  return Ontwerp::PARAMS[i].id == (clap_id)PB_ZONDER_PARAM;
+#else
+  return (void)i, false;
+#endif
+}
+constexpr int telZichtbaar() {
+  int n = 0;
+  for (int i = 0; i < N; ++i) n += verborgen(i) ? 0 : 1;
+  return n;
+}
+constexpr int N_ZICHTBAAR = telZichtbaar();
+#ifdef PB_ZONDER_PARAM
+static_assert(N_ZICHTBAAR == N - 1, "PB_ZONDER_PARAM is geen parameter-id uit PARAMS");
+#endif
+
 struct Plugin {
   clap_plugin_t clap{};
   const clap_host_t* host = nullptr;
   Ontwerp* ontwerp = nullptr;
   unsigned char* geheugen = nullptr;
   double sr = 48000;
-  bool actief = false;                          // mainthread
+  std::atomic<bool> actief{false};              // gezet op de mainthread (activate/deactivate)
   std::atomic<double> waarde[N];                // spiegel van elke parameter (doelwaarde), voor get_value en state
   std::atomic<bool> stateNieuw{false};          // mainthread laadde state terwijl actief: process neemt de spiegel over
   std::atomic<uint32_t> staart{0};              // in samples; berekend op de audiothread (staartSec leest smoothers)
@@ -62,14 +83,22 @@ struct Plugin {
 
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
 
-// de INDEX in PARAMS bij een parameter-id, of -1
+// de INDEX in PARAMS bij een parameter-id, of -1 (ook voor een verborgen parameter)
 int indexVan(clap_id id) {
   for (int i = 0; i < N; ++i)
-    if (Ontwerp::PARAMS[i].id == id) return i;
+    if (Ontwerp::PARAMS[i].id == id) return verborgen(i) ? -1 : i;
   return -1;
 }
+// de INDEX in PARAMS bij de positie in de lijst die de host ziet (verborgen parameters overgeslagen), of -1
+int indexOpPositie(uint32_t positie) {
+  for (int i = 0; i < N; ++i)
+    if (!verborgen(i) && positie-- == 0) return i;
+  return -1;
+}
+// binnen het bereik; een parameter met STAPPEN alleen op hele getallen
 double klem(int i, double v) {
   const auto& pi = Ontwerp::PARAMS[i];
+  if (pi.vlaggen & pb::STAPPEN) v = std::floor(v + 0.5);
   if (!(v >= pi.min)) return pi.min;  // ook NaN
   return v > pi.max ? pi.max : v;
 }
@@ -100,10 +129,142 @@ void neemStateOver(Plugin* z) {
   for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, z->waarde[i].load(std::memory_order_relaxed));
 }
 
+// --- tekst <-> waarde in gewone eenheden ---------------------------------------------------------------------
+// Tijd in ms (vanaf 1 s in s), frequenties in Hz (vanaf 1 kHz in kHz), Verzadiging in dB, Resonantie als Q, en de
+// parameters zonder eenheid (0..1, Terugkoppeling 0..1,25) in procenten. De waarde wordt eerst afgerond op wat de
+// tekst laat zien en pas dan krijgt hij zijn eenheid; zo geeft tekst → waarde → tekst altijd dezelfde tekst
+// (clap-validator param-conversions). Altijd een punt als decimaalteken, ook als de host een locale zet; bij het
+// lezen mag ook een komma.
+enum class Soort { MS, HZ, DB, Q, PROCENT, ANDERS };
+Soort soortVan(int i) {
+  const char* e = Ontwerp::PARAMS[i].eenheid;
+  if (!std::strcmp(e, "ms")) return Soort::MS;
+  if (!std::strcmp(e, "Hz")) return Soort::HZ;
+  if (!std::strcmp(e, "dB")) return Soort::DB;
+  if (!std::strcmp(e, "Q")) return Soort::Q;
+  if (!*e) return Soort::PROCENT;
+  return Soort::ANDERS;
+}
+// afgerond op d decimalen (d < 0: op tientallen e.d.); +0.0 maakt van −0 een 0
+double rondAf(double v, int d) {
+  if (d < 0) {
+    const double stap = std::pow(10.0, -d);
+    return std::floor(v / stap + 0.5) * stap + 0.0;
+  }
+  const double schaal = std::pow(10.0, d);
+  return std::floor(v * schaal + 0.5) / schaal + 0.0;
+}
+void schrijfGetal(char* tekst, uint32_t grootte, const char* formaat, double v, const char* eenheid) {
+  std::snprintf(tekst, grootte, formaat, v, eenheid);
+  for (char* c = tekst; *c; ++c)
+    if (*c == ',') *c = '.';  // een host-locale met een komma
+}
+void naarTekst(int i, double v, char* tekst, uint32_t grootte) {
+  if (Ontwerp::PARAMS[i].vlaggen & pb::STAPPEN) {
+    schrijfGetal(tekst, grootte, *Ontwerp::PARAMS[i].eenheid ? "%.0f %s" : "%.0f%s", rondAf(v, 0), Ontwerp::PARAMS[i].eenheid);
+    return;
+  }
+  switch (soortVan(i)) {
+    case Soort::MS: {
+      if (rondAf(v, 1) < 100) return schrijfGetal(tekst, grootte, "%.1f %s", rondAf(v, 1), "ms");
+      if (rondAf(v, 0) < 1000) return schrijfGetal(tekst, grootte, "%.0f %s", rondAf(v, 0), "ms");
+      return schrijfGetal(tekst, grootte, "%.3f %s", rondAf(v, 0) / 1000, "s");
+    }
+    case Soort::HZ: {
+      if (rondAf(v, 1) < 100) return schrijfGetal(tekst, grootte, "%.1f %s", rondAf(v, 1), "Hz");
+      if (rondAf(v, 0) < 1000) return schrijfGetal(tekst, grootte, "%.0f %s", rondAf(v, 0), "Hz");
+      return schrijfGetal(tekst, grootte, "%.2f %s", rondAf(v, -1) / 1000, "kHz");
+    }
+    case Soort::DB: return schrijfGetal(tekst, grootte, "%.1f %s", rondAf(v, 1), "dB");
+    case Soort::Q: return schrijfGetal(tekst, grootte, "%.3f%s", rondAf(v, 3), "");
+    case Soort::PROCENT: return schrijfGetal(tekst, grootte, "%.1f %s", rondAf(v * 100, 1), "%");
+    case Soort::ANDERS: return schrijfGetal(tekst, grootte, "%.4g %s", v, Ontwerp::PARAMS[i].eenheid);
+  }
+}
+// een decimaal getal (punt of komma), zonder locale: m / 10^k. Geeft de positie na het getal, of nullptr.
+const char* leesGetal(const char* t, double* m, int* k) {
+  bool negatief = false;
+  if (*t == '+' || *t == '-') negatief = *t++ == '-';
+  *m = 0; *k = 0;
+  int cijfers = 0;
+  bool punt = false;
+  for (;; ++t) {
+    if (*t >= '0' && *t <= '9') {
+      if (cijfers < 17) {
+        *m = *m * 10 + (*t - '0');
+        if (punt) ++*k;
+      } else if (!punt) {
+        *m *= 10;  // te veel cijfers: de rest telt alleen nog als grootte
+      }
+      ++cijfers;
+    } else if ((*t == '.' || *t == ',') && !punt) {
+      punt = true;
+    } else {
+      break;
+    }
+  }
+  if (cijfers == 0) return nullptr;
+  if (negatief) *m = -*m;
+  return t;
+}
+bool gelijkLetters(const char* a, const char* b) {  // hoofdletterongevoelig
+  for (; *a && *b; ++a, ++b)
+    if (std::tolower((unsigned char)*a) != std::tolower((unsigned char)*b)) return false;
+  return !*a && !*b;
+}
+bool uitTekst(int i, const char* tekst, double* v) {
+  while (std::isspace((unsigned char)*tekst)) ++tekst;
+  double m; int k;
+  const char* rest = leesGetal(tekst, &m, &k);
+  if (!rest) return false;
+  char eenheid[16]; uint32_t n = 0;
+  for (; *rest; ++rest)
+    if (!std::isspace((unsigned char)*rest)) {
+      if (n + 1 >= sizeof eenheid) return false;
+      eenheid[n++] = *rest;
+    }
+  eenheid[n] = 0;
+  const double tienMacht = std::pow(10.0, k);
+  double w;
+  const bool kaal = n == 0;
+  switch (Ontwerp::PARAMS[i].vlaggen & pb::STAPPEN ? Soort::ANDERS : soortVan(i)) {
+    case Soort::MS:
+      if (kaal || gelijkLetters(eenheid, "ms")) w = m / tienMacht;
+      else if (gelijkLetters(eenheid, "s")) w = m * 1000 / tienMacht;
+      else return false;
+      break;
+    case Soort::HZ:
+      if (kaal || gelijkLetters(eenheid, "Hz")) w = m / tienMacht;
+      else if (gelijkLetters(eenheid, "kHz") || gelijkLetters(eenheid, "k")) w = m * 1000 / tienMacht;
+      else return false;
+      break;
+    case Soort::DB:
+      if (!kaal && !gelijkLetters(eenheid, "dB")) return false;
+      w = m / tienMacht;
+      break;
+    case Soort::Q:
+      if (!kaal && !gelijkLetters(eenheid, "Q")) return false;
+      w = m / tienMacht;
+      break;
+    case Soort::PROCENT:  // de tekst is in procenten, ook zonder "%"
+      if (!kaal && std::strcmp(eenheid, "%")) return false;
+      w = m / (tienMacht * 100);
+      break;
+    case Soort::ANDERS:
+      if (!kaal && !gelijkLetters(eenheid, Ontwerp::PARAMS[i].eenheid)) return false;
+      w = m / tienMacht;
+      break;
+  }
+  if (!std::isfinite(w)) return false;
+  *v = klem(i, w);
+  return true;
+}
+
 // --- params -------------------------------------------------------------------------------------------------
-uint32_t paramAantal(const clap_plugin_t*) { return N; }
-bool paramInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
-  if (index >= (uint32_t)N) return false;
+uint32_t paramAantal(const clap_plugin_t*) { return N_ZICHTBAAR; }
+bool paramInfo(const clap_plugin_t*, uint32_t positie, clap_param_info_t* info) {
+  const int index = indexOpPositie(positie);
+  if (index < 0) return false;
   const auto& pi = Ontwerp::PARAMS[index];
   std::memset(info, 0, sizeof *info);
   info->id = pi.id;
@@ -123,31 +284,28 @@ bool paramWaarde(const clap_plugin_t* p, clap_id id, double* v) {
   *v = zelf(p)->waarde[i].load(std::memory_order_relaxed);
   return true;
 }
-// tekst in gewone eenheden; fase 2 maakt dit af (stapjes, ms/s, kHz)
 bool paramNaarTekst(const clap_plugin_t*, clap_id id, double v, char* tekst, uint32_t grootte) {
   const int i = indexVan(id);
-  if (i < 0 || grootte == 0) return false;
-  const char* eenheid = Ontwerp::PARAMS[i].eenheid;
-  std::snprintf(tekst, grootte, *eenheid ? "%.4g %s" : "%.4g", v, eenheid);
+  if (i < 0 || !tekst || grootte == 0) return false;
+  naarTekst(i, v, tekst, grootte);
   return true;
 }
 bool paramUitTekst(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
   const int i = indexVan(id);
-  if (i < 0 || !tekst) return false;
-  char* eind = nullptr;
-  const double w = std::strtod(tekst, &eind);
-  if (eind == tekst || !std::isfinite(w)) return false;
-  *v = klem(i, w);
-  return true;
+  if (i < 0 || !tekst || !v) return false;
+  return uitTekst(i, tekst, v);
 }
 void paramFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
   // [actief ? audiothread : mainthread]; in beide gevallen draait process niet tegelijk
+  // Zonder process: de host zet waarden terwijl er geen audio loopt (een project openen, automatisering lezen
+  // terwijl het transport stilstaat). De events gaan in de DSP en de spiegel; de staart volgt als hij actief is.
   Plugin* z = zelf(p);
   neemStateOver(z);
   if (in) {
     const uint32_t n = in->size(in);
     for (uint32_t k = 0; k < n; ++k) doeEvent(z, in->get(in, k));
   }
+  if (z->actief.load(std::memory_order_relaxed)) rekenStaart(z);
 }
 const clap_plugin_params_t PARAMS_EXT = {paramAantal, paramInfo, paramWaarde, paramNaarTekst, paramUitTekst, paramFlush};
 
@@ -195,9 +353,10 @@ bool leesAlles(const clap_istream_t* s, void* p, uint64_t n) {
 }
 bool stateSave(const clap_plugin_t* p, const clap_ostream_t* s) {
   Plugin* z = zelf(p);
-  const uint32_t kop[3] = {STATE_MAGIE, STATE_VERSIE, (uint32_t)N};
+  const uint32_t kop[3] = {STATE_MAGIE, STATE_VERSIE, (uint32_t)N_ZICHTBAAR};
   if (!schrijfAlles(s, kop, sizeof kop)) return false;
   for (int i = 0; i < N; ++i) {
+    if (verborgen(i)) continue;
     const uint32_t id = Ontwerp::PARAMS[i].id;
     const double waarde = z->waarde[i].load(std::memory_order_relaxed);
     if (!schrijfAlles(s, &id, sizeof id) || !schrijfAlles(s, &waarde, sizeof waarde)) return false;
