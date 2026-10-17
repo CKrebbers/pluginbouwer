@@ -61,7 +61,14 @@ jobs:
           chmod +x pluginval/pluginval
 
       - name: pluginval strictness 10 (VST3, xvfb)
-        run: xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3"
+        run: |
+          set -o pipefail
+          xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
+
+      - name: Bewijs (kernregels uit de logs hierboven)
+        run: |
+          echo "clap-validator: $(sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -E 'tests run, .* failed')"
+          echo "pluginval VST3 Linux: $(grep -E 'Strictness level|^SUCCESS|FAILED' pluginval-vst3.log | tr '\n' ' ')"
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -92,6 +99,7 @@ jobs:
             ./build/pb-render "build/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n-w.wav" --blok 3,128,1,4096,77 --state-rondje
             echo "RTSan schoon: $n"
           done
+          ls -la uit/rtsan
 
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
@@ -110,6 +118,7 @@ jobs:
           grep -q "RealtimeSanitizer" kanarie.log
           grep -q "malloc" kanarie.log
           echo "Kanarie gevangen door RTSan, zoals bedoeld."
+          echo "Bewijs: $(grep 'SUMMARY: RealtimeSanitizer' kanarie.log)"
 
   macos:
     name: macOS arm64 (auval, pluginval --rtcheck AU en VST3)
@@ -155,13 +164,21 @@ jobs:
 
       - name: pluginval strictness 10 --rtcheck (AU)
         run: |
+          set -o pipefail
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component"
+            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" 2>&1 | tee pluginval-au.log
 
       - name: pluginval strictness 10 --rtcheck (VST3)
         run: |
+          set -o pipefail
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3"
+            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
+
+      - name: Bewijs (kernregels uit de logs hierboven)
+        run: |
+          echo "auval: $(grep 'AU VALIDATION SUCCEEDED' auval.log)"
+          echo "pluginval AU: $(grep -E 'Strictness level|rtcheck|^SUCCESS|FAILED' pluginval-au.log | head -5 | tr '\n' ' ')"
+          echo "pluginval VST3: $(grep -E 'Strictness level|rtcheck|^SUCCESS|FAILED' pluginval-vst3.log | head -5 | tr '\n' ' ')"
 
       - name: Artefact klaarzetten
         if: always()
