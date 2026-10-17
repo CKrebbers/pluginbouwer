@@ -57,7 +57,8 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] upstream klaargezet: upstream/clap-wrapper/LEESMIJ.md (zes punten clap-wrapper, één clap-validator) — **plakken: Clay**
 - [ ] PR 1 (geluid-maken) samengevoegd met main op tak integratie/geluid-maken (toetsen 105/105, tool in Chrome klinkt);
   het artifact draait die versie — **samenvoegen in main: Clay beslist**
-- [ ] Referentie: echte band (Aalto-dataset, Akai) tegen onze tanh en Jiles-Atherton (.github/workflows/referentie.yml)
+- [x] Referentie: echte band (Aalto-dataset, Akai GX-4000D) gemeten: ref/referentie/RAPPORT.md. Beweging van onze standaard
+  2,2 × de Akai en schaalt met de delaytijd; H3 past beter op Jiles-Atherton; de band maakt H2 die wij niet maken.
 
 ## Bibliotheek later (niet bouwen vóór de dub-echo de hele keten gehaald heeft)
 Oscillatoren (polyBLEP), sampler, granulair, ruis, fysische modellen (Karplus-Strong, waveguide), filters (ladder, comb,
@@ -66,5 +67,7 @@ multitap), reverb (Dattorro-plaat, FDN, veer, convolutie), modulatie (chorus, fl
 (pitchshift, freeze), spectraal (STFT, vocoder), ruimtelijk (mid/side, breedte, panner); besturing (LFO, envelopes,
 MSEG, macro's, sidechain, MIDI/MPE, tempo-sync, randomisatie); techniek (oversampling, latency melden, presets, undo);
 UI (XY-vlak, meters, scopes, presetbrowser).
+Uit ref/referentie/RAPPORT.md (eerst ABX): bandbeweging als snelheid ε(t) los van de delaytijd, met de Akai als ijkpunt
+(0,15 % RMS, flutter 7,7 Hz) voor haperen 0,25; een kleine even term voor H2; een blok bandruis (−61 dBFS, brom + sis).
 Bandhysterese (Jiles-Atherton zoals CHOWTape; zie TWEEDE-MENING.md: vervorming bij zachte niveaus en niveau-afhankelijke fase die
 onze tanh mist; eerst een ABX-toets of het in de dub-echo hoorbaar is).
