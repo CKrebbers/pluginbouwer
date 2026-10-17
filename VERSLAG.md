@@ -41,3 +41,15 @@ door auval (kanaalindelingen) en `gereedschap/pb-au-render` (null-test door de A
 De eerste CI-run (39046625176) faalde in de VST3-matrix: de verwijzing `uit-matrix/verwacht/...` in een config onder
 `uit-matrix/vst3-linux/.../cfg/` werd `.../cfg/uit-matrix/verwacht/...`. Lokaal had ik een absoluut pad gebruikt.
 Opgelost door de matrixmap in de scripts absoluut te maken.
+
+## Fase 6: pkgbuild --analyze op macOS 15 schrijft geen BundleIsRelocatable
+**Wat ik zag.** `PlistBuddy -c "Set :0:BundleIsRelocatable false"` faalde met `Entry ... Does Not Exist`: de
+component-plist van `pkgbuild --analyze` (macos-15-runner) bevat die sleutel niet.
+**Wat ik deed.** `plutil -replace "0.BundleIsRelocatable" -bool NO` zet hem ook als hij ontbreekt. Dat hij werkt,
+toetst de CI-job `pakket` met een lokvogel: een kopie van de drie bundels in ~/Downloads blijft onaangeroerd en de
+installer schrijft in /Library.
+
+## Fase 6: een .pkg kan niet ad-hoc gesigneerd worden
+`codesign --sign -` werkt op de bundels, maar `pkgbuild --sign`/`productsign` vragen een "Developer ID Installer"-
+certificaat (betaald). Het pakket bevat dus ad-hoc gesigneerde bundels en is zelf ongesigneerd; LEERPAD.md legt uit hoe
+Clay het opent ("Open toch") en wat notariseren kost.
