@@ -4,9 +4,12 @@
 ```
 dsp/                 DE DSP (gegeven, niet herschrijven): pb_*.h + de keten als constante (ontwerpen/keten_dub_echo.h)
 plugin/              de CLAP-schil (fase 0–2), clap-wrapper maakt VST3 en AUv2
+plugin/presets.h     de fabriekspresets als tabel (fase 4; CMake maakt hem uit presets/*.json)
 plugin/ui/           het frontpaneel (fase 3): paneel.h (indeling, knop <-> waarde, zonder platformcode),
                      paneel_mac.mm (NSView, CoreGraphics/CoreText), lettertypen/ (Plex Mono, Silkscreen; OFL, ingebed)
-gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh
+gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh,
+                     presets-plat.mjs (presets/*.json plat, voor de presettoetsen)
+presets/             de fabriekspresets (JSON: naam, uitleg, waarden per parameternaam)
 testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
 ```
 
@@ -58,8 +61,33 @@ state laadt in de volledige build (bewaarde waarden exact, N op zijn standaard, 
 hij laadt terwijl de plugin draait), en de state van de volledige build laadt andersom in de oude.
 
 ## Presets (fase 4)
-Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden
-per naam). Fabriekspresets komen uit de varianten van de tool.
+Een preset is een naam plus parameterwaarden per naam, als JSON in het pakket (`presets/<sleutel>.json`:
+`naam`, `uitleg`, `waarden`). Fabriekspresets komen uit de varianten van de tool.
+- **In het binary, niet als losse bestanden.** CMake leest `presets/*.json` bij het configureren en maakt er een tabel
+  van (`build/presets.cpp`, zie `plugin/presets.h`). Een onbekende parameternaam of een waarde buiten het bereik is een
+  compileerfout (`static_assert` tegen `PARAMS`). Volgorde: `standaard` eerst (AU-presetnummer 0), de rest op
+  bestandsnaam. De sleutel (bestandsnaam zonder `.json`) is de load_key en verandert nooit; de naam mag veranderen.
+- **Laden = een state zonder blob**: elke parameter die de preset noemt krijgt die waarde (geklemd), elke andere zijn
+  standaard; dan hetzelfde pad als state load (hostkopie, en de audiothread neemt het over aan het begin van process
+  als de plugin draait; `params.rescan`). Een preset klinkt daardoor bit voor bit als dezelfde waarden als host-events.
+- **CLAP**: de factory `clap.preset-discovery-factory/2` (ook onder het draft-id) heeft **per preset één provider**,
+  met één locatie van soort `PLUGIN` (location `nullptr`, vlag `FACTORY_CONTENT`) en daarin die ene preset met zijn
+  load_key. `clap.preset-load/2` (`from_location`) laadt hem en meldt `loaded` (of `on_error`) aan de host.
+  Waarom niet één provider met een container van alle presets (de gewone vorm): clap-validator 0.4.1 (en master,
+  okt 2026) loopt daarop vast. `MetadataReceiver::begin_preset` houdt de `result`-mutex vast en roept
+  `flush_preset` aan, die dezelfde mutex pakt; vanaf de tweede preset in een container wacht hij op zichzelf
+  (`preset-discovery-crawl` en `-load`: "Timed out after 45 seconds"). Met één preset per container gebeurt dat niet.
+- **AU**: clap-wrapper v0.16.0 kent geen AU factory presets. `patches/clap-wrapper-presets-als-au-factory-presets.patch`
+  geeft `WrapAsAUV2` `GetPresets` / `NewFactoryPresetSet`: bij het maken van de instantie doorloopt hij de
+  preset-discovery-factory van de CLAP (alle providers, locaties van soort `PLUGIN`, presets voor dit plugin-id),
+  en een gekozen preset gaat via `preset-load` naar de CLAP. Daarna zijn het de gewone AU-parameters
+  (`params.rescan`), en draagt de ClassInfo (de state die Logic bewaart) de presetnaam. Een preset wint van
+  parameters die de host vóór Initialize zette (valkuil 1).
+- Getoetst: `preset-toets` (CLAP: ontdekken, laden, geluid; Linux, macOS en onder RTSan), clap-validator
+  `preset-discovery-crawl` / `-descriptor-consistency` / `-load` (moeten slagen, niet overgeslagen), auval (toont de
+  namen) en `au-preset-toets` (macOS: de AU-lijst, zetten vóór en na Initialize, parameters en ClassInfo).
+  Beide eigen toetsen lezen `presets/*.json` zelf (via `gereedschap/presets-plat.mjs`), niet de tabel van CMake.
+- VST3: clap-wrapper v0.16.0 geeft (nog) geen presets door aan VST3 (geen program list); niet gevraagd in fase 4.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

@@ -8,6 +8,10 @@
 // gebaren en waarden door een lock-free wachtrij naar de audiothread; die past ze in process of params.flush toe zoals
 // een host-event en meldt ze de host als CLAP_EVENT_PARAM_GESTURE_BEGIN / PARAM_VALUE / GESTURE_END (out_events).
 // De UI raakt de DSP nooit aan.
+// Fase 4: de fabriekspresets uit presets/*.json (presets.h, door CMake in een tabel gezet) zitten in de plugin zelf:
+// de preset-discovery-factory meldt per preset een provider met een locatie van soort PLUGIN (location = nullptr) en
+// de preset als load_key (de bestandsnaam), en de preset-load-extensie laadt ze zoals een state: een parameter die de preset niet noemt
+// krijgt zijn standaard. clap-wrapper (patch) maakt er AU factory presets van.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -16,10 +20,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <string>
 #include <vector>
 
 #include "entry.h"
 #include "ontwerpen/keten_dub_echo.h"
+#include "presets.h"
 #include "ui/paneel.h"
 #ifdef PB_MET_UI
 #include "ui/paneel_mac.h"
@@ -534,6 +540,7 @@ bool stateSave(const clap_plugin_t* p, const clap_ostream_t* os) {
   return schrijfAlles(os, b, sizeof b);
 }
 
+void pasToe(Plugin* s, const double* nieuw);
 bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
   Plugin* s = zelf(p);
   unsigned char kop[12];
@@ -551,6 +558,14 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
     const int i = indexVan(lees32(q));
     if (i >= 0) nieuw[i] = klem(i, v);  // een onbekend id (nieuwere versie) wordt overgeslagen
   }
+  pasToe(s, nieuw);
+  return true;
+}
+const clap_plugin_state_t STATE = {stateSave, stateLoad};
+
+// Nieuwe waarden voor alle parameters (state of preset; main thread). Draait de plugin, dan neemt de audiothread ze
+// over aan het begin van de volgende process (of flush); anders gaan ze meteen naar het Ontwerp.
+void pasToe(Plugin* s, const double* nieuw) {
   for (int i = 0; i < N; ++i) s->waarde[i].store(nieuw[i], std::memory_order_relaxed);
   if (s->actief) {
     s->teLaden.store(true, std::memory_order_release);  // de audiothread neemt ze over aan het begin van process
@@ -561,9 +576,112 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
     auto* hp = static_cast<const clap_host_params_t*>(s->host->get_extension(s->host, CLAP_EXT_PARAMS));
     if (hp && hp->rescan) hp->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
   }
+}
+
+// --- presets (fase 4) -----------------------------------------------------------------------------------------
+int presetVan(const char* sleutel) {
+  for (unsigned k = 0; sleutel && k < pb_presets::AANTAL; ++k)
+    if (!std::strcmp(pb_presets::LIJST[k].sleutel, sleutel)) return (int)k;
+  return -1;
+}
+int indexVanNaam(const char* naam) {
+  for (int i = 0; i < N; ++i)
+    if (!std::strcmp(Ontwerp::PARAMS[i].naam, naam) && bestaat(i)) return i;
+  return -1;
+}
+const clap_host_preset_load_t* hostPresetLoad(const Plugin* s) {
+  if (!s->host || !s->host->get_extension) return nullptr;
+  auto* h = static_cast<const clap_host_preset_load_t*>(s->host->get_extension(s->host, CLAP_EXT_PRESET_LOAD));
+  if (!h) h = static_cast<const clap_host_preset_load_t*>(s->host->get_extension(s->host, CLAP_EXT_PRESET_LOAD_COMPAT));
+  return h;
+}
+// [main thread] Alleen de eigen locatie (soort PLUGIN, location nullptr) met een bekende load_key.
+bool presetLaden(const clap_plugin_t* p, uint32_t soort, const char* plek, const char* sleutel) {
+  Plugin* s = zelf(p);
+  const clap_host_preset_load_t* h = hostPresetLoad(s);
+  const int k = (soort == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !plek) ? presetVan(sleutel) : -1;
+  if (k < 0) {
+    if (h && h->on_error) h->on_error(s->host, soort, plek, sleutel, 0, "geen fabriekspreset van Dub-echo");
+    return false;
+  }
+  const pb_presets::Preset& pr = pb_presets::LIJST[k];
+  double nieuw[N];
+  for (int i = 0; i < N; ++i) nieuw[i] = Ontwerp::PARAMS[i].standaard;  // wat de preset niet noemt: standaard
+  for (unsigned j = 0; j < pr.aantal; ++j) {
+    const int i = indexVanNaam(pr.waarden[j].param);
+    if (i >= 0) nieuw[i] = klem(i, pr.waarden[j].waarde);
+  }
+  pasToe(s, nieuw);
+  if (h && h->loaded) h->loaded(s->host, soort, plek, sleutel);
   return true;
 }
-const clap_plugin_state_t STATE = {stateSave, stateLoad};
+const clap_plugin_preset_load_t PRESET_LOAD = {presetLaden};
+
+// De preset-discovery-factory: per fabriekspreset één provider, met één locatie in de plugin (soort PLUGIN, location
+// nullptr) en daarin die ene preset (load_key = de bestandsnaam). Eén provider met alle presets als container zou de
+// gewone vorm zijn, maar clap-validator 0.4.1 loopt daar vast: begin_preset houdt een mutex vast terwijl het de vorige
+// preset wegschrijft (flush_preset pakt dezelfde mutex), dus vanaf de tweede preset in een container blijft hij hangen.
+// Zo is elke container één preset, en klopt het nog steeds met CLAP.
+struct ProviderInfo {
+  std::string id, naam;
+  clap_preset_discovery_provider_descriptor_t desc;
+};
+const std::vector<ProviderInfo>& providers() {  // main thread; één keer opgebouwd
+  static const std::vector<ProviderInfo> lijst = [] {
+    std::vector<ProviderInfo> v(pb_presets::AANTAL);
+    for (unsigned k = 0; k < pb_presets::AANTAL; ++k) {
+      v[k].id = std::string(PB_CLAP_ID ".preset.") + pb_presets::LIJST[k].sleutel;
+      v[k].naam = std::string(PB_NAAM ": ") + pb_presets::LIJST[k].naam;
+      v[k].desc = {CLAP_VERSION_INIT, v[k].id.c_str(), v[k].naam.c_str(), PB_MAKER};
+    }
+    return v;
+  }();
+  return lijst;
+}
+const clap_preset_discovery_location_t LOCATIE = {CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "Fabriekspresets",
+                                                  CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr};
+struct Provider {
+  clap_preset_discovery_provider_t clap;
+  const clap_preset_discovery_indexer_t* indexer;
+  unsigned preset;  // in pb_presets::LIJST
+};
+bool providerInit(const clap_preset_discovery_provider_t* p) {
+  const auto* ix = static_cast<const Provider*>(p->provider_data)->indexer;
+  return ix && ix->declare_location && ix->declare_location(ix, &LOCATIE);
+}
+void providerWeg(const clap_preset_discovery_provider_t* p) { delete static_cast<Provider*>(p->provider_data); }
+bool providerMetadata(const clap_preset_discovery_provider_t* p, uint32_t soort, const char* plek,
+                      const clap_preset_discovery_metadata_receiver_t* r) {
+  if (soort != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || plek || !r) return false;
+  const pb_presets::Preset& pr = pb_presets::LIJST[static_cast<const Provider*>(p->provider_data)->preset];
+  if (!r->begin_preset(r, pr.naam, pr.sleutel)) return true;  // de host wil hem niet
+  const clap_universal_plugin_id_t id = {"clap", DESCRIPTOR.id};
+  r->add_plugin_id(r, &id);
+  r->set_flags(r, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT);
+  r->add_creator(r, Ontwerp::META.maker);
+  if (*pr.uitleg) r->set_description(r, pr.uitleg);
+  return true;
+}
+const void* providerExt(const clap_preset_discovery_provider_t*, const char*) { return nullptr; }
+
+uint32_t pdCount(const clap_preset_discovery_factory_t*) { return (uint32_t)providers().size(); }
+const clap_preset_discovery_provider_descriptor_t* pdDescriptor(const clap_preset_discovery_factory_t*, uint32_t i) {
+  return i < providers().size() ? &providers()[i].desc : nullptr;
+}
+const clap_preset_discovery_provider_t* pdCreate(const clap_preset_discovery_factory_t*,
+                                                 const clap_preset_discovery_indexer_t* ix, const char* id) {
+  for (unsigned k = 0; id && k < providers().size(); ++k) {
+    if (providers()[k].id != id) continue;
+    auto* pv = new (std::nothrow) Provider();
+    if (!pv) return nullptr;
+    pv->indexer = ix;
+    pv->preset = k;
+    pv->clap = {&providers()[k].desc, pv, providerInit, providerWeg, providerMetadata, providerExt};
+    return &pv->clap;
+  }
+  return nullptr;
+}
+const clap_preset_discovery_factory_t PRESET_FACTORY = {pdCount, pdDescriptor, pdCreate};
 
 // --- audio-ports ----------------------------------------------------------------------------------------------
 uint32_t portsCount(const clap_plugin_t*, bool) { return 1; }
@@ -722,6 +840,7 @@ const void* getExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD;
 #ifdef PB_MET_UI
   if (!std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
 #endif
@@ -756,5 +875,8 @@ const clap_plugin_factory_t FACTORY = {factoryCount, factoryDescriptor, factoryC
 bool pb_entry_init(const char*) { return true; }
 void pb_entry_deinit(void) {}
 const void* pb_entry_get_factory(const char* id) {
-  return !std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) ? &FACTORY : nullptr;
+  if (!std::strcmp(id, CLAP_PLUGIN_FACTORY_ID)) return &FACTORY;
+  if (!std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID) || !std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT))
+    return &PRESET_FACTORY;
+  return nullptr;
 }

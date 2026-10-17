@@ -61,6 +61,13 @@ Zie design.md en ARCHITECTUUR.md "Frontpaneel": één rij van 8 draaiknoppen (27
 naam erboven (Silkscreen), waarde eronder in dezelfde tekst als de host toont (IBM Plex Mono). De laatst aangeraakte
 knop heeft een tape-gele boog. Dubbelklik = standaard, shift + slepen = fijn. Op Linux geen paneel.
 
+## Fabriekspresets
+Vijf, uit `presets/*.json` (naam, uitleg, waarde per parameternaam): Standaard, Lange dub, Slapback, Versleten band,
+Zelfoscillatie, in die volgorde (Standaard eerst, dan op bestandsnaam). Ze zitten in het binary; in een CLAP-host via
+preset-discovery (in de plugin) en preset-load, in Logic als AU factory presets (de presetlijst bovenin het
+pluginvenster). Een parameter die een preset niet noemt, gaat naar zijn standaard. Zie ARCHITECTUUR.md "Presets".
+VST3 krijgt (nog) geen presetlijst: clap-wrapper v0.16.0 geeft die niet door.
+
 ## Budgetten
 | wat | budget | geschat/gemeten |
 |---|---|---|
@@ -87,5 +94,6 @@ Ter informatie (geen eis): aliasing van de saturatie los bij 5 kHz/12 dB: naïef
 volgende stap als het hoorbaar is.
 
 ## Validators (CI, het log is het bewijs)
-pluginval strictness 10 (AU en VST3; met `--rtcheck enabled` op macOS), auval -strict, clap-validator, RTSan met een
+pluginval strictness 10 (AU en VST3; met `--rtcheck enabled` op macOS), auval -strict (toont de fabriekspresets),
+clap-validator (ook de preset-tests, die moeten slagen en niet overgeslagen worden), RTSan met een
 kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).

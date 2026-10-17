@@ -74,6 +74,25 @@ jobs:
             if (!goed) { console.log("FOUT: niet alle fase-2-toetsen van clap-validator geslaagd"); process.exit(1); }
             console.log("alle " + moet.length + " geslaagd");'
 
+      - name: clap-validator preset-tests (fase 4; moeten draaien en slagen, niet overgeslagen)
+        run: |
+          set +e
+          ~/clap-validator/bin/clap-validator validate -t 'preset-discovery' build/plugins/PB-Dub-echo.clap 2>&1 | tee cv-fase4.log
+          set -e
+          ~/clap-validator/bin/clap-validator validate --json -t 'preset-discovery' build/plugins/PB-Dub-echo.clap > cv-fase4.json || true
+          node -e '
+            const r = require("./cv-fase4.json").results;
+            const moet = ["preset-discovery-crawl", "preset-discovery-descriptor-consistency", "preset-discovery-load"];
+            let goed = true;
+            for (const t of moet) {
+              const x = r.find(y => Object.values(y.test).some(z => z && z.test === t));
+              const code = x ? x.status.code : "ontbreekt";
+              console.log(t.padEnd(42), code, x && x.status.details ? x.status.details : "");
+              if (code !== "success") goed = false;
+            }
+            if (!goed) { console.log("FOUT: niet alle preset-toetsen van clap-validator geslaagd"); process.exit(1); }
+            console.log("alle " + moet.length + " geslaagd");'
+
       - name: clap-validator fuzz (120 s; params, tekst-rondjes, audio)
         run: |
           set +e
@@ -93,6 +112,12 @@ jobs:
 
       - name: Eigen toets fase 3 (paneel -> host; gui-extensie, gebaren, wachtrij)
         run: build/ui-toets build/toetsen/PB-Dub-echo-ui-stub.clap
+
+      - name: Eigen toets fase 4 (fabriekspresets; preset-discovery en preset-load tegen presets/*.json)
+        run: |
+          mkdir -p uit
+          node gereedschap/presets-plat.mjs presets | tee uit/presets.tsv
+          build/preset-toets build/plugins/PB-Dub-echo.clap uit/presets.tsv
 
       - name: pluginval ophalen
         run: |
@@ -135,7 +160,7 @@ jobs:
         run: |
           cmake -S plugin -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_RTSAN=ON -DPB_KANARIE=ON
           cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie param-toets dub_echo_zonder_8 \
-            ui-toets dub_echo_ui_stub
+            ui-toets dub_echo_ui_stub preset-toets
           ls -la build-rtsan/plugins build-rtsan/kanarie build-rtsan/toetsen
 
       - name: RTSan schoon (alle testsignalen, blok 512 en wisselend)
@@ -160,6 +185,13 @@ jobs:
         run: |
           build-rtsan/ui-toets build-rtsan/toetsen/PB-Dub-echo-ui-stub.clap
           echo "RTSan: geen overtreding in process met UI-berichten"
+
+      - name: RTSan schoon met presets (een preset laden terwijl de plugin draait; overnemen in process)
+        run: |
+          mkdir -p uit
+          node gereedschap/presets-plat.mjs presets > uit/presets.tsv
+          build-rtsan/preset-toets build-rtsan/plugins/PB-Dub-echo.clap uit/presets.tsv
+          echo "RTSan: geen overtreding in process na een preset"
 
       - name: Kanarie moet falen (malloc in process)
         run: |
@@ -217,6 +249,18 @@ jobs:
           grep -q "AU VALIDATION SUCCEEDED" auval.log
           exit $status
 
+      - name: auval toont de fabriekspresets (fase 4)
+        run: |
+          mkdir -p uit
+          node gereedschap/presets-plat.mjs presets > uit/presets.tsv
+          grep -n -i -A14 "factory preset\|FACTORY PRESET" auval.log || true
+          cut -f2 uit/presets.tsv | while IFS= read -r naam; do
+            if grep -qF "$naam" auval.log; then echo "auval toont: $naam"; else echo "FOUT: auval toont '$naam' niet"; exit 1; fi
+          done
+
+      - name: Eigen toets fase 4, AU (factory presets zetten vóór en na Initialize; parameters en ClassInfo)
+        run: build/au-preset-toets uit/presets.tsv
+
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -253,6 +297,9 @@ jobs:
           mkdir -p uit/gui
           build/gui-toets ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap uit/gui
           ls -la uit/gui
+
+      - name: Eigen toets fase 4, CLAP (preset-discovery en preset-load tegen presets/*.json)
+        run: build/preset-toets ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap uit/presets.tsv
 
       - name: Schermafbeeldingen van het paneel als artefact
         if: always()
