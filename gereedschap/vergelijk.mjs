@@ -26,7 +26,7 @@ function leesWav(pad) {
   }
   return { kanalen: k, sr: fmt.sr };
 }
-function nullTest(a, b) {
+export function nullTest(a, b) {
   let piek = 0, som = 0, n = 0, eerste = -1;
   for (let c = 0; c < Math.min(a.length, b.length); c++) for (let i = 0; i < Math.min(a[c].length, b[c].length); i++) {
     const d = a[c][i] - b[c][i];
@@ -59,7 +59,7 @@ function spectrum(x) {
   for (let k = 0; k <= n / 2; k++) p[k] = re[k] ** 2 + im[k] ** 2;
   return p;
 }
-function statistisch(a, b, sr) {
+export function statistisch(a, b, sr) {
   let band = 0, omh = 0;
   for (let c = 0; c < Math.min(a.length, b.length); c++) {
     let n = 1; while (n < a[c].length) n <<= 1; n >>= 1;
@@ -94,29 +94,32 @@ function standaardRender(invoer, sr) {
   return uit;
 }
 
-const map = process.argv[2];
-if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders>'); process.exit(2); }
-const gevallen = JSON.parse(readFileSync(join(PAKKET, 'testsignalen', 'gevallen.json'), 'utf8'));
-let mis = 0;
-console.log('| geval | piek | RMS | bit voor bit |\n|---|---|---|---|');
-for (const g of gevallen) {
-  const pad = join(map, `${g.naam}.wav`);
-  if (!existsSync(pad)) { console.log(`| ${g.naam} | ontbreekt | | |`); mis++; continue; }
-  const verwacht = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.verwacht.wav`)).kanalen, gekregen = leesWav(pad).kanalen;
-  const r = nullTest(verwacht, gekregen);
-  let ok = r.piekDb <= GRENS_DB, extra = '';
-  if (g.statistisch) {
-    const s = statistisch(verwacht, gekregen, g.sr);
-    ok = s.band <= 1 && s.omh <= 1;
-    extra = ` statistisch: terts ${s.band.toFixed(3)} dB, omhullende ${s.omh.toFixed(3)} dB`;
+// los aangeroepen (niet bij een import door null-matrix.mjs)
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const map = process.argv[2];
+  if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders>'); process.exit(2); }
+  const gevallen = JSON.parse(readFileSync(join(PAKKET, 'testsignalen', 'gevallen.json'), 'utf8'));
+  let mis = 0;
+  console.log('| geval | piek | RMS | bit voor bit |\n|---|---|---|---|');
+  for (const g of gevallen) {
+    const pad = join(map, `${g.naam}.wav`);
+    if (!existsSync(pad)) { console.log(`| ${g.naam} | ontbreekt | | |`); mis++; continue; }
+    const verwacht = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.verwacht.wav`)).kanalen, gekregen = leesWav(pad).kanalen;
+    const r = nullTest(verwacht, gekregen);
+    let ok = r.piekDb <= GRENS_DB, extra = '';
+    if (g.statistisch) {
+      const s = statistisch(verwacht, gekregen, g.sr);
+      ok = s.band <= 1 && s.omh <= 1;
+      extra = ` statistisch: terts ${s.band.toFixed(3)} dB, omhullende ${s.omh.toFixed(3)} dB`;
+    }
+    if (!ok && !g.statistisch) {
+      const inv = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.in.wav`));
+      if (nullTest(standaardRender(inv.kanalen, inv.sr), gekregen).piekDb <= GRENS_DB)
+        extra += ' — gelijk aan de STANDAARDwaarden: de parameters kwamen niet aan (CLAUDE.md valkuil 1)';
+    }
+    if (!ok) mis++;
+    const f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
+    console.log(`| ${g.naam} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${extra}${ok ? '' : ' **BOVEN DE GRENS**'}`);
   }
-  if (!ok && !g.statistisch) {
-    const inv = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.in.wav`));
-    if (nullTest(standaardRender(inv.kanalen, inv.sr), gekregen).piekDb <= GRENS_DB)
-      extra += ' — gelijk aan de STANDAARDwaarden: de parameters kwamen niet aan (CLAUDE.md valkuil 1)';
-  }
-  if (!ok) mis++;
-  const f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
-  console.log(`| ${g.naam} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${extra}${ok ? '' : ' **BOVEN DE GRENS**'}`);
+  process.exit(mis ? 1 : 0);
 }
-process.exit(mis ? 1 : 0);

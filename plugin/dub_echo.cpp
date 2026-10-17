@@ -12,6 +12,11 @@
 // de preset-discovery-factory meldt per preset een provider met een locatie van soort PLUGIN (location = nullptr) en
 // de preset als load_key (de bestandsnaam), en de preset-load-extensie laadt ze zoals een state: een parameter die de preset niet noemt
 // krijgt zijn standaard. clap-wrapper (patch) maakt er AU factory presets van.
+// Fase 5: mono en stereo. Drie poortindelingen (stereo, mono, mono -> stereo) via audio-ports-config (en
+// configurable-audio-ports, dat clap-wrapper voor VST3 gebruikt; de AU kiest via een patch op clap-wrapper). De DSP
+// rekent met zoveel kanalen als de uitgang heeft (1 of 2). Bypass is een eigen parameter (id 9, CLAP_PARAM_IS_BYPASS):
+// clap-wrapper maakt er de VST3-bypass en kAudioUnitProperty_BypassEffect van. De DSP blijft doorrekenen; de uitgang
+// schuift in 10 ms naar de droge invoer en terug (geen tik), en is in rust bit voor bit de DSP of bit voor bit de invoer.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -42,13 +47,23 @@ void* volatile g_kanarie = nullptr;
 #endif
 
 const char* const FEATURES[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_DELAY, CLAP_PLUGIN_FEATURE_STEREO,
+                                CLAP_PLUGIN_FEATURE_MONO,
                                 nullptr};
 
 const clap_plugin_descriptor_t DESCRIPTOR = {
     CLAP_VERSION_INIT,       Ontwerp::META.clapId, Ontwerp::META.naam, Ontwerp::META.maker, Ontwerp::META.url, "", "",
     Ontwerp::META.versie,    Ontwerp::META.uitleg, FEATURES};
 
-constexpr uint32_t KANALEN = 2;
+constexpr uint32_t KANALEN = 2;  // de DSP rekent met hoogstens 2 kanalen
+
+// fase 5: de poortindelingen (id = index; nooit hernummeren). Stereo is de standaard.
+struct Indeling { clap_id id; const char* naam; uint32_t in, uit; };
+constexpr Indeling INDELINGEN[] = {{0, "Stereo", 2, 2}, {1, "Mono", 1, 1}, {2, "Mono naar stereo", 1, 2}};
+constexpr uint32_t N_INDELINGEN = sizeof INDELINGEN / sizeof INDELINGEN[0];
+
+// fase 5: bypass, een parameter van de schil (niet van de DSP). Id 9: het eerste vrije nummer na SPEC.md.
+constexpr clap_id BYPASS_ID = 9;
+constexpr double BYPASS_SEC = 0.010;  // overgang nat <-> droog
 constexpr int N = Ontwerp::N_PARAMS;
 constexpr uint32_t STATE_VERSIE = 1;
 #ifdef PB_ZONDER_PARAM
@@ -113,9 +128,16 @@ struct Plugin {
   const clap_host_t* host = nullptr;
   Ontwerp ontwerp;                        // groot: Plugin wordt op de heap gemaakt (main thread)
   std::vector<unsigned char> geheugen;    // vooraf gereserveerd in activate, nooit in process
-  std::vector<float> kopie;               // invoerkopie (vooraf gereserveerd) als in- en uitgang buffers delen
+  std::vector<float> kopie;               // invoerkopie (vooraf gereserveerd); de DSP leest altijd hieruit
   double sr = 48000;
   bool actief = false;                    // alleen de main thread leest en schrijft dit
+  uint32_t indeling = 0;                  // index in INDELINGEN; main thread, alleen te wisselen als niet actief
+  // bypass: de hostwaarde (atomisch, zoals `waarde`), het doel en de stand van de overgang (audiothread, of main
+  // thread als de plugin niet actief is). bypassMix 0 = nat (de DSP), 1 = droog (de invoer).
+  std::atomic<double> bypass{0.0};
+  bool bypassDoel = false;
+  double bypassMix = 0.0;
+  bool bypassVers = true;  // nog geen audio sinds activate/reset: de bypass springt (zoals de glijders van de DSP)
   std::atomic<double> staart{0.0};        // uitgerekend op de audiothread / in activate, gelezen door tail.get
   // De waarde per parameter zoals de host hem ziet (get_value, state save). De DSP krijgt zijn waarden alleen via
   // events (process/flush) of, bij een state load terwijl hij draait, via `teLaden` aan het begin van process.
@@ -165,6 +187,12 @@ void zet(Plugin* s, int i, double v) {
 void doeEvent(Plugin* s, const clap_event_header_t* h) {
   if (h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) return;
   const auto* e = reinterpret_cast<const clap_event_param_value_t*>(h);
+  if (e->param_id == BYPASS_ID) {
+    const double v = e->value >= 0.5 ? 1.0 : 0.0;  // NaN telt als uit
+    s->bypass.store(v, std::memory_order_relaxed);
+    s->bypassDoel = v != 0;
+    return;
+  }
   const int i = indexVan(e->param_id);
   if (i >= 0) zet(s, i, e->value);
 }
@@ -223,6 +251,7 @@ void poetsUitvoer(float* x, uint32_t n) {
 
 void laadUitHostKopie(Plugin* s) {
   for (int i = 0; i < N; ++i) s->ontwerp.zetParam(i, s->waarde[i].load(std::memory_order_relaxed));
+  s->bypassDoel = s->bypass.load(std::memory_order_relaxed) != 0;
 }
 
 // --- plugin -------------------------------------------------------------------------------------------------
@@ -251,14 +280,21 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t minFrames, uint32_t ma
   g.over = (unsigned long)s->geheugen.size();
   s->ontwerp.activeer(sr, minFrames, g);
   if (s->teLaden.exchange(false)) laadUitHostKopie(s);
-  s->staart.store(s->ontwerp.staartSec());
+  s->bypassMix = s->bypassDoel ? 1.0 : 0.0;  // na activate geen overgang: meteen nat of droog
+  s->bypassVers = true;
+  s->staart.store(s->bypassDoel ? 0.0 : s->ontwerp.staartSec());
   s->actief = true;
   return true;
 }
 void deactivate(const clap_plugin_t* p) { zelf(p)->actief = false; }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
-void reset(const clap_plugin_t* p) { zelf(p)->ontwerp.reset(); }
+void reset(const clap_plugin_t* p) {
+  Plugin* s = zelf(p);
+  s->ontwerp.reset();
+  s->bypassMix = s->bypassDoel ? 1.0 : 0.0;
+  s->bypassVers = true;
+}
 
 clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
 #ifdef PB_KANARIE
@@ -273,28 +309,28 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   const uint32_t nEv = ev ? ev->size(ev) : 0;
   uint32_t e = 0;
 
+  // Kanalen: de DSP rekent met zoveel kanalen als de uitgang heeft (stereo of mono). Bij mono -> stereo krijgen beide
+  // DSP-ingangen het ene invoerkanaal. Een ontbrekende invoer is stilte.
   float* uit[KANALEN] = {nullptr, nullptr};
   const float* in[KANALEN] = {nullptr, nullptr};
-  bool audio = pr->audio_outputs_count >= 1 && pr->audio_outputs[0].data32 && pr->audio_outputs[0].channel_count > 0;
-  if (audio) {
+  uint32_t kan = 0;
+  if (pr->audio_outputs_count >= 1 && pr->audio_outputs[0].data32 && pr->audio_outputs[0].channel_count > 0) {
     const clap_audio_buffer_t& u = pr->audio_outputs[0];
-    for (uint32_t c = 0; c < KANALEN; ++c) uit[c] = u.data32[c < u.channel_count ? c : u.channel_count - 1];
+    kan = u.channel_count >= KANALEN ? KANALEN : u.channel_count;
     const clap_audio_buffer_t* ib = pr->audio_inputs_count > 0 ? &pr->audio_inputs[0] : nullptr;
-    for (uint32_t c = 0; c < KANALEN; ++c)
-      in[c] = (ib && ib->data32 && ib->channel_count > 0) ? ib->data32[c < ib->channel_count ? c : ib->channel_count - 1]
-                                                         : nullptr;
-    for (uint32_t c = 0; c < KANALEN; ++c) if (!uit[c]) audio = false;
-  }
-  // De DSP schrijft per sample kanaal 0 vóór hij kanaal 1 leest. Deelt een invoerbuffer zijn geheugen met een
-  // uitgang van een ander kanaal (of ontbreekt hij), dan rekenen we op een vooraf gereserveerde kopie.
-  bool viaKopie = false;
-  if (audio) {
-    for (uint32_t c = 0; c < KANALEN; ++c) {
-      if (!in[c]) viaKopie = true;
-      for (uint32_t d = 0; d < KANALEN; ++d) if (d != c && in[c] == uit[d]) viaKopie = true;
+    const bool metIn = ib && ib->data32 && ib->channel_count > 0;
+    for (uint32_t c = 0; c < kan; ++c) {
+      uit[c] = u.data32[c];
+      if (metIn) in[c] = ib->data32[c < ib->channel_count ? c : ib->channel_count - 1];
+      if (!uit[c]) kan = 0;
     }
   }
-  const uint32_t stuk = viaKopie ? (uint32_t)(s->kopie.size() / KANALEN) : n;
+  // De DSP leest altijd uit een vooraf gereserveerde kopie van de invoer. Hij schrijft per sample kanaal 0 vóór hij
+  // kanaal 1 leest, dus een hostbuffer die invoer én uitgang is (in-place, of bij mono -> stereo één buffer voor beide
+  // DSP-ingangen die ook uitgang 0 is) zou anders halverwege overschreven zijn. De kopie is ook het droge signaal voor
+  // de bypass.
+  const uint32_t stuk = (uint32_t)(s->kopie.size() / KANALEN);
+  const double bypassStap = 1.0 / (BYPASS_SEC * s->sr);
 
   uint32_t pos = 0;
   while (pos < n || e < nEv) {
@@ -306,6 +342,9 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
       ++e;
     }
     if (pos >= n) break;
+    // vóór de eerste sample na activate/reset springt de bypass (een host die hem pas in het eerste blok stuurt,
+    // krijgt hetzelfde als een host die hem vóór activate zette)
+    if (s->bypassVers) s->bypassMix = s->bypassDoel ? 1.0 : 0.0;
     uint32_t tot = n;
     if (e < nEv) {
       const uint32_t t = ev->get(ev, e)->time;
@@ -313,34 +352,57 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
     }
     if (tot - pos > stuk) tot = pos + stuk;
     const uint32_t m = tot - pos;
-    if (audio) {
-      if (viaKopie) {
-        float* k[KANALEN];
-        for (uint32_t c = 0; c < KANALEN; ++c) {
-          k[c] = s->kopie.data() + (size_t)c * stuk;
-          if (in[c]) std::memcpy(k[c], in[c] + pos, m * sizeof(float));
-          else std::memset(k[c], 0, m * sizeof(float));
-        }
-        const float* ki[KANALEN] = {k[0], k[1]};
-        float* ku[KANALEN] = {uit[0] + pos, uit[1] + pos};
-        s->ontwerp.verwerk(ki, ku, (int)KANALEN, m);
-      } else {
-        const float* ki[KANALEN] = {in[0] + pos, in[1] + pos};
-        float* ku[KANALEN] = {uit[0] + pos, uit[1] + pos};
-        s->ontwerp.verwerk(ki, ku, (int)KANALEN, m);
+    if (kan > 0) {
+      float* k[KANALEN];
+      float* ku[KANALEN] = {nullptr, nullptr};
+      for (uint32_t c = 0; c < kan; ++c) {
+        k[c] = s->kopie.data() + (size_t)c * stuk;
+        if (in[c]) std::memcpy(k[c], in[c] + pos, m * sizeof(float));
+        else std::memset(k[c], 0, m * sizeof(float));
+        ku[c] = uit[c] + pos;
       }
-      poetsUitvoer(uit[0] + pos, m);
-      if (uit[1] != uit[0]) poetsUitvoer(uit[1] + pos, m);
+      const float* ki[KANALEN] = {k[0], kan > 1 ? k[1] : nullptr};
+      s->ontwerp.verwerk(ki, ku, (int)kan, m);
+      // bypass: in rust bit voor bit nat (mix 0) of bit voor bit droog (mix 1); daartussen een lineaire overgang
+      if (s->bypassDoel || s->bypassMix > 0.0) {
+        double mix = s->bypassMix;
+        for (uint32_t i = 0; i < m; ++i) {
+          mix = s->bypassDoel ? (mix + bypassStap < 1.0 ? mix + bypassStap : 1.0)
+                              : (mix - bypassStap > 0.0 ? mix - bypassStap : 0.0);
+          for (uint32_t c = 0; c < kan; ++c) {
+            if (mix >= 1.0) ku[c][i] = k[c][i];
+            else if (mix > 0.0) ku[c][i] = (float)((1.0 - mix) * (double)ku[c][i] + mix * (double)k[c][i]);
+          }
+        }
+        s->bypassMix = mix;
+      }
+      // pas na de bypass: ook een subnormale invoer (droog) of een overgang mag niet subnormaal naar buiten
+      for (uint32_t c = 0; c < kan; ++c) poetsUitvoer(ku[c], m);
+      s->bypassVers = false;
     }
     pos = tot;
   }
-  s->staart.store(s->ontwerp.staartSec(), std::memory_order_relaxed);
+  // in volle bypass is de uitgang de invoer: geen staart
+  s->staart.store(s->bypassDoel && s->bypassMix >= 1.0 ? 0.0 : s->ontwerp.staartSec(), std::memory_order_relaxed);
   return CLAP_PROCESS_CONTINUE;
 }
 
 // --- params ---------------------------------------------------------------------------------------------------
-uint32_t paramsCount(const clap_plugin_t*) { return (uint32_t)N_ZICHTBAAR; }
+// De parameters van de DSP (in de volgorde van SPEC.md), dan als laatste Bypass.
+uint32_t paramsCount(const clap_plugin_t*) { return (uint32_t)N_ZICHTBAAR + 1; }
 bool paramsInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
+  if (index == (uint32_t)N_ZICHTBAAR) {
+    std::memset(info, 0, sizeof *info);
+    info->id = BYPASS_ID;
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE | CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_BYPASS;
+    info->cookie = nullptr;
+    std::snprintf(info->name, sizeof info->name, "Bypass");
+    info->module[0] = 0;
+    info->min_value = 0;
+    info->max_value = 1;
+    info->default_value = 0;
+    return true;
+  }
   const int i = zichtbaar(index);
   if (i < 0) return false;
   const auto& p = Ontwerp::PARAMS[i];
@@ -357,6 +419,10 @@ bool paramsInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
   return true;
 }
 bool paramsValue(const clap_plugin_t* pl, clap_id id, double* v) {
+  if (id == BYPASS_ID) {
+    *v = zelf(pl)->bypass.load(std::memory_order_relaxed);
+    return true;
+  }
   const int i = indexVan(id);
   if (i < 0) return false;
   *v = zelf(pl)->waarde[i].load(std::memory_order_relaxed);
@@ -396,8 +462,12 @@ long long minstens(long long n, long long m) { return n < m ? m : n; }
 // een grens (999,6 Hz) altijd in dezelfde vorm terug ("1.00 kHz").
 bool paramsToText(const clap_plugin_t*, clap_id id, double v, char* t, uint32_t cap) {
   const int i = indexVan(id);
-  if (i < 0 || !t || cap == 0) return false;
+  if ((i < 0 && id != BYPASS_ID) || !t || cap == 0) return false;
   if (!std::isfinite(v) || std::fabs(v) > 1e12) return false;
+  if (id == BYPASS_ID) {  // Aan / Uit
+    std::snprintf(t, cap, "%s", v >= 0.5 ? "Aan" : "Uit");
+    return true;
+  }
   switch (soortVan(i)) {
     case Soort::Ms: {  // 20.5 ms, 375 ms
       const long long tiendes = rond(v * 10);
@@ -446,9 +516,24 @@ bool gelijk(const char* a, const char* b) {  // hoofdletterongevoelig
 }
 bool paramsFromText(const clap_plugin_t*, clap_id id, const char* t, double* v) {
   const int i = indexVan(id);
-  if (i < 0 || !t || !v) return false;
+  if ((i < 0 && id != BYPASS_ID) || !t || !v) return false;
   const char* c = t;
   while (*c == ' ' || *c == '\t') ++c;
+  if (id == BYPASS_ID) {  // aan/uit, on/off, of een getal (>= 0,5 = aan)
+    char w[16];
+    int n = 0;
+    while (*c && *c != ' ' && *c != '\t' && n < (int)sizeof w - 1) w[n++] = *c++;
+    w[n] = 0;
+    while (*c == ' ' || *c == '\t') ++c;
+    if (*c) return false;
+    if (gelijk(w, "aan") || gelijk(w, "on")) { *v = 1; return true; }
+    if (gelijk(w, "uit") || gelijk(w, "off")) { *v = 0; return true; }
+    const char* q = w;
+    double x;
+    if (!leesGetal(q, x) || *q) return false;
+    *v = x >= 0.5 ? 1 : 0;
+    return true;
+  }
   double x;
   if (!leesGetal(c, x)) return false;
   while (*c == ' ' || *c == '\t') ++c;
@@ -492,7 +577,7 @@ void paramsFlush(const clap_plugin_t* p, const clap_input_events_t* in, const cl
   verwerkUi(s, uit);
   const uint32_t n = in ? in->size(in) : 0;
   for (uint32_t i = 0; i < n; ++i) doeEvent(s, in->get(in, i));
-  if (s->actief) s->staart.store(s->ontwerp.staartSec(), std::memory_order_relaxed);
+  if (s->actief) s->staart.store(s->bypassDoel && s->bypassMix >= 1.0 ? 0.0 : s->ontwerp.staartSec(), std::memory_order_relaxed);
 }
 const clap_plugin_params_t PARAMS_EXT = {paramsCount, paramsInfo, paramsValue, paramsToText, paramsFromText, paramsFlush};
 
@@ -523,15 +608,15 @@ bool leesAlles(const clap_istream_t* is, unsigned char* b, size_t n) {
 
 bool stateSave(const clap_plugin_t* p, const clap_ostream_t* os) {
   const Plugin* s = zelf(p);
-  unsigned char b[12 + 12 * N_ZICHTBAAR];
+  unsigned char b[12 + 12 * (N_ZICHTBAAR + 1)];  // de parameters van de DSP en Bypass
   std::memcpy(b, "PBST", 4);
   zet32(b + 4, STATE_VERSIE);
-  zet32(b + 8, (uint32_t)N_ZICHTBAAR);
-  for (int k = 0; k < N_ZICHTBAAR; ++k) {
-    const int i = zichtbaar((uint32_t)k);
+  zet32(b + 8, (uint32_t)N_ZICHTBAAR + 1);
+  for (int k = 0; k <= N_ZICHTBAAR; ++k) {
+    const int i = k < N_ZICHTBAAR ? zichtbaar((uint32_t)k) : -1;
     unsigned char* q = b + 12 + 12 * k;
-    zet32(q, Ontwerp::PARAMS[i].id);
-    const double v = s->waarde[i].load(std::memory_order_relaxed);
+    zet32(q, i >= 0 ? Ontwerp::PARAMS[i].id : BYPASS_ID);
+    const double v = i >= 0 ? s->waarde[i].load(std::memory_order_relaxed) : s->bypass.load(std::memory_order_relaxed);
     uint64_t bits;
     std::memcpy(&bits, &v, 8);
     zet32(q + 4, (uint32_t)bits);
@@ -540,7 +625,7 @@ bool stateSave(const clap_plugin_t* p, const clap_ostream_t* os) {
   return schrijfAlles(os, b, sizeof b);
 }
 
-void pasToe(Plugin* s, const double* nieuw);
+void pasToe(Plugin* s, const double* nieuw, double bypass);
 bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
   Plugin* s = zelf(p);
   unsigned char kop[12];
@@ -549,6 +634,7 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
   if (versie < 1 || aantal > 100000) return false;
   double nieuw[N];
   for (int i = 0; i < N; ++i) nieuw[i] = Ontwerp::PARAMS[i].standaard;  // een ontbrekend id houdt zijn standaard
+  double bypass = 0;
   for (uint32_t k = 0; k < aantal; ++k) {
     unsigned char q[12];
     if (!leesAlles(is, q, sizeof q)) return false;
@@ -557,16 +643,18 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* is) {
     std::memcpy(&v, &bits, 8);
     const int i = indexVan(lees32(q));
     if (i >= 0) nieuw[i] = klem(i, v);  // een onbekend id (nieuwere versie) wordt overgeslagen
+    else if (lees32(q) == BYPASS_ID) bypass = v >= 0.5 ? 1 : 0;
   }
-  pasToe(s, nieuw);
+  pasToe(s, nieuw, bypass);
   return true;
 }
 const clap_plugin_state_t STATE = {stateSave, stateLoad};
 
 // Nieuwe waarden voor alle parameters (state of preset; main thread). Draait de plugin, dan neemt de audiothread ze
 // over aan het begin van de volgende process (of flush); anders gaan ze meteen naar het Ontwerp.
-void pasToe(Plugin* s, const double* nieuw) {
+void pasToe(Plugin* s, const double* nieuw, double bypass) {
   for (int i = 0; i < N; ++i) s->waarde[i].store(nieuw[i], std::memory_order_relaxed);
+  s->bypass.store(bypass, std::memory_order_relaxed);
   if (s->actief) {
     s->teLaden.store(true, std::memory_order_release);  // de audiothread neemt ze over aan het begin van process
   } else {
@@ -611,7 +699,7 @@ bool presetLaden(const clap_plugin_t* p, uint32_t soort, const char* plek, const
     const int i = indexVanNaam(pr.waarden[j].param);
     if (i >= 0) nieuw[i] = klem(i, pr.waarden[j].waarde);
   }
-  pasToe(s, nieuw);
+  pasToe(s, nieuw, s->bypass.load(std::memory_order_relaxed));  // een preset laat de bypass zoals hij staat
   if (h && h->loaded) h->loaded(s->host, soort, plek, sleutel);
   return true;
 }
@@ -683,19 +771,83 @@ const clap_preset_discovery_provider_t* pdCreate(const clap_preset_discovery_fac
 }
 const clap_preset_discovery_factory_t PRESET_FACTORY = {pdCount, pdDescriptor, pdCreate};
 
-// --- audio-ports ----------------------------------------------------------------------------------------------
-uint32_t portsCount(const clap_plugin_t*, bool) { return 1; }
-bool portsGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
-  if (index != 0) return false;
+// --- audio-ports, audio-ports-config, configurable-audio-ports (fase 5) ---------------------------------------
+// Eén hoofdingang en één hoofduitgang; hoeveel kanalen hangt af van de gekozen indeling. De host kiest alleen als de
+// plugin niet actief is (CLAP: [main-thread && !active]).
+void poortInfo(const Indeling& d, bool isInput, clap_audio_port_info_t* info) {
+  const uint32_t k = isInput ? d.in : d.uit;
   info->id = 0;
   std::snprintf(info->name, sizeof info->name, "%s", isInput ? "Ingang" : "Uitgang");
   info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-  info->channel_count = KANALEN;
-  info->port_type = CLAP_PORT_STEREO;
-  info->in_place_pair = 0;
+  info->channel_count = k;
+  info->port_type = k == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+  info->in_place_pair = d.in == d.uit ? 0 : CLAP_INVALID_ID;  // in-place alleen bij evenveel kanalen
+}
+uint32_t portsCount(const clap_plugin_t*, bool) { return 1; }
+bool portsGet(const clap_plugin_t* p, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
+  if (index != 0) return false;
+  poortInfo(INDELINGEN[zelf(p)->indeling], isInput, info);
   return true;
 }
 const clap_plugin_audio_ports_t AUDIO_PORTS = {portsCount, portsGet};
+
+uint32_t configCount(const clap_plugin_t*) { return N_INDELINGEN; }
+bool configGet(const clap_plugin_t*, uint32_t index, clap_audio_ports_config_t* c) {
+  if (index >= N_INDELINGEN) return false;
+  const Indeling& d = INDELINGEN[index];
+  std::memset(c, 0, sizeof *c);
+  c->id = d.id;
+  std::snprintf(c->name, sizeof c->name, "%s", d.naam);
+  c->input_port_count = 1;
+  c->output_port_count = 1;
+  c->has_main_input = true;
+  c->main_input_channel_count = d.in;
+  c->main_input_port_type = d.in == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+  c->has_main_output = true;
+  c->main_output_channel_count = d.uit;
+  c->main_output_port_type = d.uit == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+  return true;
+}
+bool configSelect(const clap_plugin_t* p, clap_id id) {
+  Plugin* s = zelf(p);
+  if (s->actief || id >= N_INDELINGEN) return false;
+  s->indeling = id;
+  return true;
+}
+const clap_plugin_audio_ports_config_t PORTS_CONFIG = {configCount, configGet, configSelect};
+
+clap_id configHuidig(const clap_plugin_t* p) { return INDELINGEN[zelf(p)->indeling].id; }
+bool configInfo(const clap_plugin_t*, clap_id id, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
+  if (id >= N_INDELINGEN || index != 0) return false;
+  poortInfo(INDELINGEN[id], isInput, info);
+  return true;
+}
+const clap_plugin_audio_ports_config_info_t PORTS_CONFIG_INFO = {configHuidig, configInfo};
+
+// configurable-audio-ports: de gevraagde kanalen per poort, uitgaande van de huidige indeling. Alleen poort 0, 1 of 2
+// kanalen (een opgegeven port_type moet erbij passen), en het resultaat moet een van de INDELINGEN zijn.
+int indelingVoor(const Plugin* s, const clap_audio_port_configuration_request_t* r, uint32_t n) {
+  uint32_t in = INDELINGEN[s->indeling].in, uit = INDELINGEN[s->indeling].uit;
+  for (uint32_t k = 0; k < n; ++k) {
+    if (r[k].port_index != 0 || r[k].channel_count < 1 || r[k].channel_count > 2) return -1;
+    if (r[k].port_type && std::strcmp(r[k].port_type, r[k].channel_count == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO)) return -1;
+    (r[k].is_input ? in : uit) = r[k].channel_count;
+  }
+  for (uint32_t d = 0; d < N_INDELINGEN; ++d)
+    if (INDELINGEN[d].in == in && INDELINGEN[d].uit == uit) return (int)d;
+  return -1;
+}
+bool kanToepassen(const clap_plugin_t* p, const clap_audio_port_configuration_request_t* r, uint32_t n) {
+  return !zelf(p)->actief && indelingVoor(zelf(p), r, n) >= 0;
+}
+bool pasIndelingToe(const clap_plugin_t* p, const clap_audio_port_configuration_request_t* r, uint32_t n) {
+  Plugin* s = zelf(p);
+  const int d = s->actief ? -1 : indelingVoor(s, r, n);
+  if (d < 0) return false;
+  s->indeling = (uint32_t)d;
+  return true;
+}
+const clap_plugin_configurable_audio_ports_t CONFIGURABLE_PORTS = {kanToepassen, pasIndelingToe};
 
 // --- latency en tail ------------------------------------------------------------------------------------------
 uint32_t latencyGet(const clap_plugin_t* p) { return zelf(p)->ontwerp.latentie(); }
@@ -836,6 +988,11 @@ const clap_plugin_gui_t GUI = {guiApi,      guiVoorkeur, guiMaak,     guiWeg,   
 
 const void* getExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG)) return &PORTS_CONFIG;
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO) || !std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO_COMPAT))
+    return &PORTS_CONFIG_INFO;
+  if (!std::strcmp(id, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS) || !std::strcmp(id, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS_COMPAT))
+    return &CONFIGURABLE_PORTS;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;

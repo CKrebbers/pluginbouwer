@@ -93,6 +93,25 @@ jobs:
             if (!goed) { console.log("FOUT: niet alle preset-toetsen van clap-validator geslaagd"); process.exit(1); }
             console.log("alle " + moet.length + " geslaagd");'
 
+      - name: clap-validator indelingen, samplerates en blokgroottes (fase 5; moeten draaien en slagen, niet overgeslagen)
+        run: |
+          ~/clap-validator/bin/clap-validator validate --json -t 'layout-|process-varying|process-random-block|process-audio-basic' \
+            build/plugins/PB-Dub-echo.clap > cv-fase5.json || true
+          node -e '
+            const r = require("./cv-fase5.json").results;
+            const moet = ["layout-audio-ports-config", "layout-configurable-audio-ports", "process-varying-sample-rates",
+                          "process-varying-block-sizes", "process-random-block-sizes", "process-audio-basic-in-place",
+                          "process-audio-basic-out-of-place"];
+            let goed = true;
+            for (const t of moet) {
+              const x = r.find(y => Object.values(y.test).some(z => z && z.test === t));
+              const code = x ? x.status.code : "ontbreekt";
+              console.log(t.padEnd(36), code, x && x.status.details ? x.status.details : "");
+              if (code !== "success") goed = false;
+            }
+            if (!goed) { console.log("FOUT: niet alle fase-5-toetsen van clap-validator geslaagd"); process.exit(1); }
+            console.log("alle " + moet.length + " geslaagd");'
+
       - name: clap-validator fuzz (120 s; params, tekst-rondjes, audio)
         run: |
           set +e
@@ -119,6 +138,9 @@ jobs:
           node gereedschap/presets-plat.mjs presets | tee uit/presets.tsv
           build/preset-toets build/plugins/PB-Dub-echo.clap uit/presets.tsv
 
+      - name: Eigen toets fase 5 (poortindelingen mono/stereo, bypass, samplerates en blokgroottes)
+        run: build/formaat-toets build/plugins/PB-Dub-echo.clap
+
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -137,6 +159,12 @@ jobs:
 
       - name: Null-test VST3 (pluginval test, xvfb)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval build/plugins/PB-Dub-echo.vst3 "$PWD/pluginval/pluginval" vst3-linux
+
+      - name: Null-matrix CLAP (fase 5; 44,1-192 kHz x stereo/mono/mono-stereo x blok 1..4096, in-place; tegen de WASM)
+        run: node gereedschap/null-matrix.mjs clap build/pb-render build/plugins/PB-Dub-echo.clap
+
+      - name: Null-matrix VST3 (fase 5; pluginval test 44,1-192 kHz, blok 1..4096, Bypass aan; xvfb)
+        run: xvfb-run -a node gereedschap/null-matrix.mjs pluginval "$PWD/pluginval/pluginval" build/plugins/PB-Dub-echo.vst3 vst3-linux
 
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
@@ -160,7 +188,7 @@ jobs:
         run: |
           cmake -S plugin -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_RTSAN=ON -DPB_KANARIE=ON
           cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie param-toets dub_echo_zonder_8 \
-            ui-toets dub_echo_ui_stub preset-toets
+            ui-toets dub_echo_ui_stub preset-toets formaat-toets
           ls -la build-rtsan/plugins build-rtsan/kanarie build-rtsan/toetsen
 
       - name: RTSan schoon (alle testsignalen, blok 512 en wisselend)
@@ -192,6 +220,19 @@ jobs:
           node gereedschap/presets-plat.mjs presets > uit/presets.tsv
           build-rtsan/preset-toets build-rtsan/plugins/PB-Dub-echo.clap uit/presets.tsv
           echo "RTSan: geen overtreding in process na een preset"
+
+      - name: RTSan schoon in elke indeling en samplerate (fase 5; mono, mono -> stereo in-place, 44,1 en 192 kHz)
+        run: |
+          mkdir -p uit/rtsan
+          for k in stereo mono mono-stereo; do
+            for sr in 44100 192000; do
+              echo "== $k, $sr Hz, in-place, blok 3,128,1,4096,77"
+              build-rtsan/pb-render build-rtsan/plugins/PB-Dub-echo.clap testsignalen/echo-heet.in.wav "uit/rtsan/$k-$sr.wav" \
+                --sr $sr --kanalen $k --in-place --blok 3,128,1,4096,77
+            done
+          done
+          build-rtsan/formaat-toets build-rtsan/plugins/PB-Dub-echo.clap
+          echo "RTSan: geen overtreding in process in elke indeling, samplerate, en met bypass"
 
       - name: Kanarie moet falen (malloc in process)
         run: |
@@ -261,6 +302,12 @@ jobs:
       - name: Eigen toets fase 4, AU (factory presets zetten vóór en na Initialize; parameters en ClassInfo)
         run: build/au-preset-toets uit/presets.tsv
 
+      - name: auval toont de kanaalindelingen (fase 5; 1-1, 1-2 en 2-2)
+        run: grep -n -A6 "Channel Handling" auval.log
+
+      - name: Null-matrix AU (fase 5; AudioToolbox, 44,1-192 kHz x mono/mono-stereo/stereo, blokken, BypassEffect)
+        run: node gereedschap/null-matrix.mjs au build/au-render
+
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -301,6 +348,12 @@ jobs:
       - name: Eigen toets fase 4, CLAP (preset-discovery en preset-load tegen presets/*.json)
         run: build/preset-toets ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap uit/presets.tsv
 
+      - name: Eigen toets fase 5, CLAP (poortindelingen mono/stereo, bypass, samplerates en blokgroottes)
+        run: build/formaat-toets ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap
+
+      - name: Null-matrix CLAP (fase 5; 44,1-192 kHz x stereo/mono/mono-stereo x blok 1..4096, in-place; tegen de WASM)
+        run: node gereedschap/null-matrix.mjs clap build/pb-render ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap
+
       - name: Schermafbeeldingen van het paneel als artefact
         if: always()
         uses: actions/upload-artifact@v4
@@ -314,6 +367,12 @@ jobs:
 
       - name: Null-test AU (pluginval test)
         run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/PB-Dub-echo.component "$PV" au-macos
+
+      - name: Null-matrix VST3 (fase 5; pluginval test 44,1-192 kHz, blok 1..4096, Bypass aan)
+        run: node gereedschap/null-matrix.mjs pluginval "$PV" ~/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3 vst3-macos
+
+      - name: Null-matrix AU via pluginval (fase 5; 44,1-192 kHz, blok 1..4096, Bypass aan)
+        run: node gereedschap/null-matrix.mjs pluginval "$PV" ~/Library/Audio/Plug-Ins/Components/PB-Dub-echo.component au-macos
 
       - name: Plugins als artefact
         uses: actions/upload-artifact@v4

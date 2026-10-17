@@ -8,7 +8,8 @@ plugin/presets.h     de fabriekspresets als tabel (fase 4; CMake maakt hem uit p
 plugin/ui/           het frontpaneel (fase 3): paneel.h (indeling, knop <-> waarde, zonder platformcode),
                      paneel_mac.mm (NSView, CoreGraphics/CoreText), lettertypen/ (Plex Mono, Silkscreen; OFL, ingebed)
 gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh,
-                     presets-plat.mjs (presets/*.json plat, voor de presettoetsen)
+                     presets-plat.mjs (presets/*.json plat, voor de presettoetsen),
+                     wasm-render.mjs (referentie uit wasm/graaf.wasm bij elke sr en indeling), null-matrix.mjs (fase 5)
 presets/             de fabriekspresets (JSON: naam, uitleg, waarden per parameternaam)
 testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
 ```
@@ -55,7 +56,8 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
 ## State
 Binair, klein en vooruit-compatibel: `"PBST"`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
-standaard. Parameter-id's veranderen nooit.
+standaard. Parameter-id's veranderen nooit. Sinds fase 5 staat ook Bypass (id 9) erin; een oudere state zonder id 9
+zet hem uit.
 Getoetst in CI: voor elk id N een build zonder parameter N (`-DPB_ZONDER_PARAM=N`, alsof hij nog niet bestond); zijn
 state laadt in de volledige build (bewaarde waarden exact, N op zijn standaard, geluid bit voor bit gelijk, ook als
 hij laadt terwijl de plugin draait), en de state van de volledige build laadt andersom in de oude.
@@ -88,6 +90,35 @@ Een preset is een naam plus parameterwaarden per naam, als JSON in het pakket (`
   namen) en `au-preset-toets` (macOS: de AU-lijst, zetten vóór en na Initialize, parameters en ClassInfo).
   Beide eigen toetsen lezen `presets/*.json` zelf (via `gereedschap/presets-plat.mjs`), niet de tabel van CMake.
 - VST3: clap-wrapper v0.16.0 geeft (nog) geen presets door aan VST3 (geen program list); niet gevraagd in fase 4.
+
+## Formaten (fase 5)
+- **Poortindelingen**: `INDELINGEN` in `dub_echo.cpp`: 0 Stereo (2 → 2), 1 Mono (1 → 1), 2 Mono naar stereo (1 → 2);
+  id = index, nooit hernummeren. `audio-ports` meldt de gekozen indeling (`in_place_pair` alleen bij evenveel
+  kanalen). Kiezen via `audio-ports-config.select` of `configurable-audio-ports.apply_configuration`, alleen als de
+  plugin niet actief is; `audio-ports-config-info` geeft de poorten per indeling.
+- **process** neemt het aantal kanalen uit de buffers van de host (niet uit de keuze): de DSP rekent met
+  min(uitgangskanalen, 2) kanalen; DSP-ingang c leest invoerkanaal min(c, invoerkanalen − 1).
+- **Altijd via een kopie**: de DSP leest de invoer uit een vooraf (in activate) gereserveerde kopie. De DSP schrijft
+  per sample kanaal 0 vóór hij kanaal 1 leest; deelt een hostbuffer invoer en uitgang (in-place, en vooral bij mono →
+  stereo waar één invoerbuffer beide DSP-ingangen voedt en ook uitgang 0 is), dan zou kanaal 1 anders al overschreven
+  invoer lezen. Getoetst: zonder kopie wijkt mono → stereo in-place −13,6 dBFS af; met kopie bit voor bit.
+- **Bypass** (id 9): de hostkopie is atomisch (zoals de andere parameters); het doel en de stand van de overgang
+  (`bypassDoel`, `bypassMix`) horen bij de audiothread. Per sample: mix 0 = de DSP onaangeroerd, 1 = de kopie van de
+  invoer, daartussen (1 − mix)·nat + mix·droog in double; daarna `poetsUitvoer`. De DSP rekent altijd door (geen
+  koude start na het uitzetten; een AU-host roept bij het uitzetten zelf `Reset` aan).
+- **AU**: clap-wrapper v0.16.0 kent `audio-ports-config` niet voor AUv2 (alleen een vaste stereo-indeling).
+  `patches/clap-wrapper-stereo-en-mono-als-au-kanaalindelingen.patch`: PostConstructor bewaart de indelingen met één
+  hoofdingang en één hoofduitgang, `SupportedNumChannels` geeft ze (1-1, 1-2, 2-2), `ValidFormat` neemt hun
+  kanaalaantallen aan op element 0, en `Initialize` kiest vóór `activateCLAP` de indeling die bij de stream-formats
+  past (`select`; anders `kAudioUnitErr_FormatNotSupported`). De render gaf al zoveel kanalen door als het
+  stream-format heeft. VST3 had dit al via `configurable-audio-ports` (`setBusArrangements`).
+- **Getoetst**: `formaat-toets` (CLAP, Linux/macOS en onder RTSan: indelingen, bypass in elke indeling, state,
+  samplerates en blokgroottes), clap-validator (layout- en process-varying-toetsen), en `gereedschap/null-matrix.mjs`:
+  `clap` (pb-render, 6 samplerates × 3 indelingen × blok 512 / wisselend in-place / blok 1 en 4096), `pluginval`
+  (VST3 en AU via `pluginval test`, stereo, 6 samplerates, blok 1..4096, en de parameter Bypass aan) en `au`
+  (`plugin/toetsen/au-render.cpp` op de geïnstalleerde AU: 6 samplerates × 3 indelingen, en BypassEffect). De
+  referentie is steeds `wasm/graaf.wasm` via `gereedschap/wasm-render.mjs`; die geeft bij 48 en 44,1 kHz bit voor bit
+  `testsignalen/*.verwacht.wav`. De invoer is bij elke samplerate dezelfde reeks samples.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

@@ -43,6 +43,7 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 6 | Verzadiging | 0 – 24 | dB | 6 | 20 ms | glijden | Hoe vroeg de band dichtloopt: warmer, en het remt de zelfoscillatie |
 | 7 | Haperen | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt |
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
+| 9 | Bypass | 0 – 1 (uit/aan) | — | 0 (uit) | 10 ms | overgang nat ↔ droog | Van de schil, niet van de DSP: `CLAP_PARAM_IS_BYPASS`, de bypassknop van de host (fase 5) |
 
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
@@ -55,6 +56,19 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
   rondje tekst → waarde → tekst ongewijzigd terug (clap-validator param-conversions en fuzz).
 - Stapjes: geen van deze parameters is getrapt (alle acht zijn continu). Een parameter met de vlag `STAPPEN` in
   `PARAMS` zou `CLAP_PARAM_IS_STEPPED` krijgen, op hele getallen worden afgerond, en als geheel getal worden getoond.
+
+## Formaten (fase 5)
+- **Kanalen**: drie poortindelingen, via `audio-ports-config` (en `configurable-audio-ports`, wat clap-wrapper voor
+  VST3 gebruikt): **Stereo** (2 → 2, de standaard), **Mono** (1 → 1) en **Mono naar stereo** (1 → 2). De DSP rekent
+  met zoveel kanalen als de uitgang heeft; bij mono naar stereo krijgen beide DSP-ingangen het ene invoerkanaal. In
+  Logic is dat de keuze Mono, Mono→Stereo of Stereo bij het invoegen (AU: `SupportedNumChannels` 1-1, 1-2, 2-2).
+- **Bypass zoals de host het wil**: parameter 9 met `CLAP_PARAM_IS_BYPASS`; clap-wrapper maakt er de VST3-bypass
+  (`kIsBypass`) en `kAudioUnitProperty_BypassEffect` van. De DSP rekent door; de uitgang schuift in 10 ms lineair naar
+  de droge invoer en terug (geen tik). In rust is de uitvoer bit voor bit de DSP (uit) of bit voor bit de invoer (aan),
+  op een subnormale invoersample na (die wordt 0). Vóór de eerste sample na activate/reset springt hij (zoals de
+  glijders van de DSP). In volle bypass is de staart 0. Hij staat in de state; een fabriekspreset laat hem staan.
+- **Samplerates** 44,1 / 48 / 88,2 / 96 / 176,4 / 192 kHz, **blokgrootte** 1 .. 4096 (ook wisselend binnen een render,
+  en in-place). Getoetst in CI met de null-matrix tegen de WASM (zie "Toleranties").
 
 ## Frontpaneel
 Zie design.md en ARCHITECTUUR.md "Frontpaneel": één rij van 8 draaiknoppen (270°) in de volgorde van de tabel hierboven,
@@ -80,6 +94,8 @@ VST3 krijgt (nog) geen presetlijst: clap-wrapper v0.16.0 geeft die niet door.
 | meting | grens | reden | gemeten |
 |---|---|---|---|
 | null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | de opdracht van de Pluginbouwer; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | bit voor bit (CLAP, VST3, AU; Linux en macOS) |
+| null-matrix (fase 5): elke samplerate × indeling × blokgrootte, referentie uit wasm/graaf.wasm | piek ≤ −90 dBFS (zelfoscillatie: statistisch, 1 dB) | dezelfde grens; de WASM geeft bij 48 en 44,1 kHz bit voor bit testsignalen/*.verwacht.wav | bit voor bit (CLAP 192 renders, VST3 44 via pluginval; AU in CI) |
+| bypass aan | bit voor bit de invoer | "zoals de host het wil": de host verwacht het droge signaal | bit voor bit (formaat-toets, pluginval test, AU BypassEffect) |
 | zelfoscillatie (chaotisch) | terts-spectrum en omhullende binnen 1 dB | 1 ULP groeit in een lus; statistisch wat je hoort | 0,000 dB |
 | lineair deel tegen de formules | ≤ 0,01 dB, ≤ 0,05° | kubische term van tanh op −60 dBFS, float32-uitvoer | 0,0008 dB, 0,005° |
 | tegen een onafhankelijke float64-referentie (Python) | ≤ −120 dBFS | libm tegen pb_math, float32-uitvoer | −180,6 / −162,6 dBFS |
@@ -95,5 +111,7 @@ volgende stap als het hoorbaar is.
 
 ## Validators (CI, het log is het bewijs)
 pluginval strictness 10 (AU en VST3; met `--rtcheck enabled` op macOS), auval -strict (toont de fabriekspresets),
-clap-validator (ook de preset-tests, die moeten slagen en niet overgeslagen worden), RTSan met een
-kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+clap-validator (ook de preset-tests en `layout-audio-ports-config`, `layout-configurable-audio-ports`,
+`process-varying-sample-rates`/`-block-sizes`, die moeten slagen en niet overgeslagen worden), RTSan met een
+kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render), en de
+null-matrix van fase 5 (pb-render, pluginval test, en au-render voor de AU in mono, mono → stereo en stereo).

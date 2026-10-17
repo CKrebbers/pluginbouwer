@@ -256,7 +256,13 @@ int toets(const std::string& pad) {
   {
     Instantie ins(bib);
     pb_ui::Bediening* bd = openPaneel(ins);
-    bool goed = bd->aantal() == (int)ins.pp->count(ins.pl) && bd->aantal() == 8;
+    // fase 5: de host ziet de 8 parameters van de DSP en als laatste Bypass (CLAP_PARAM_IS_BYPASS); het paneel heeft
+    // alleen de 8 knoppen (de bypass is van de host)
+    bool goed = bd->aantal() == 8 && ins.pp->count(ins.pl) == 9;
+    {
+      clap_param_info_t laatste{};
+      goed = goed && ins.pp->get_info(ins.pl, 8, &laatste) && laatste.id == 9 && (laatste.flags & CLAP_PARAM_IS_BYPASS);
+    }
     for (int k = 0; goed && k < bd->aantal(); ++k) {
       clap_param_info_t info{};
       ins.pp->get_info(ins.pl, (uint32_t)k, &info);
@@ -269,7 +275,8 @@ int toets(const std::string& pad) {
       ins.pp->value_to_text(ins.pl, info.id, 0.37 * info.min_value + 0.63 * info.max_value, t, sizeof t);
       if (std::strcmp(a, t)) goed = false;
     }
-    eis(goed, "paneel: 8 knoppen in de volgorde van SPEC.md (id 1..8), naam/grenzen/standaard/tekst van de host");
+    eis(goed, "paneel: 8 knoppen in de volgorde van SPEC.md (id 1..8), naam/grenzen/standaard/tekst van de host; "
+             "de host heeft daarna alleen Bypass (id 9)");
     // knop <-> stand: rondje, en logaritmisch voor Hz en ms
     bool rond = true;
     for (int k = 0; k < bd->aantal(); ++k) {
