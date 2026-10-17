@@ -6,7 +6,9 @@
 //
 // Wat hij toetst (exitcode 1 bij een fout): er zijn presets; elke preset laat zich zetten (noErr), PresentPreset geeft
 // daarna hetzelfde nummer en dezelfde naam, en de ClassInfo (wat Logic in het project bewaart) draagt die naam. Een
-// nummer buiten de lijst wordt geweigerd. De parameterwaarden gaan naar <tabel.tsv> (naam, naam, parameter, waarde);
+// nummer buiten de lijst wordt geweigerd. Een eigen naam van de host (PresentPreset met nummer -1, zoals een
+// gebruikerspreset in Logic) staat daarna in de ClassInfo, en wie die ClassInfo in een nieuwe instantie zet, ziet de
+// naam terug in PresentPreset en de waarden van de preset in de parameters. De parameterwaarden gaan naar <tabel.tsv> (naam, naam, parameter, waarde);
 // `node gereedschap/vergelijk-presets.mjs --au <tabel.tsv>` legt ze tegen presets/*.json.
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -121,6 +123,46 @@ int main(int argc, char** argv) {
     fout("een presetnummer buiten de lijst werd geaccepteerd");
   else
     std::printf("  ok  presetnummer %ld (buiten de lijst) geweigerd\n", (long)n);
+
+  // een eigen naam van de host, op de laatste factory preset: ClassInfo bewaren en in een nieuwe instantie zetten
+  {
+    const AUPreset laatste = *static_cast<const AUPreset*>(CFArrayGetValueAtIndex(lijst, n - 1));
+    AudioUnitSetProperty(au, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &laatste, sizeof laatste);
+    std::vector<AudioUnitParameterValue> voor(ids.size());
+    for (size_t i = 0; i < ids.size(); ++i) AudioUnitGetParameter(au, ids[i], kAudioUnitScope_Global, 0, &voor[i]);
+    AUPreset eigen{-1, CFSTR("Mijn klank")};
+    if (AudioUnitSetProperty(au, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &eigen, sizeof eigen) != noErr)
+      fout("een eigen presetnaam zetten faalt");
+    CFPropertyListRef klasse = nullptr;
+    UInt32 km = sizeof klasse;
+    if (AudioUnitGetProperty(au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &klasse, &km) != noErr || !klasse)
+      stop("ClassInfo lezen faalt");
+    auto* kn = static_cast<CFStringRef>(CFDictionaryGetValue(static_cast<CFDictionaryRef>(klasse), CFSTR(kAUPresetNameKey)));
+    if (tekst(kn) != "Mijn klank") fout("ClassInfo draagt na een eigen naam '" + tekst(kn) + "'");
+
+    AudioUnit au2 = nullptr;
+    if (AudioComponentInstanceNew(comp, &au2) != noErr || !au2 || AudioUnitInitialize(au2) != noErr) stop("tweede instantie faalt");
+    if (AudioUnitSetProperty(au2, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &klasse, sizeof klasse) != noErr)
+      fout("ClassInfo zetten in een nieuwe instantie faalt");
+    AUPreset nu{};
+    UInt32 nm = sizeof nu;
+    if (AudioUnitGetProperty(au2, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &nu, &nm) != noErr) {
+      fout("PresentPreset lezen na ClassInfo faalt");
+    } else {
+      if (nu.presetNumber != -1 || tekst(nu.presetName) != "Mijn klank")
+        fout("na ClassInfo geeft PresentPreset " + std::to_string(nu.presetNumber) + " '" + tekst(nu.presetName) + "'");
+      if (nu.presetName) CFRelease(nu.presetName);
+    }
+    for (size_t i = 0; i < ids.size(); ++i) {
+      AudioUnitParameterValue v = 0;
+      AudioUnitGetParameter(au2, ids[i], kAudioUnitScope_Global, 0, &v);
+      if (v != voor[i]) fout("na ClassInfo: parameter " + namen[i] + " = " + std::to_string(v) + ", was " + std::to_string(voor[i]));
+    }
+    CFRelease(klasse);
+    AudioUnitUninitialize(au2);
+    AudioComponentInstanceDispose(au2);
+    if (!g_fouten) std::printf("  ok  eigen naam 'Mijn klank' in de ClassInfo; in een nieuwe instantie: naam en waarden terug\n");
+  }
 
   CFRelease(lijst);
   AudioUnitUninitialize(au);

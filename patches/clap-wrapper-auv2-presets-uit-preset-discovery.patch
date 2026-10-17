@@ -9,12 +9,15 @@ preset, genummerd in de volgorde van de provider (GetPresets). Een host die kAud
 de rest van de wrapper; de plugin meldt de nieuwe waarden zelf met params.rescan. De naam gaat ook in de ClassInfo
 (_current_program_name). Waarden die de host vóór Initialize zette (patch auv2-params-voor-init) vervallen: de preset
 vervangt alles. Deze patch moet na clap-wrapper-auv2-params-voor-init.patch komen (naamvolgorde).
+Ook de naam van een eigen preset van de host (PresentPreset met nummer -1, zoals een gebruikerspreset in Logic) gaat
+nu in de ClassInfo (NewCustomPresetSet), en na RestoreState geeft PresentPreset de bewaarde naam (zoals AUBase doet);
+auval meldde anders "Preset name is not retained in retrieved class data". RestoreState lekte de vorige naam; nu niet.
 
 diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
-index b3a85a8..fd3f803 100644
+index b3a85a8..9ec13bf 100644
 --- a/src/detail/auv2/auv2_base_classes.h
 +++ b/src/detail/auv2/auv2_base_classes.h
-@@ -563,6 +563,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
+@@ -563,6 +563,13 @@ class WrapAsAUV2 : public ausdk::AUBase,
    OSStatus SaveState(CFPropertyListRef *ptPList) override;
    OSStatus RestoreState(CFPropertyListRef plist) override;
  
@@ -22,11 +25,13 @@ index b3a85a8..fd3f803 100644
 +  // CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN (stored inside the plugin), loaded with the preset-load extension.
 +  OSStatus GetPresets(CFArrayRef *outData) const override;
 +  OSStatus NewFactoryPresetSet(const AUPreset &inNewFactoryPreset) override;
++  // a preset name chosen by the host (presetNumber -1) travels in the ClassInfo too
++  OSStatus NewCustomPresetSet(const AUPreset &inNewCustomPreset) override;
 +
    // render
    OSStatus Render(AudioUnitRenderActionFlags &inFlags, const AudioTimeStamp &inTimeStamp,
                    UInt32 inFrames) override;
-@@ -810,6 +815,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
+@@ -810,6 +817,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
  
    CFStringRef _current_program_name = 0;
  
@@ -39,7 +44,7 @@ index b3a85a8..fd3f803 100644
    AUMIDIOutputCallbackStruct _midioutput_hostcallback = {nullptr, nullptr};
  #if AUSDK_MIDI2_AVAILABLE
 diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
-index 8ee03fd..b07e826 100644
+index 8ee03fd..74b48cd 100644
 --- a/src/wrapasauv2.cpp
 +++ b/src/wrapasauv2.cpp
 @@ -141,6 +141,7 @@ WrapAsAUV2::WrapAsAUV2(AUV2_Type type, const std::string &clapname, const std::s
@@ -58,7 +63,22 @@ index 8ee03fd..b07e826 100644
  }
  
  // the very very reduced state machine
-@@ -1556,6 +1558,197 @@ OSStatus WrapAsAUV2::RestoreState(CFPropertyListRef plist)
+@@ -1534,9 +1536,13 @@ OSStatus WrapAsAUV2::RestoreState(CFPropertyListRef plist)
+ #endif
+ 
+   const void *pName = CFDictionaryGetValue(tDict, CFSTR(kAUPresetNameKey));
+-  if (pName)
++  if (pName && CFGetTypeID(CFTypeRef(pName)) == CFStringGetTypeID())
+   {
++    if (_current_program_name) CFRelease(_current_program_name);
+     _current_program_name = CFStringCreateCopy(NULL, (CFStringRef)pName);
++    // the restored state is a preset of its own: PresentPreset reports its name (number -1), like AUBase does
++    Base::NewCustomPresetSet(AUPreset{-1, _current_program_name});
++    PropertyChanged(kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0);
+   }
+ 
+   CFDataRef tData = CFDataRef(pData);
+@@ -1556,6 +1562,208 @@ OSStatus WrapAsAUV2::RestoreState(CFPropertyListRef plist)
    return noErr;
  }
  
@@ -251,6 +271,17 @@ index 8ee03fd..b07e826 100644
 +  if (_current_program_name) CFRelease(_current_program_name);
 +  _current_program_name = CFStringCreateCopy(nullptr, _factoryPresets[n].presetName);
 +  return noErr;
++}
++
++OSStatus WrapAsAUV2::NewCustomPresetSet(const AUPreset &inNewCustomPreset)
++{
++  auto res = Base::NewCustomPresetSet(inNewCustomPreset);
++  if (res == noErr && inNewCustomPreset.presetName)
++  {
++    if (_current_program_name) CFRelease(_current_program_name);
++    _current_program_name = CFStringCreateCopy(nullptr, inNewCustomPreset.presetName);
++  }
++  return res;
 +}
 +
  bool WrapAsAUV2::isEffectFacade()

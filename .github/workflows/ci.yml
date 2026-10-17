@@ -239,6 +239,7 @@ jobs:
           # fase 4: auval toont de factory presets, elk bij naam
           node -e "for (const f of require('fs').readdirSync('presets').sort()) console.log(require('./presets/' + f).naam)" > preset-namen.txt
           grep -A12 -i "factory preset" auval.log || true  # alleen voor het log; de poort is de lus hieronder
+          if grep -q "Preset name is not retained" auval.log; then echo "FOUT: auval: presetnaam niet in de ClassInfo"; exit 1; fi
           while read -r naam; do
             grep -q "$naam" auval.log || { echo "FOUT: auval toont preset '$naam' niet"; exit 1; }
             echo "auval toont preset: $naam"
