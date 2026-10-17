@@ -56,6 +56,11 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 - Stapjes: geen van deze parameters is getrapt (alle acht zijn continu). Een parameter met de vlag `STAPPEN` in
   `PARAMS` zou `CLAP_PARAM_IS_STEPPED` krijgen, op hele getallen worden afgerond, en als geheel getal worden getoond.
 
+## Frontpaneel
+Zie design.md en ARCHITECTUUR.md "Frontpaneel": één rij van 8 draaiknoppen (270°) in de volgorde van de tabel hierboven,
+naam erboven (Silkscreen), waarde eronder in dezelfde tekst als de host toont (IBM Plex Mono). De laatst aangeraakte
+knop heeft een tape-gele boog. Dubbelklik = standaard, shift + slepen = fijn. Op Linux geen paneel.
+
 ## Budgetten
 | wat | budget | geschat/gemeten |
 |---|---|---|
