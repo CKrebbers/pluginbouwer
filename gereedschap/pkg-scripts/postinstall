@@ -1,0 +1,4 @@
+#!/bin/sh
+# Na installatie: laat macOS de AU-lijst opnieuw lezen, anders ziet Logic de nieuwe AU pas na een herstart.
+killall -9 AudioComponentRegistrar 2>/dev/null || true
+exit 0

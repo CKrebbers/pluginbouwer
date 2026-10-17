@@ -255,6 +255,15 @@ jobs:
             codesign --force --deep --sign - "$p"
             codesign --verify --verbose "$p"
           done
+      - name: Installatiepakket (pkgbuild; AU, VST3 en CLAP naar /Library/Audio/Plug-Ins)
+        run: |
+          sh gereedschap/maak-pkg.sh build/plugins "build/pakket/PB Dub-echo.pkg"
+          pkgutil --check-signature "build/pakket/PB Dub-echo.pkg" || true  # alleen voor het log: het .pkg zelf is niet gesigneerd
+      - name: Installatiepakket (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: build/pakket/
       - name: Installeren
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3 ~/Library/Audio/Plug-Ins/CLAP
@@ -363,3 +372,71 @@ jobs:
         with:
           name: macos-keten_dub_echo
           path: build/plugins/
+
+  pakket:
+    # fase 6: het .pkg op een schone runner (niets van de bouw-job, geen eerdere installatie); daarna auval
+    name: macOS pakket (installeren op een schone runner, auval)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: pakket
+      - name: Schone runner (nog niets geïnstalleerd)
+        run: |
+          for f in "/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" "/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" \
+                   "/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap" ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
+                   ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" ~/Library/Audio/Plug-Ins/CLAP/"PB Dub-echo.clap"; do
+            if [ -e "$f" ]; then echo "FOUT: staat er al: $f"; exit 1; fi
+          done
+          if auval -a | grep "PDca" | grep -q "Vrve"; then echo "FOUT: auval kent de AU al vóór de installatie"; exit 1; fi
+          echo "schoon: geen PB Dub-echo in /Library of ~/Library, auval kent aufx PDca Vrve niet"
+      - name: Lokvogel (een uitgepakte kopie in ~/Downloads mag de installatie niet omleiden)
+        run: |
+          pkgutil --expand-full "pakket/PB Dub-echo.pkg" "$RUNNER_TEMP/uitgepakt"
+          mkdir -p ~/Downloads
+          ditto "$RUNNER_TEMP/uitgepakt/Payload/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" ~/Downloads/"PB Dub-echo.component"
+          ditto "$RUNNER_TEMP/uitgepakt/Payload/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" ~/Downloads/"PB Dub-echo.vst3"
+          ditto "$RUNNER_TEMP/uitgepakt/Payload/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap" ~/Downloads/"PB Dub-echo.clap"
+          find ~/Downloads/"PB Dub-echo".* -exec stat -f "%m %i %N" {} \; | sort | tee "$RUNNER_TEMP/lokvogel-voor.txt"
+      - name: Installeren (sudo installer -pkg)
+        run: |
+          set -o pipefail
+          sudo installer -pkg "pakket/PB Dub-echo.pkg" -target / -verboseR 2>&1 | tee installer.log
+          grep -q "The install was successful" installer.log
+          pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg
+          pkgutil --files nl.varve.pluginbouwer.dub-echo.pkg | grep -E "\.(component|vst3|clap)$"
+      - name: Op de juiste plek, gesigneerd, lokvogel onaangeroerd
+        run: |
+          for f in "/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" "/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" \
+                   "/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap"; do
+            [ -d "$f" ] || { echo "FOUT: niet geïnstalleerd: $f"; exit 1; }
+            codesign --verify --strict --verbose "$f"
+            codesign -dv "$f" 2>&1 | grep -q "Signature=adhoc" || { echo "FOUT: niet ad-hoc gesigneerd: $f"; exit 1; }
+            if xattr -r "$f" | grep -q com.apple.quarantine; then echo "FOUT: quarantaine op $f"; exit 1; fi
+            echo "ok: $f ($(stat -f '%Su:%Sg %Sp' "$f"))"
+          done
+          find ~/Downloads/"PB Dub-echo".* -exec stat -f "%m %i %N" {} \; | sort > "$RUNNER_TEMP/lokvogel-na.txt"
+          diff "$RUNNER_TEMP/lokvogel-voor.txt" "$RUNNER_TEMP/lokvogel-na.txt" || { echo "FOUT: de installer schreef in ~/Downloads (relocatable bundel)"; exit 1; }
+          echo "lokvogel in ~/Downloads onaangeroerd"
+          rm -rf ~/Downloads/"PB Dub-echo".*
+      - name: auval -strict (de geïnstalleerde AU)
+        run: |
+          set -o pipefail
+          killall -9 AudioComponentRegistrar || true
+          sleep 2
+          auval -a | grep -i "Vrve"
+          auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+          sh gereedschap/ci-formaten.sh auval auval.log
+          echo "auval vond de AU in /Library/Audio/Plug-Ins/Components en keurde hem goed"
+      - name: pluginval (de geïnstalleerde VST3 en AU, strictness 5)
+        run: |
+          set -o pipefail
+          curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
+          unzip -q pluginval.zip -d pluginval
+          for f in "/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" "/Library/Audio/Plug-Ins/Components/PB Dub-echo.component"; do
+            ./pluginval/pluginval.app/Contents/MacOS/pluginval validate "$f" --strictness-level 5 2>&1 | tee pv.log
+          done
