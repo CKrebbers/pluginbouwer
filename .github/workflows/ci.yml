@@ -48,6 +48,19 @@ jobs:
           chmod +x pluginval/pluginval
       - name: pluginval strictness 10 (VST3, xvfb)
         run: xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "$PWD/pluginval/pluginval" vst3-linux
+      - name: Renders (null-test)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-test-linux
+          path: uit/
 
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
@@ -138,6 +151,25 @@ jobs:
         run: |
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
             ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+      - name: Null-test VST3 (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \
+            "$PWD/pluginval/pluginval.app/Contents/MacOS/pluginval" vst3-macos
+      - name: Null-test AU (pluginval test)
+        run: |
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
+            "$PWD/pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos
+      - name: Renders (null-test)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: null-test-macos
+          path: uit/
       - name: Artefact
         uses: actions/upload-artifact@v4
         with:

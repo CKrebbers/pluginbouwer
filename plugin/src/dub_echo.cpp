@@ -1,9 +1,11 @@
 // dub_echo.cpp — de CLAP-schil rond het Ontwerp uit dsp/ontwerpen/keten_dub_echo.h.
-// Fase 0: parameters, state, audio-poorten en geheugen zijn er; process geeft de invoer ongewijzigd door.
-// De DSP (Ontwerp::verwerk) wordt in fase 1 aangesloten, zodat de null-test dat bewijst.
+// process rekent het Ontwerp (Ontwerp::verwerk); events gaan op hun sample (het blok wordt bij elk event gesplitst).
+// Draadregels (ARCHITECTUUR.md): het Ontwerp krijgt parameters alleen in process en params.flush (audiothread als de
+// plugin actief is), of op de mainthread zolang hij niet actief is. `waarde` is de spiegel voor de host (params.get).
 #include <clap/clap.h>
 
 #include <atomic>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -42,17 +44,32 @@ struct Plugin {
   Ontwerp* ontwerp = nullptr;
   std::vector<unsigned char> geheugen;
   std::atomic<double> waarde[N];
+  bool actief = false;                        // mainthread: tussen activate en deactivate
+  std::atomic<bool> stateNieuw{false};        // state geladen terwijl actief: process geeft `waarde` aan het Ontwerp
+  std::atomic<uint32_t> staart{0};            // samples; ≥ INT32_MAX = oneindig (tail.get)
+  double sr = 48000;
 
   explicit Plugin(const clap_host_t* h);
 };
 
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
 
+// alleen op de thread die het Ontwerp bezit (zie boven)
 void pasEventToe(Plugin* pl, const clap_event_header_t* h) {
   if (h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) return;
   auto* e = reinterpret_cast<const clap_event_param_value_t*>(h);
   int i = indexVan(e->param_id);
-  if (i >= 0) pl->waarde[i].store(begrens(i, e->value), std::memory_order_relaxed);
+  if (i < 0) return;
+  double v = begrens(i, e->value);
+  pl->waarde[i].store(v, std::memory_order_relaxed);
+  pl->ontwerp->zetParam(i, v);  // zetParam neemt de INDEX in PARAMS
+}
+
+// staartSec() in samples voor tail.get; leest de smoothers, dus alleen op de thread die het Ontwerp bezit
+void bewaarStaart(Plugin* pl) {
+  double t = pl->ontwerp->staartSec();
+  double s = t * pl->sr;
+  pl->staart.store(t < 0 || s >= (double)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)(s + 0.5), std::memory_order_relaxed);
 }
 
 void pasEventsToe(Plugin* pl, const clap_input_events_t* in) {
@@ -113,8 +130,10 @@ bool tekstNaarParam(const clap_plugin_t*, clap_id id, const char* tekst, double*
   *v = begrens(i, w);
   return true;
 }
+// [actief ? audiothread : mainthread]: nooit tegelijk met process, dus het Ontwerp mag hier gezet worden
 void paramsFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
   pasEventsToe(zelf(p), in);
+  bewaarStaart(zelf(p));
 }
 const clap_plugin_params_t PARAMS = {paramsAantal, paramInfo, paramWaarde, paramNaarTekst, tekstNaarParam, paramsFlush};
 
@@ -163,6 +182,12 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) {
     int i = indexVan(id);
     if (i >= 0) pl->waarde[i].store(begrens(i, v), std::memory_order_relaxed);  // onbekend id: overslaan
   }
+  if (pl->actief) {
+    pl->stateNieuw.store(true, std::memory_order_release);  // process neemt de waarden over
+  } else {
+    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
+    bewaarStaart(pl);
+  }
   if (pl->hostParams) pl->hostParams->rescan(pl->host, CLAP_PARAM_RESCAN_VALUES);  // de host moet opnieuw lezen
   return true;
 }
@@ -171,6 +196,10 @@ const clap_plugin_state_t STATE = {stateSave, stateLoad};
 // --- latency ---------------------------------------------------------------------------------------------------
 uint32_t latentie(const clap_plugin_t* p) { return zelf(p)->ontwerp->latentie(); }
 const clap_plugin_latency_t LATENCY = {latentie};
+
+// --- tail: uitgerekend aan het eind van process (en in activate), hier alleen gelezen ---------------------------
+uint32_t staartGet(const clap_plugin_t* p) { return zelf(p)->staart.load(std::memory_order_relaxed); }
+const clap_plugin_tail_t TAIL = {staartGet};
 
 // --- de plugin -------------------------------------------------------------------------------------------------
 bool init(const clap_plugin_t* p) {
@@ -192,32 +221,59 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
   g.p = pl->geheugen.data();
   g.over = (unsigned long)pl->geheugen.size();
   pl->ontwerp->activeer(sr, maxFrames, g);
+  pl->sr = sr;
+  pl->stateNieuw.store(false, std::memory_order_relaxed);
+  bewaarStaart(pl);
+  pl->actief = true;
   return true;
 }
-void deactivate(const clap_plugin_t*) {}
+void deactivate(const clap_plugin_t* p) { zelf(p)->actief = false; }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
 void reset(const clap_plugin_t* p) { zelf(p)->ontwerp->reset(); }
 
 clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   Plugin* pl = zelf(p);
-  pasEventsToe(pl, pr->in_events);
 #ifdef PB_KANARIE
   g_kanarie = std::malloc(16);
 #endif
-  if (pr->audio_inputs_count < 1 || pr->audio_outputs_count < 1) return CLAP_PROCESS_CONTINUE;
-  const clap_audio_buffer_t& in = pr->audio_inputs[0];
-  const clap_audio_buffer_t& uit = pr->audio_outputs[0];
+  if (pl->stateNieuw.exchange(false, std::memory_order_acquire))
+    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
+
   const uint32_t n = pr->frames_count;
-  for (uint32_t c = 0; c < uit.channel_count; ++c) {
-    float* u = uit.data32[c];
-    if (c < in.channel_count) {
-      const float* i = in.data32[c];
-      if (i != u) std::memcpy(u, i, n * sizeof(float));
-    } else {
-      std::memset(u, 0, n * sizeof(float));
-    }
+  const clap_input_events_t* ev = pr->in_events;
+  const uint32_t nEv = ev ? ev->size(ev) : 0;
+  const bool audio = pr->audio_inputs_count >= 1 && pr->audio_outputs_count >= 1;
+  int kanalen = 0;
+  const float* in[2] = {nullptr, nullptr};
+  float* uit[2] = {nullptr, nullptr};
+  if (audio) {
+    const clap_audio_buffer_t& bi = pr->audio_inputs[0];
+    const clap_audio_buffer_t& bu = pr->audio_outputs[0];
+    kanalen = (int)(bi.channel_count < bu.channel_count ? bi.channel_count : bu.channel_count);
+    if (kanalen > 2) kanalen = 2;
+    for (int c = 0; c < kanalen; ++c) { in[c] = bi.data32[c]; uit[c] = bu.data32[c]; }
+    for (uint32_t c = (uint32_t)kanalen; c < bu.channel_count; ++c) std::memset(bu.data32[c], 0, n * sizeof(float));
   }
+
+  // het blok splitsen bij elk event: rekenen tot zijn sample, dan het event toepassen
+  uint32_t pos = 0;
+  auto reken = [&](uint32_t tot) {
+    if (tot <= pos) return;
+    if (kanalen > 0) {
+      const float* i2[2] = {in[0] ? in[0] + pos : nullptr, in[1] ? in[1] + pos : nullptr};
+      float* u2[2] = {uit[0] ? uit[0] + pos : nullptr, uit[1] ? uit[1] + pos : nullptr};
+      pl->ontwerp->verwerk(i2, u2, kanalen, tot - pos);
+    }
+    pos = tot;
+  };
+  for (uint32_t k = 0; k < nEv; ++k) {
+    const clap_event_header_t* h = ev->get(ev, k);
+    reken(h->time < n ? h->time : n);
+    pasEventToe(pl, h);
+  }
+  reken(n);
+  bewaarStaart(pl);
   return CLAP_PROCESS_CONTINUE;
 }
 
@@ -226,6 +282,7 @@ const void* extensie(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
+  if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   return nullptr;
 }
 void opMainThread(const clap_plugin_t*) {}
