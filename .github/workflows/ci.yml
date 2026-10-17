@@ -415,7 +415,7 @@ jobs:
           sudo installer -verboseR -pkg pkg/*.pkg -target / 2>&1 | tee installer.log
           grep -q "The install was successful" installer.log
           sudo installer -pkg pkg/*.pkg -target / 2>&1 | tee installer-2.log
-          grep -q "The install was successful" installer-2.log
+          grep -qE "The (install|upgrade) was successful" installer-2.log
           pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg
 
       - name: Alles staat op de juiste plek en is ad-hoc gesigneerd
@@ -443,7 +443,7 @@ jobs:
       - name: Bewijs (kernregels)
         run: |
           echo "installer: $(grep -E 'The install was successful' installer.log)"
-          echo "installer (upgrade): $(grep -E 'The install was successful' installer-2.log)"
+          echo "installer (upgrade): $(grep -E "The (install|upgrade) was successful" installer-2.log)"
           echo "pakket: $(pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg | tr '\n' ' ')"
           echo "auval: $(grep 'AU VALIDATION SUCCEEDED' auval.log)"
           echo "auval, kanaalindelingen:"; grep -A1 "Reported Channel Capabilities" auval.log
