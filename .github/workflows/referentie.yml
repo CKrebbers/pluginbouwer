@@ -33,7 +33,7 @@ jobs:
         if: inputs.stap == 'catalogus'
         run: |
           curl -fsSL --retry 3 "https://zenodo.org/api/records/8085482/files/neural-tape-audio_AKAI.tar/content" \
-            | tar -tvf - > lijst.txt
+            | tar -tzvf - > lijst.txt
           python3 - <<'PY'
           import collections
           per = collections.defaultdict(lambda: [0, 0, []])
