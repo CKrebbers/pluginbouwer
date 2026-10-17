@@ -20,7 +20,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
 VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
-**Uitslag**: **3/3** (15 okt 2026, pakket v1; tak proef/e1–e3, CI-runs 16, 17, 18 groen). Alle drie hadden twee CI-ronden nodig: pluginval `--rtcheck` op macOS ving calloc uit dyld in clap-wrapper (thread_local). Elk vond en patchte het los; sinds pakket v2 staat de patch erin (valkuil 7). Daarnaast: clap-validator kleurt altijd (valkuil 8); twee van de drie sloten de DSP al in fase 0 aan.
+**Uitslag**: **3/3** (15 okt 2026, pakket v1; tak proef/e1–e3, CI-runs 16, 17, 18 groen). Alle drie hadden twee CI-ronden nodig: pluginval `--rtcheck` op macOS ving calloc uit dyld in clap-wrapper (thread_local). Elk vond en patchte het los; sinds pakket v2 staat de patch erin (valkuil 7). Daarnaast: clap-validator kleurt altijd (valkuil 8); twee van de drie sloten de DSP al in fase 0 aan. Pakket v2 (17 okt, tak proef/f1–f3): **3/3**, elk de eerste push groen.
 
 ---
 ## Fase 1 — DSP aansluiten; null-test door het binary
@@ -34,7 +34,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 
 **Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit), de statistische toets (zelfoscillatie)
 binnen 1 dB, en de validators van fase 0 nog groen.
-**Uitslag**: **3/3** (15 okt 2026, op de fase 0 van dezelfde tak; CI-runs 22, 24, 25 groen, elk de eerste push). Alle null-tests bit voor bit (−∞ dBFS): CLAP Linux en macOS (blok 512, wisselend, state-rondje), VST3 Linux en macOS en AU macOS via `pluginval test`; zelfoscillatie terts en omhullende 0,000 dB. Gevonden: SPEC zei "genormaliseerd" (CLAP-params zijn eenheden), `zetParam` neemt een index, `staartSec` hoort bij de audiothread; nu in SPEC/ARCHITECTUUR.
+**Uitslag**: **3/3** (15 okt 2026, op de fase 0 van dezelfde tak; CI-runs 22, 24, 25 groen, elk de eerste push). Alle null-tests bit voor bit (−∞ dBFS): CLAP Linux en macOS (blok 512, wisselend, state-rondje), VST3 Linux en macOS en AU macOS via `pluginval test`; zelfoscillatie terts en omhullende 0,000 dB. Gevonden: SPEC zei "genormaliseerd" (CLAP-params zijn eenheden), `zetParam` neemt een index, `staartSec` hoort bij de audiothread; nu in SPEC/ARCHITECTUUR. Pakket v2: **3/3** (twee de eerste push, één in twee rondes: rescan na state.load ontbrak; nu valkuil/ARCHITECTUUR).
 
 ---
 ## Fase 2 — parameters, automatisering, state
@@ -47,7 +47,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 > Daarnaast: `value_to_text` van de standaard geeft precies de tekst uit de tabel, en `text_to_value` daarvan terug
 > geeft de waarde. Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (17 okt 2026, pakket v2; tak proef/f1–f3). Twee de eerste push, één in twee rondes (':' in een artefactnaam). Gevonden: de DSP gaf subnormale uitvoer bij zachte invoer (clap-validator-fuzz; nu pb::uitvoer in dsp/); 'eenheidloos' en 'state zonder parameter N' waren niet uitgewerkt (nu de tabel Tekst ↔ waarde en een blob met de hand).
 
 ---
 ## Fase 3 — UI
@@ -55,7 +55,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 > Bouw het frontpaneel uit design.md en `frontpaneel.svg` (de mockup; CLAP gui-extensie, clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
 > parameters via de host, nooit rechtstreeks de DSP. Geen audiothread-toegang vanuit de UI.
 **Stopcriterium**: pluginval 10 zonder `--skip-gui-tests` groen op macOS; een schermafbeelding in CI als artefact.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (17 okt 2026, pakket v2). Eén de eerste push, twee in twee à drie rondes. Gevonden: een race in clap-wrapper (AU SetParameter tegen Render; pluginval 'Parameter thread safety' crashte één op de drie runs; patch, nu valkuil 13 en pluginval AU --repeat 3); 'knoppen via de host' bij CLAP (valkuil 14); de mockup zat niet in het pakket (nu frontpaneel.svg).
 
 ---
 ## Fase 4 — presets
@@ -64,7 +64,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 > (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
 > (SKIPPED telt niet) en dat elke presetnaam in de uitvoer van `auval -strict -v` staat.
 **Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (17 okt 2026, pakket v2). Eén de eerste push, twee in twee à vier rondes. Alle drie vonden los van elkaar dat clap-validator 0.4.1 vastloopt op een preset-container met meer presets (valkuil 15) en bouwden een AU-presetpatch (clap-wrapper kent geen AU-fabriekspresets). ARCHITECTUUR zei ten onrechte 'een state-blob naast de plugin'.
 
 ---
 ## Fase 5 — formaten compleet
@@ -77,7 +77,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 > doet `testsignalen/` eerst bit voor bit na). Bypass: `CLAP_PARAM_IS_BYPASS`, de DSP rekent door, 10 ms overvloeien,
 > en ook de droge invoer door `pb::uitvoer` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (17 okt 2026, pakket v2). Eén de eerste push, twee in twee rondes. Alle drie moesten de AU-kanaalindelingen zelf patchen (clap-wrapper biedt de AU alleen stereo aan; valkuil 17). De mono-in-place-fout uit fase 1 bestond echt (F3 bewees het met een tegenproef). De fuzzer ving een subnormale sample in bypass.
 
 ---
 ## Fase 6 — signeren en installeren
@@ -92,7 +92,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 > installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan `auval -strict`.
 > Notarisatie alleen als optie in de docs, met de kosten.
 **Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (17 okt 2026, pakket v2). Alle drie in twee à drie rondes, steeds dezelfde valkuil: pkgbuild --analyze schrijft BundleIsRelocatable niet (toevoegen, niet zetten). Een .pkg kan niet ad-hoc gesigneerd worden (de prompt vroeg het; nu herschreven). Het pakket installeert op een schone runner en auval slaagt.
 
 ---
 ## Fase 7 — test in Logic (checklist voor Clay)
