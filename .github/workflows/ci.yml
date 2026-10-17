@@ -93,7 +93,7 @@ jobs:
           curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
           unzip -q pv.zip -d pv && chmod +x pv/pluginval && pv/pluginval --version
       - name: pluginval strictness 10 (VST3)
-        run: xvfb-run -a pv/pluginval validate --strictness-level 10 --skip-gui-tests build/plugins/*.vst3
+        run: xvfb-run -a pv/pluginval validate --strictness-level 10 build/plugins/*.vst3
       - name: Null-test VST3 (pluginval test, blok 512)
         run: sh tools/ci-null.sh pluginval "$PWD/$(ls -d build/plugins/*.vst3)" "xvfb-run -a $PWD/pv/pluginval" vst3-linux ${{ matrix.ontwerp }}
       - uses: actions/upload-artifact@v4
@@ -230,9 +230,9 @@ jobs:
           unzip -q pv.zip -d pv && ls pv
           echo "PV=$PWD/pv/pluginval.app/Contents/MacOS/pluginval" >> "$GITHUB_ENV"
       - name: pluginval strictness 10 met rtcheck (AU)
-        run: $PV validate --strictness-level 10 --skip-gui-tests --rtcheck enabled ~/Library/Audio/Plug-Ins/Components/*.component
+        run: $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/Components/*.component
       - name: pluginval strictness 10 met rtcheck (VST3)
-        run: $PV validate --strictness-level 10 --skip-gui-tests --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
+        run: $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
       - name: Null-test AU (pluginval test, blok 512)
         run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos ${{ matrix.ontwerp }}
       - name: Null-test VST3 (pluginval test, blok 512)

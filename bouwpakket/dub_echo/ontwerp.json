@@ -285,6 +285,78 @@
     }
   ],
   "modulaties": [],
+  "presets": [
+    {
+      "naam": "Standaard",
+      "uitleg": "De beginstand van de plugin.",
+      "waarden": {
+        "Tijd": 375,
+        "Terugkoppeling": 0.5,
+        "Toon": 3000,
+        "Laag weg": 100,
+        "Resonantie": 0.70703125,
+        "Verzadiging": 6,
+        "Haperen": 0.25,
+        "Mix": 0.375
+      }
+    },
+    {
+      "naam": "Slapback",
+      "uitleg": "Eén korte, heldere tik achter het origineel.",
+      "waarden": {
+        "Tijd": 110,
+        "Terugkoppeling": 0.1875,
+        "Toon": 6000,
+        "Laag weg": 150,
+        "Resonantie": 0.70703125,
+        "Verzadiging": 4,
+        "Haperen": 0.125,
+        "Mix": 0.3125
+      }
+    },
+    {
+      "naam": "Lange dub",
+      "uitleg": "Lange, donker wordende herhalingen.",
+      "waarden": {
+        "Tijd": 500,
+        "Terugkoppeling": 0.75,
+        "Toon": 2200,
+        "Laag weg": 250,
+        "Resonantie": 1,
+        "Verzadiging": 9,
+        "Haperen": 0.375,
+        "Mix": 0.4375
+      }
+    },
+    {
+      "naam": "Versleten band",
+      "uitleg": "Onrustige band, vroeg verzadigd, dof.",
+      "waarden": {
+        "Tijd": 375,
+        "Terugkoppeling": 0.625,
+        "Toon": 1500,
+        "Laag weg": 300,
+        "Resonantie": 1.5,
+        "Verzadiging": 14,
+        "Haperen": 0.8125,
+        "Mix": 0.375
+      }
+    },
+    {
+      "naam": "Zelfoscillatie",
+      "uitleg": "Boven 1: gaat vanzelf door en blijft begrensd door de band.",
+      "waarden": {
+        "Tijd": 250,
+        "Terugkoppeling": 1.125,
+        "Toon": 2500,
+        "Laag weg": 200,
+        "Resonantie": 1.25,
+        "Verzadiging": 12,
+        "Haperen": 0.3125,
+        "Mix": 0.5
+      }
+    }
+  ],
   "toetsgevallen": [
     {
       "naam": "echo-standaard",

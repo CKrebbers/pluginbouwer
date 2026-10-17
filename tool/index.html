@@ -430,6 +430,19 @@ const DUB_ECHO = {
       uitleg: 'Hoeveel echo je hoort naast het origineel' },
   ],
   modulaties: [],
+  // fabriekspresets (fase 4): waarden per parameternaam, elk exact in float32 en binnen het bereik
+  presets: [
+    { naam: 'Standaard', uitleg: 'De beginstand van de plugin.',
+      waarden: { Tijd: 375, Terugkoppeling: 0.5, Toon: 3000, 'Laag weg': 100, Resonantie: 0.70703125, Verzadiging: 6, Haperen: 0.25, Mix: 0.375 } },
+    { naam: 'Slapback', uitleg: 'Eén korte, heldere tik achter het origineel.',
+      waarden: { Tijd: 110, Terugkoppeling: 0.1875, Toon: 6000, 'Laag weg': 150, Resonantie: 0.70703125, Verzadiging: 4, Haperen: 0.125, Mix: 0.3125 } },
+    { naam: 'Lange dub', uitleg: 'Lange, donker wordende herhalingen.',
+      waarden: { Tijd: 500, Terugkoppeling: 0.75, Toon: 2200, 'Laag weg': 250, Resonantie: 1, Verzadiging: 9, Haperen: 0.375, Mix: 0.4375 } },
+    { naam: 'Versleten band', uitleg: 'Onrustige band, vroeg verzadigd, dof.',
+      waarden: { Tijd: 375, Terugkoppeling: 0.625, Toon: 1500, 'Laag weg': 300, Resonantie: 1.5, Verzadiging: 14, Haperen: 0.8125, Mix: 0.375 } },
+    { naam: 'Zelfoscillatie', uitleg: 'Boven 1: gaat vanzelf door en blijft begrensd door de band.',
+      waarden: { Tijd: 250, Terugkoppeling: 1.125, Toon: 2500, 'Laag weg': 200, Resonantie: 1.25, Verzadiging: 12, Haperen: 0.3125, Mix: 0.5 } },
+  ],
   // toetsgevallen voor de null-test (genormaliseerd; in deze volgorde: Tijd, Terug, Toon, Laag, Reso, Verz, Haper, Mix)
   toetsgevallen: [
     { naam: 'echo-standaard', signaal: 'stukjes', sec: 4, sr: 48000, norm: [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25] },
@@ -1402,6 +1415,13 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 
 // Alle bestanden van het pakket. bronnen = { 'dsp/pb_math.h': tekst, … } (de tool bakt ze in, Node leest ze);
 // testsignalen = { 'testsignalen/x.wav': Uint8Array, … }; extra = { pad: inhoud } (patch, gereedschap).
+// presets/<slug>.json: { naam, uitleg, waarden: { <parameternaam>: waarde } } (fase 4 van PROMPTS.md)
+const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function presetBestanden(ontwerp) {
+  const uit = {};
+  for (const p of ontwerp.presets || []) uit[`presets/${slug(p.naam)}.json`] = JSON.stringify(p, null, 2) + '\n';
+  return uit;
+}
 function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronnen = {}, testsignalen = {}, extra = {}, uitslagen = {} } = {}) {
   const c = compileer(ontwerp);
   if (c.fouten.length) throw new Error('het ontwerp heeft fouten: ' + c.fouten.join('; '));
@@ -1415,6 +1435,7 @@ function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronnen = {}
     'LEERPAD.md': leerpad(ontwerp),
     'ontwerp.json': JSON.stringify(ontwerp, null, 2) + '\n',
     'metingen.json': JSON.stringify({ metingen, metingBlokken }, null, 2) + '\n',
+    ...presetBestanden(ontwerp),
     [`dsp/ontwerpen/keten_${ontwerp.id}.h`]: ketenHeader(ontwerp),
   };
   for (const [pad, inhoud] of Object.entries(bronnen)) pak[pad] = inhoud;
@@ -1437,7 +1458,7 @@ const PAKKET_BRONNEN = {
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };
 
-return { PAKKET_BRONNEN, architectuur, bouwpakket, claudeMd, cpuSchatting, designMd, leerpad, promptsMd, spec, tasksMd };
+return { PAKKET_BRONNEN, architectuur, bouwpakket, claudeMd, cpuSchatting, designMd, leerpad, presetBestanden, promptsMd, spec, tasksMd };
 })();
 
 // ---- tool/src/testsignalen.js

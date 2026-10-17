@@ -346,6 +346,13 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 
 // Alle bestanden van het pakket. bronnen = { 'dsp/pb_math.h': tekst, … } (de tool bakt ze in, Node leest ze);
 // testsignalen = { 'testsignalen/x.wav': Uint8Array, … }; extra = { pad: inhoud } (patch, gereedschap).
+// presets/<slug>.json: { naam, uitleg, waarden: { <parameternaam>: waarde } } (fase 4 van PROMPTS.md)
+const slug = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+export function presetBestanden(ontwerp) {
+  const uit = {};
+  for (const p of ontwerp.presets || []) uit[`presets/${slug(p.naam)}.json`] = JSON.stringify(p, null, 2) + '\n';
+  return uit;
+}
 export function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronnen = {}, testsignalen = {}, extra = {}, uitslagen = {} } = {}) {
   const c = compileer(ontwerp);
   if (c.fouten.length) throw new Error('het ontwerp heeft fouten: ' + c.fouten.join('; '));
@@ -359,6 +366,7 @@ export function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronn
     'LEERPAD.md': leerpad(ontwerp),
     'ontwerp.json': JSON.stringify(ontwerp, null, 2) + '\n',
     'metingen.json': JSON.stringify({ metingen, metingBlokken }, null, 2) + '\n',
+    ...presetBestanden(ontwerp),
     [`dsp/ontwerpen/keten_${ontwerp.id}.h`]: ketenHeader(ontwerp),
   };
   for (const [pad, inhoud] of Object.entries(bronnen)) pak[pad] = inhoud;
