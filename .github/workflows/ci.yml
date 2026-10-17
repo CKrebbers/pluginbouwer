@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
       - name: Pakketten
         run: |
           sudo apt-get update
@@ -32,6 +35,11 @@ jobs:
 
       - name: Tweede configure (patches mogen er al op zitten)
         run: cmake -S plugin -B build
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
 
       - name: Cache clap-validator
         uses: actions/cache@v4
@@ -65,16 +73,26 @@ jobs:
           set -o pipefail
           xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
 
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "xvfb-run -a ./pluginval/pluginval" vst3-linux 2>&1 | tee null-vst3.log
+
       - name: Bewijs (kernregels uit de logs hierboven)
         run: |
           echo "clap-validator: $(sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -E 'tests run, .* failed')"
           echo "pluginval VST3 Linux: $(grep -E 'Strictness level|^SUCCESS|FAILED' pluginval-vst3.log | tr '\n' ' ')"
+          echo "null-test CLAP Linux:"; grep -E '^###|^\| (echo|zelf|sweep)' null-clap.log
+          echo "null-test VST3 Linux:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
 
       - name: clang 20 via apt.llvm.org
         run: |
@@ -101,6 +119,9 @@ jobs:
           done
           ls -la uit/rtsan
 
+      - name: Null-test CLAP met de RTSan-bouw (parameters, wisselende blokken, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
         run: |
@@ -126,12 +147,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
       - name: Bouwen
         run: |
           uname -m
           cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build build --parallel 4
           ls -la build/plugins
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
 
       - name: Ad-hoc signeren
         run: |
@@ -174,11 +203,26 @@ jobs:
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
             ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
 
+      - name: Null-test AU (pluginval test)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
+            "./pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos 2>&1 | tee null-au.log
+
+      - name: Null-test VST3 (pluginval test)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \
+            "./pluginval/pluginval.app/Contents/MacOS/pluginval" vst3-macos 2>&1 | tee null-vst3.log
+
       - name: Bewijs (kernregels uit de logs hierboven)
         run: |
           echo "auval: $(grep 'AU VALIDATION SUCCEEDED' auval.log)"
           echo "pluginval AU: $(grep -E 'Strictness level|rtcheck|^SUCCESS|FAILED' pluginval-au.log | head -5 | tr '\n' ' ')"
           echo "pluginval VST3: $(grep -E 'Strictness level|rtcheck|^SUCCESS|FAILED' pluginval-vst3.log | head -5 | tr '\n' ' ')"
+          echo "null-test CLAP macOS:"; grep -E '^###|^\| (echo|zelf|sweep)' null-clap.log
+          echo "null-test AU macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-au.log
+          echo "null-test VST3 macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
 
       - name: Artefact klaarzetten
         if: always()
