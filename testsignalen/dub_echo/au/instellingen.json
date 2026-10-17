@@ -1,0 +1,18 @@
+{
+  "blok": 64,
+  "zelfosc": {
+    "Terugkoppeling": 1.1875,
+    "Mix": 1,
+    "Verzadiging": 12
+  },
+  "state": {
+    "Tijd": 167.5,
+    "Terugkoppeling": 0.9375,
+    "Toon": 1762.5,
+    "Laag weg": 81.25,
+    "Resonantie": 1.375,
+    "Verzadiging": 12,
+    "Haperen": 0.5,
+    "Mix": 0.75
+  }
+}

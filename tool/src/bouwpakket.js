@@ -183,6 +183,12 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 8. **clap-validator kleurt zijn uitvoer altijd** (ook met NO_COLOR): haal de ANSI-codes weg vóór je op "0 failed" grept,
    of vertrouw op de exitcode.
 9. **pluginval v2**: \`pluginval validate …\` (de vlag \`--validate\` is verouderd); de null-test gebruikt \`pluginval test\`.
+10. **De AU meldt geen TailTime** (auval: "Tail Time: Recommended Property is not supported"): clap-wrapper v0.16.0 geeft
+   \`SupportsTail()\` vast false. Logic hoort de staart dan nooit (bounce met staart). Oplossing:
+   \`patches/clap-wrapper-auv2-tailtime.patch\`.
+11. **Draden**: zolang de plugin actief is, raakt alleen de audiothread het Ontwerp aan. \`params.get_value\` en
+   \`state.save\` lezen een atomaire kopie; \`state.load\` zet waarden klaar die process of flush overneemt;
+   \`tail.get\` leest een staart die process uitrekende (\`staartSec()\` leest de smoothers).
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
@@ -386,5 +392,6 @@ export const PAKKET_BRONNEN = {
   'tools/pakket/vergelijk.mjs': 'gereedschap/vergelijk.mjs',
   'plugin/patches/clap-wrapper-auv2-params-voor-init.patch': 'patches/clap-wrapper-auv2-params-voor-init.patch',
   'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
+  'plugin/patches/clap-wrapper-auv2-tailtime.patch': 'patches/clap-wrapper-auv2-tailtime.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };

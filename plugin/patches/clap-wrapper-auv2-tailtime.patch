@@ -1,0 +1,39 @@
+Herkomst: Pluginbouwer, 17 okt 2026. auval meldde 'Tail Time: Recommended Property is not supported': clap-wrapper
+v0.16.0 geeft SupportsTail() vast false, dus ausdk biedt kAudioUnitProperty_TailTime nooit aan, terwijl GetTailTime()
+de CLAP-tail al doorgeeft. Een host (Logic: bounce met staart) kreeg de staart nooit te horen. Nu: true als de CLAP
+de tail-extensie heeft.
+
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+index 2db27a8..0ba23e3 100644
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -369,10 +369,7 @@ class WrapAsAUV2 : public ausdk::AUBase,
+   // latency/tailtime/processing
+   virtual Float64 GetLatency() override;
+   virtual Float64 GetTailTime() override;
+-  virtual bool SupportsTail() override
+-  {
+-    return false;
+-  }
++  virtual bool SupportsTail() override;
+ 
+   bool StreamFormatWritable(AudioUnitScope, AudioUnitElement) override
+   {
+diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
+index ca783d1..636c185 100644
+--- a/src/wrapasauv2.cpp
++++ b/src/wrapasauv2.cpp
+@@ -693,6 +693,13 @@ Float64 WrapAsAUV2::GetLatency()
+   return 0.0;
+ }
+ 
++// TailTime alleen aanbieden als de CLAP de tail-extensie heeft; GetTailTime() geeft hem dan door.
++// (In v0.16.0 vast false: de host, bv. Logic bij een bounce met staart, kreeg de staart nooit te horen.)
++bool WrapAsAUV2::SupportsTail()
++{
++  return _plugin && _plugin->_ext._tail;
++}
++
+ Float64 WrapAsAUV2::GetTailTime()
+ {
+   if (_plugin && _plugin->_ext._tail)

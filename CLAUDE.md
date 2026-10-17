@@ -44,7 +44,8 @@ voor bit gelijk, ook op macOS arm64 en ook bij zelfoscillatie.
 PROMPT.md  BRONNEN.md  KEUZE-STACK.md  LEERPAD.md  TASKS.md  design.md
 dsp/            de ENE DSP-bron (header-only, vrijstaand). pb_math.h, pb_biquad.h, …, pb_wasm.cpp (C-ABI voor WASM)
 plugin/         CLAP-first plugin + CMake met clap-wrapper → .clap, .vst3, .component
-host/           pb-render: kleine CLAP-host die een WAV door een .clap stuurt (Linux en macOS)
+host/           pb-render: kleine CLAP-host die een WAV door een .clap stuurt (Linux en macOS);
+                au-proef: AudioToolbox-host die de AU gebruikt zoals een DAW (macOS, CI; tools/au-proef.mjs toetst)
 ref/            onafhankelijke float64-referentie in Python/NumPy (andere code dan dsp/)
 tests/          Node-toetsen (node --test): formules, blokgrootte, null-test, statistisch
 testsignalen/   gegenereerde WAV's + verwachte uitvoer (CSV/WAV), met het script dat ze maakt
@@ -62,8 +63,13 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   bij een nieuwe clap-wrapper eerst kijken of de patch nog nodig is (de null-test op macOS zegt het).
 - **thread_local in clap-wrapper alloceert op macOS** (dyld, calloc bij de eerste render op elke audiothread);
   pluginval `--rtcheck` vangt het. Tweede patch `plugin/patches/clap-wrapper-geen-thread-local-in-process.patch`,
-  gevonden door alle drie de verse sessies van fase E (onze eigen CI ving het niet; waarom niet is niet uitgezocht).
+  gevonden door alle drie de verse sessies van fase E. Onze CI ving het niet door `--skip-gui-tests`: dat sloeg
+  "Open editor whilst processing" over (bewezen op tak onderzoek/tls-zonder-patch); de vlag is weg.
   Patches gaan erop via `plugin/cmake/pas-patches-toe.sh` (een `;` direct in PATCH_COMMAND splitst CMake).
+- **De AU meldde geen TailTime** (clap-wrapper v0.16.0: `SupportsTail()` vast false; auval: "Recommended Property is
+  not supported"). Derde patch `plugin/patches/clap-wrapper-auv2-tailtime.patch`; `host/au-proef` toetst het in CI.
+- **Draden in de schil**: actief = alleen de audiothread raakt het Ontwerp; get_value/state lezen `spiegel`,
+  state.load zet `vuil`, tail.get leest `staartSmp` (plugin/src/plugin.cpp). Gevonden door de verse sessies (E1, E2).
 - **Linux-VST3 met `-z nodelete`**: anders crasht pluginval na "SUCCESS" (statics in de VST3 SDK, exit na dlclose).
 - **RTSan-kanarie via een globale sink**: clang -O2 haalt een malloc/free-paar weg, ook met een volatile lokale pointer.
 - **Denormale invoer** nooit als float omzetten om te testen (`pb::invoer` kijkt naar de bits).

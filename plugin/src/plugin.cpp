@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
 #include <new>
 
 #include PB_ONTWERP
@@ -38,7 +39,15 @@ struct Plug {
   bool actief = false;
   unsigned char* geheugen = nullptr;   // vóór activate gereserveerd (main thread), zie pb::Geheugen
   unsigned long geheugenGrootte = 0;
+  // Draden: zolang de plugin actief is, raakt alleen de audiothread het Ontwerp aan. De mainthread leest en schrijft
+  // parameterwaarden via deze spiegel; een geladen state gaat via het vuil-masker naar de audiothread (begin van het
+  // volgende process of flush). De staart rekent de audiothread uit (staartSec leest de smoothers).
+  std::atomic<double> spiegel[Ontwerp::N_PARAMS];
+  std::atomic<uint64_t> vuil{0};
+  std::atomic<uint32_t> staartSmp{0};
 };
+static_assert(Ontwerp::N_PARAMS <= 64, "het vuil-masker heeft 64 bits");
+static_assert(std::atomic<double>::is_always_lock_free, "de parameterspiegel moet lock-free zijn (real-time)");
 
 #ifdef PB_RTSAN_KANARIE
 void* volatile kanarieSink = nullptr;
@@ -57,8 +66,19 @@ void verwerkEvent(Plug* s, const clap_event_header_t* h) {
   if (h->type == CLAP_EVENT_PARAM_VALUE) {
     auto* ev = reinterpret_cast<const clap_event_param_value_t*>(h);
     int i = indexVanId(ev->param_id);
-    if (i >= 0) s->ontwerp.zetParam(i, ev->value);
+    if (i >= 0) { s->ontwerp.zetParam(i, ev->value); s->spiegel[i].store(s->ontwerp.leesParam(i), std::memory_order_relaxed); }
   }
+}
+// een geladen state (mainthread) toepassen op het Ontwerp: alleen vanaf de draad die het Ontwerp nu bezit
+void pasVuilToe(Plug* s) {
+  uint64_t m = s->vuil.exchange(0, std::memory_order_acquire);
+  for (int i = 0; m; ++i, m >>= 1)
+    if (m & 1) s->ontwerp.zetParam(i, s->spiegel[i].load(std::memory_order_relaxed));
+}
+uint32_t staartNaarSmp(const Plug* s) {
+  double t = s->ontwerp.staartSec();
+  if (t < 0) return INT32_MAX;  // oneindig (CLAP: INT32_MAX of meer)
+  return (uint32_t)(t * s->sr + 0.5);
 }
 
 // ---- audio-ports: stereo, of mono als de host dat kiest -------------------------------------------------------------
@@ -113,7 +133,7 @@ bool paramInfo(const clap_plugin_t*, uint32_t i, clap_param_info_t* info) {
 bool paramWaarde(const clap_plugin_t* p, clap_id id, double* v) {
   int i = indexVanId(id);
   if (i < 0) return false;
-  *v = zelf(p)->ontwerp.leesParam(i);
+  *v = zelf(p)->spiegel[i].load(std::memory_order_relaxed);
   return true;
 }
 bool paramNaarTekst(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t n) {
@@ -139,6 +159,7 @@ bool tekstNaarParam(const clap_plugin_t*, clap_id id, const char* tekst, double*
 }
 void paramFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
   auto* s = zelf(p);
+  pasVuilToe(s);
   for (uint32_t k = 0, n = in->size(in); k < n; ++k) verwerkEvent(s, in->get(in, k));
 }
 const clap_plugin_params_t PARAMS_EXT = {paramAantal, paramInfo, paramWaarde, paramNaarTekst, tekstNaarParam, paramFlush};
@@ -160,7 +181,7 @@ bool stateSave(const clap_plugin_t* p, const clap_ostream_t* st) {
   if (!schrijfAlles(st, kop, sizeof(kop))) return false;
   for (int i = 0; i < Ontwerp::N_PARAMS; ++i) {
     uint32_t id = Ontwerp::PARAMS[i].id;
-    double v = s->ontwerp.leesParam(i);
+    double v = s->spiegel[i].load(std::memory_order_relaxed);
     if (!schrijfAlles(st, &id, 4) || !schrijfAlles(st, &v, 8)) return false;
   }
   return true;
@@ -174,9 +195,17 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* st) {
     uint32_t id; double v;
     if (!leesAlles(st, &id, 4) || !leesAlles(st, &v, 8)) return false;
     int i = indexVanId(id);
-    if (i >= 0 && v == v) s->ontwerp.zetParam(i, v);  // onbekend id = van een nieuwere versie: overslaan
+    if (i < 0 || v != v) continue;  // onbekend id = van een nieuwere versie: overslaan
+    const auto& P = Ontwerp::PARAMS[i];
+    v = v < P.min ? P.min : (v > P.max ? P.max : v);
+    s->spiegel[i].store(v, std::memory_order_relaxed);
+    if (s->actief) s->vuil.fetch_or(1ull << i, std::memory_order_release);
+    else s->ontwerp.zetParam(i, v);
   }
-  if (s->hostParams) s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
+  if (s->hostParams) {
+    s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
+    if (s->actief) s->hostParams->request_flush(s->host);   // niet aan het verwerken: de host roept dan flush
+  }
   return true;
 }
 const clap_plugin_state_t STATE_EXT = {stateSave, stateLoad};
@@ -186,9 +215,7 @@ uint32_t latentie(const clap_plugin_t* p) { return zelf(p)->ontwerp.latentie(); 
 const clap_plugin_latency_t LATENCY_EXT = {latentie};
 uint32_t staart(const clap_plugin_t* p) {
   auto* s = zelf(p);
-  double t = s->ontwerp.staartSec();
-  if (t < 0) return INT32_MAX;  // oneindig (CLAP: INT32_MAX of meer)
-  return (uint32_t)(t * s->sr + 0.5);
+  return s->actief ? s->staartSmp.load(std::memory_order_relaxed) : staartNaarSmp(s);
 }
 const clap_plugin_tail_t TAIL_EXT = {staart};
 
@@ -196,7 +223,7 @@ const clap_plugin_tail_t TAIL_EXT = {staart};
 bool init(const clap_plugin_t* p) {
   auto* s = zelf(p);
   s->hostParams = static_cast<const clap_host_params_t*>(s->host->get_extension(s->host, CLAP_EXT_PARAMS));
-  for (int i = 0; i < Ontwerp::N_PARAMS; ++i) s->ontwerp.zetParam(i, Ontwerp::PARAMS[i].standaard);
+  for (int i = 0; i < Ontwerp::N_PARAMS; ++i) { s->ontwerp.zetParam(i, Ontwerp::PARAMS[i].standaard); s->spiegel[i].store(Ontwerp::PARAMS[i].standaard); }
   return true;
 }
 void destroy(const clap_plugin_t* p) { auto* s = zelf(p); std::free(s->geheugen); s->~Plug(); std::free(s); }
@@ -211,7 +238,9 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
   }
   if (s->geheugen) std::memset(s->geheugen, 0, s->geheugenGrootte);
   pb::Geheugen g; g.p = s->geheugen; g.over = s->geheugenGrootte;
+  pasVuilToe(s);
   s->ontwerp.activeer(sr, maxFrames, g);
+  s->staartSmp.store(staartNaarSmp(s), std::memory_order_relaxed);
   s->actief = true;
   return true;
 }
@@ -229,6 +258,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   kanarieSink = std::malloc(16);
   std::free(kanarieSink);
 #endif
+  pasVuilToe(s);   // een state die de mainthread laadde, vóór de events van dit blok
   const uint32_t n = pr->frames_count;
   const uint32_t nEv = pr->in_events->size(pr->in_events);
   uint32_t ev = 0, pos = 0;
@@ -265,6 +295,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
     pos = tot;
   }
   for (int c = k; c < kUit; ++c) std::memcpy(pr->audio_outputs[0].data32[c], uit[k - 1], n * sizeof(float));
+  s->staartSmp.store(staartNaarSmp(s), std::memory_order_relaxed);
   return CLAP_PROCESS_CONTINUE;
 }
 

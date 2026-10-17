@@ -4,6 +4,7 @@
 #   linux     CLAP + VST3 bouwen, clap-validator, pluginval 10 (VST3), null-test door het binary (CLAP en VST3)
 #   rtsan     RTSan (clang 20) met een kanarie die moet falen, en ASan/UBSan
 #   macos     arm64: CLAP + VST3 + AU, ad-hoc gesigneerd, auval -strict, pluginval 10 met rtcheck (AU en VST3),
+#             de AU in een eigen AudioToolbox-host (host/au-proef: automatisering, staart, state),
 #             null-test door het binary (AU, VST3, CLAP); de plugins als download
 name: ci
 on:
@@ -41,6 +42,7 @@ jobs:
       - name: Verwachte uitvoer opnieuw maken — moet bit voor bit gelijk zijn aan wat in git staat
         run: |
           for o in pijplijn_biquad dub_echo keten_dub_echo; do node tools/null.mjs maak "$o"; done
+          for o in dub_echo keten_dub_echo; do node tools/au-proef.mjs maak "$o"; done
       - name: Gegenereerde header en bouwpakket kloppen met de generator (DSP, WASM, testsignalen)
         run: |
           sh dsp/bouw-wasm.sh graaf
@@ -237,6 +239,16 @@ jobs:
         run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos ${{ matrix.ontwerp }}
       - name: Null-test VST3 (pluginval test, blok 512)
         run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/VST3/*.vst3)" "$PV" vst3-macos ${{ matrix.ontwerp }}
+      - name: AU zoals in een DAW (host/au-proef) — automatisering, zelfoscillatie, staart, state, bypass
+        if: matrix.ontwerp != 'pijplijn_biquad'
+        run: |
+          clang++ -std=c++17 -O2 -Wall host/au-proef.cpp -framework AudioToolbox -framework CoreFoundation -o au-proef
+          SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
+          MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
+          mkdir -p uit/au
+          ./au-proef aufx "$SUB" "$MAN" testsignalen/${{ matrix.ontwerp }}/au uit/au
+          echo "### AU zoals in een DAW (${{ matrix.ontwerp }})" >> "$GITHUB_STEP_SUMMARY"
+          node tools/au-proef.mjs toets uit/au ${{ matrix.ontwerp }} | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Download klaarzetten (voor Logic; zie LEERPAD.md "Installeren")
         if: always()
         run: |
