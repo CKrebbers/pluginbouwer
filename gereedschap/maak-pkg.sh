@@ -40,9 +40,12 @@ chmod 755 "$werk/scripts/postinstall"
 # bundel-id (bv. de build-map of ~/Library/...), en komt er niets in /Library/Audio/Plug-Ins.
 pkgbuild --analyze --root "$wortel" "$werk/componenten.plist"
 PB=/usr/libexec/PlistBuddy
+plutil -p "$werk/componenten.plist"
 i=0
 while $PB -c "Print :$i:RootRelativeBundlePath" "$werk/componenten.plist" >/dev/null 2>&1; do
-  $PB -c "Set :$i:BundleIsRelocatable false" "$werk/componenten.plist"
+  # pkgbuild --analyze zet de sleutels niet altijd zelf; daarom eerst weghalen en dan toevoegen
+  $PB -c "Delete :$i:BundleIsRelocatable" "$werk/componenten.plist" 2>/dev/null || true
+  $PB -c "Add :$i:BundleIsRelocatable bool false" "$werk/componenten.plist"
   $PB -c "Delete :$i:BundleOverwriteAction" "$werk/componenten.plist" 2>/dev/null || true
   $PB -c "Add :$i:BundleOverwriteAction string upgrade" "$werk/componenten.plist"
   i=$((i + 1))
