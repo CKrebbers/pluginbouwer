@@ -1,0 +1,24 @@
+{
+  "name": "sweep-441",
+  "input": {
+    "audio": "../sweep-441.in.wav"
+  },
+  "reference": "../sweep-441.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Tijd": 0.5,
+      "Terugkoppeling": 0.5,
+      "Toon": 0.5,
+      "Laag weg": 0.125,
+      "Resonantie": 0.125,
+      "Verzadiging": 0.75,
+      "Haperen": 0.75,
+      "Mix": 0.5
+    }
+  },
+  "sample_rate": 44100,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}
