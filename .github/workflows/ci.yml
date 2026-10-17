@@ -302,11 +302,6 @@ jobs:
       - name: Eigen toets fase 4, AU (factory presets zetten vóór en na Initialize; parameters en ClassInfo)
         run: build/au-preset-toets uit/presets.tsv
 
-      - name: auval toont de kanaalindelingen (fase 5; 1-1, 1-2 en 2-2)
-        run: grep -n -A6 "Channel Handling" auval.log
-
-      - name: Null-matrix AU (fase 5; AudioToolbox, 44,1-192 kHz x mono/mono-stereo/stereo, blokken, BypassEffect)
-        run: node gereedschap/null-matrix.mjs au build/au-render
 
       - name: pluginval ophalen
         run: |
@@ -373,6 +368,13 @@ jobs:
 
       - name: Null-matrix AU via pluginval (fase 5; 44,1-192 kHz, blok 1..4096, Bypass aan)
         run: node gereedschap/null-matrix.mjs pluginval "$PV" ~/Library/Audio/Plug-Ins/Components/PB-Dub-echo.component au-macos
+
+      # fase 5: achteraan, zodat dit deel van het log in de staart staat (de pluginval-stappen zijn erg lang)
+      - name: auval toont de kanaalindelingen (fase 5; 1-1, 1-2 en 2-2)
+        run: grep -n -A6 "Channel Handling" auval.log
+
+      - name: Null-matrix AU (fase 5; AudioToolbox, 44,1-192 kHz x mono/mono-stereo/stereo, blokken, BypassEffect)
+        run: node gereedschap/null-matrix.mjs au build/au-render
 
       - name: Plugins als artefact
         uses: actions/upload-artifact@v4
