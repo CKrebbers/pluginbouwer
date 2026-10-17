@@ -153,6 +153,9 @@ Tested on macOS 15 arm64: `auval -strict` lists the presets ("HAS FACTORY PRESET
 `kAudioUnitProperty_FactoryPresets`, sets `kAudioUnitProperty_PresentPreset` before and after `Initialize`, and every
 parameter and the ClassInfo match the preset; an unknown preset number returns an error. Not tested in Logic itself.
 Known gap: VST3 gets no program list from the same presets.
+Related: `auval` warns "Preset name is not retained in retrieved class data" because `SaveState` writes a fixed
+name ("Program"); one session fixed it by keeping the current preset name (factory or `NewCustomPresetSet`) in
+ClassInfo and restoring it in `RestoreState`.
 
 Found by: an independent build session of the Pluginbouwer project (preset phase).
 
@@ -177,3 +180,5 @@ containers pass. Same code on master (b2f1d9b).
 rustc 1.97); it has not yet been run against a plugin with a multi-preset container.
 
 Workaround used meanwhile: one provider per preset, each a container of one (valid CLAP, but unusual for hosts).
+Found independently by three build sessions of the Pluginbouwer project (each hit the 45 s timeout with a container of
+five presets). Side effect of the workaround: `preset-discovery-load` only keeps the result of the last provider.
