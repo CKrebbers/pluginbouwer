@@ -8,6 +8,9 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: "0.4.1"
+  # fase 5: 44,1–192 kHz en blokgrootte 1..4096 (pluginval validate, en de null-test op elke samplerate)
+  SAMPLERATES: "44100,48000,88200,96000,176400,192000"
+  BLOKGROOTTES: "1,64,512,4096"
 
 jobs:
   linux:
@@ -46,7 +49,8 @@ jobs:
           for t in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
                    state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate \
                    param-conversions param-set-events param-default-values \
-                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load \
+                   layout-audio-ports-config layout-configurable-audio-ports; do
             uitslag="$(awk -v t="┌─ $t" '$0 ~ t"$" {gevonden=1} gevonden && /└──/ {print; exit}' cv-kaal.log)"
             echo "$t: $uitslag"
             echo "$uitslag" | grep -q PASSED || { echo "FOUT: $t niet PASSED"; exit 1; }
@@ -57,13 +61,15 @@ jobs:
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
           unzip -q pluginval.zip -d pluginval
           chmod +x pluginval/pluginval
-      - name: pluginval strictness 10 (VST3, xvfb; met de editortests)
+      - name: pluginval strictness 10 (VST3, xvfb; met de editortests; alle samplerates en blokgroottes)
         run: |
           set -o pipefail
           # diepte 24 (expliciet): dan tekent het X11-paneel echt (op een 8-bit scherm blijft het effen)
-          xvfb-run -a -s "-screen 0 1280x1024x24" ./pluginval/pluginval validate --strictness-level 10 --verbose \
-            "build/plugins/PB Dub-echo.vst3" 2>&1 | tee pv-vst3-linux.log
+          # het pad vóór --sample-rates/--block-sizes: die lijsten slokken anders het pad op
+          xvfb-run -a -s "-screen 0 1280x1024x24" ./pluginval/pluginval validate "build/plugins/PB Dub-echo.vst3" \
+            --strictness-level 10 --verbose --sample-rates "$SAMPLERATES" --block-sizes "$BLOKGROOTTES" 2>&1 | tee pv-vst3-linux.log
           grep "Time taken to open editor" pv-vst3-linux.log  # fase 3: de editor is echt geopend
+          sh gereedschap/ci-formaten.sh pluginval pv-vst3-linux.log
       - name: Frontpaneel (pb-paneel; X11 onder xvfb, muis, schermafbeeldingen)
         run: |
           mkdir -p schermafbeelding/linux
@@ -81,6 +87,14 @@ jobs:
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test, xvfb)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "$PWD/pluginval/pluginval" vst3-linux
+      - name: Matrix maken (verwachte uitvoer per samplerate en indeling, uit wasm/graaf.wasm)
+        run: node gereedschap/maak-matrix.mjs uit-matrix/verwacht "$SAMPLERATES"
+      - name: Null-test CLAP-matrix (pb-render; 6 samplerates × stereo, mono, mono naar stereo × blok 512, wisselend, in-place)
+        run: sh gereedschap/ci-null.sh matrix build uit-matrix/verwacht
+      - name: Bypass CLAP (pb-render; aan, aan- en uitzetten met overvloeiing; 48 en 192 kHz, elke indeling)
+        run: sh gereedschap/ci-bypass.sh build uit-matrix/verwacht
+      - name: Null-test VST3-matrix (pluginval test op elke samplerate, blok 1 en 4096, Bypass)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval-matrix "build/plugins/PB Dub-echo.vst3" "$PWD/pluginval/pluginval" vst3-linux uit-matrix/verwacht "$SAMPLERATES"
       - name: Null-test met automatisering (events in process; glijden, blokgrootte verandert niets)
         run: sh gereedschap/ci-automatie.sh build
       - name: State-toets (bouw zonder parameter N → bouw mét, en terug)
@@ -98,7 +112,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: null-test-linux
-          path: uit/
+          path: |
+            uit/
+            uit-matrix/**/uitslag.md
 
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
@@ -132,6 +148,23 @@ jobs:
             done
           done
           echo "RTSan: schoon"
+      - name: RTSan in elke indeling, in-place, met de bypass (44,1 en 192 kHz, blok 1..4096)
+        run: |
+          set -e
+          mkdir -p uit/rtsan-formaten
+          p="--p 1=315 --p 2=0.3125 --p 3=3225 --p 4=265 --p 5=1.375 --p 6=6 --p 7=0.25 --p 8=0.25"
+          for sr in 44100 192000; do
+            for indeling in stereo mono mono-stereo; do
+              for opt in "--blok 3,128,1,4096,77" "--blok 512 --in-place" "--blok 3,128,1,4096,77 --automatie 64 --p 9=0 --glij 9=0:1" \
+                         "--blok 3,128,1,4096,77 --in-place --automatie 64 --p 9=0 --glij 9=1:0"; do
+                echo "== $sr $indeling $opt"
+                # shellcheck disable=SC2086
+                ./build-rtsan/pb-render "build-rtsan/plugins/PB Dub-echo.clap" testsignalen/echo-standaard.in.wav \
+                  "uit/rtsan-formaten/$sr-$indeling.wav" --sr "$sr" --indeling "$indeling" $opt $p
+              done
+            done
+          done
+          echo "RTSan (formaten): schoon"
       - name: RTSan met de state-toets (state laden terwijl actief, flush tussen blokken)
         run: |
           set -e
@@ -236,6 +269,8 @@ jobs:
           auval -a | grep -i "Vrve" || true
           auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
+          # fase 5: de AU biedt mono, mono naar stereo en stereo aan (en auval toetst elke indeling)
+          sh gereedschap/ci-formaten.sh auval auval.log
           # fase 4: auval toont de factory presets, elk bij naam
           node -e "for (const f of require('fs').readdirSync('presets').sort()) console.log(require('./presets/' + f).naam)" > preset-namen.txt
           grep -A12 -i "factory preset" auval.log || true  # alleen voor het log; de poort is de lus hieronder
@@ -261,15 +296,17 @@ jobs:
       - name: pluginval strictness 10 --rtcheck enabled (AU; met de editortests)
         run: |
           set -o pipefail
-          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" 2>&1 | tee pv-au.log
+          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
+            --strictness-level 10 --rtcheck enabled --verbose --sample-rates "$SAMPLERATES" --block-sizes "$BLOKGROOTTES" 2>&1 | tee pv-au.log
           grep "Time taken to open editor" pv-au.log  # fase 3: de editor is echt geopend
+          sh gereedschap/ci-formaten.sh pluginval pv-au.log
       - name: pluginval strictness 10 --rtcheck enabled (VST3; met de editortests)
         run: |
           set -o pipefail
-          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" 2>&1 | tee pv-vst3-macos.log
+          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \
+            --strictness-level 10 --rtcheck enabled --verbose --sample-rates "$SAMPLERATES" --block-sizes "$BLOKGROOTTES" 2>&1 | tee pv-vst3-macos.log
           grep "Time taken to open editor" pv-vst3-macos.log
+          sh gereedschap/ci-formaten.sh pluginval pv-vst3-macos.log
       - name: Frontpaneel (pb-paneel; Cocoa, muis, schermafbeeldingen)
         run: |
           mkdir -p schermafbeelding/macos
@@ -297,12 +334,30 @@ jobs:
         run: |
           sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
             "$PWD/pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos
+      - name: Matrix maken (verwachte uitvoer per samplerate en indeling, uit wasm/graaf.wasm)
+        run: node gereedschap/maak-matrix.mjs uit-matrix/verwacht "$SAMPLERATES"
+      - name: Null-test CLAP-matrix (pb-render; 6 samplerates × stereo, mono, mono naar stereo × blok 512, wisselend, in-place)
+        run: sh gereedschap/ci-null.sh matrix build uit-matrix/verwacht
+      - name: Bypass CLAP (pb-render; aan, aan- en uitzetten met overvloeiing; 48 en 192 kHz, elke indeling)
+        run: sh gereedschap/ci-bypass.sh build uit-matrix/verwacht
+      - name: Null-test AU-matrix (pb-au-render; elke samplerate en indeling, BypassEffect, geweigerde indeling)
+        run: sh gereedschap/ci-null.sh au-matrix build/pb-au-render uit-matrix/verwacht
+      - name: Null-test VST3-matrix (pluginval test op elke samplerate, blok 1 en 4096, Bypass)
+        run: |
+          sh gereedschap/ci-null.sh pluginval-matrix ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \
+            "$PWD/pluginval/pluginval.app/Contents/MacOS/pluginval" vst3-macos uit-matrix/verwacht "$SAMPLERATES"
+      - name: Null-test AU-matrix via pluginval (pluginval test op elke samplerate, blok 1 en 4096, Bypass)
+        run: |
+          sh gereedschap/ci-null.sh pluginval-matrix ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
+            "$PWD/pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos uit-matrix/verwacht "$SAMPLERATES"
       - name: Renders (null-test)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: null-test-macos
-          path: uit/
+          path: |
+            uit/
+            uit-matrix/**/uitslag.md
       - name: Artefact
         uses: actions/upload-artifact@v4
         with:

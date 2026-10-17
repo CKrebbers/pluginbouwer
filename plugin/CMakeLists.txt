@@ -166,6 +166,10 @@ if (APPLE)
   add_executable(pb-au-presets "${PAKKET}/gereedschap/pb-au-presets.cpp")
   target_link_libraries(pb-au-presets PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
   set_target_properties(pb-au-presets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  # pb-au-render: de null-test door de geïnstalleerde AU, in elke kanaalindeling en met de bypass van de host (fase 5)
+  add_executable(pb-au-render "${PAKKET}/gereedschap/pb-au-render.cpp")
+  target_link_libraries(pb-au-render PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-au-render PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
 
 # --- pb-paneel: opent het frontpaneel als host, bedient het met de muis, maakt schermafbeeldingen (fase 3) ---------

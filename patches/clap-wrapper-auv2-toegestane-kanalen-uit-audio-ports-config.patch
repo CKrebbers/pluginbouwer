@@ -1,0 +1,117 @@
+Herkomst: proef F1 (tak proef/f1, fase 5, 17 okt 2026), door een vers Claude Code-gesprek gemaakt.
+clap-wrapper v0.16.0 (AUv2) leidt de kanaalindelingen van de AU alleen af uit de audio-ports van de CLAP zoals die
+bij PostConstructor zijn (SupportedNumChannels en ValidFormat): een CLAP die mono en stereo aanbiedt via de
+audio-ports-config-extensie is voor de host (Logic, auval) toch alleen [2, 2]. De VST3-wrapper kan het wel, via
+configurable-audio-ports (setBusArrangements); de AUv2-wrapper kent geen van beide.
+Hier: bij PostConstructor leest de wrapper ook audio-ports-config (alleen indelingen met precies één hoofdingang en
+één hoofduitgang, zoals de AU-bussen). SupportedNumChannels meldt elke indeling als expliciet [in, uit]-paar;
+ValidFormat neemt op bus 0 elk aantal kanalen aan dat in een indeling voorkomt; Initialize (de CLAP is dan niet
+actief, op de mainthread) kiest met audio-ports-config.select de indeling die bij de streamformaten van de host past,
+of geeft kAudioUnitErr_FormatNotSupported. De procesadapter nam de kanalen al uit de streamformaten.
+Zonder audio-ports-config verandert er niets. Naamvolgorde: na de andere auv2-patches (raakt dezelfde bestanden).
+
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+index 9ec13bf..cbb00b5 100644
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -783,6 +783,16 @@ class WrapAsAUV2 : public ausdk::AUBase,
+   };
+   std::vector<AudioPortCache> _inputPortCache;
+   std::vector<AudioPortCache> _outputPortCache;
++  // channel layouts from the CLAP audio-ports-config extension (main input/output channel counts), also captured
++  // at PostConstructor; empty when the plugin has no such extension (then only the audio-ports layout counts)
++  struct AudioPortsConfigCache
++  {
++    clap_id id;
++    uint32_t inChannels;
++    uint32_t outChannels;
++  };
++  std::vector<AudioPortsConfigCache> _portsConfigs;
++  const clap_plugin_audio_ports_config_t *_audioPortsConfig = nullptr;
+ 
+   uint32_t _midi_preferred_dialect = 0;
+   uint32_t _midi_supported_dialects = 0;
+diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
+index 74b48cd..204f9c3 100644
+--- a/src/wrapasauv2.cpp
++++ b/src/wrapasauv2.cpp
+@@ -200,6 +200,19 @@ OSStatus WrapAsAUV2::Initialize()
+   // CLAP does not want it, therefore the wrapper insists on being in the
+   // main thread
+   auto guarantee_mainthread = _plugin->AlwaysMainThread();
++
++  // the host chose the channel counts with the stream formats: select the matching audio-ports-config of the CLAP
++  // (it is deactivated here); a combination it does not offer is not supported
++  if (!_portsConfigs.empty() && _audioPortsConfig)
++  {
++    const auto numIn = Inputs().GetNumberOfElements() > 0 ? Input(0).GetStreamFormat().mChannelsPerFrame : 0;
++    const auto numOut = Outputs().GetNumberOfElements() > 0 ? Output(0).GetStreamFormat().mChannelsPerFrame : 0;
++    const AudioPortsConfigCache *match = nullptr;
++    for (const auto &c : _portsConfigs)
++      if (c.inChannels == numIn && c.outChannels == numOut) match = &c;
++    if (!match) return kAudioUnitErr_FormatNotSupported;
++    if (!_audioPortsConfig->select(_plugin->_plugin, match->id)) return kAudioUnitErr_FormatNotSupported;
++  }
+   activateCLAP();
+ 
+ #if 0
+@@ -1806,6 +1819,15 @@ bool WrapAsAUV2::ValidFormat(AudioUnitScope inScope, AudioUnitElement inElement,
+     }
+     return true;
+   }
++  // the main busses may take any channel count one of the audio-ports-config layouts offers (Initialize checks
++  // the combination of input and output)
++  if (inElement == 0 && !_portsConfigs.empty())
++  {
++    for (const auto &c : _portsConfigs)
++      if (inNewFormat.mChannelsPerFrame == (inScope == kAudioUnitScope_Input ? c.inChannels : c.outChannels))
++        return true;
++    return false;
++  }
+   return inNewFormat.mChannelsPerFrame == cache[inElement].channelCount;
+ }
+ 
+@@ -1823,7 +1845,17 @@ UInt32 WrapAsAUV2::SupportedNumChannels(const AUChannelInfo **outInfo)
+ {
+   // Built from the PostConstructor snapshot rather than a live port scan (see
+   // ValidFormat) so this is safe to call while the plugin is active.
+-  if (cinfo.empty() && isEffectFacade())
++  if (cinfo.empty() && !_portsConfigs.empty())
++  {
++    // the layouts of the audio-ports-config extension, each an explicit [in, out] pair
++    for (const auto &c : _portsConfigs)
++    {
++      cinfo.emplace_back();
++      cinfo.back().inChannels = static_cast<SInt16>(c.inChannels);
++      cinfo.back().outChannels = static_cast<SInt16>(c.outChannels);
++    }
++  }
++  else if (cinfo.empty() && isEffectFacade())
+   {
+     // No CLAP audio ports at all: advertise the fixed stereo in/out layout of the
+     // placeholder busses so auval / hosts treat this as a plain stereo unit.
+@@ -1920,6 +1952,24 @@ void WrapAsAUV2::PostConstructor()
+       */
+     }
+     LOGINFO("[clap-wrapper] PostConstructor: Ins={} Outs={}", numAudioInputs, numAudioOutputs);
++
++    // channel layouts the CLAP offers through audio-ports-config: only those with exactly the one main input and
++    // main output the AU busses above have (the AU can only change the channel counts of its busses)
++    _audioPortsConfig = static_cast<const clap_plugin_audio_ports_config_t *>(
++        pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
++    if (_audioPortsConfig && numAudioInputs == 1 && numAudioOutputs == 1 && _inputPortCache[0].isMain &&
++        _outputPortCache[0].isMain)
++    {
++      for (uint32_t i = 0, n = _audioPortsConfig->count(pl); i < n; ++i)
++      {
++        clap_audio_ports_config_t c{};
++        if (!_audioPortsConfig->get(pl, i, &c)) continue;
++        if (c.input_port_count != 1 || c.output_port_count != 1 || !c.has_main_input || !c.has_main_output) continue;
++        if (c.main_input_channel_count < 1 || c.main_output_channel_count < 1) continue;
++        _portsConfigs.push_back({c.id, c.main_input_channel_count, c.main_output_channel_count});
++      }
++      LOGINFO("[clap-wrapper] PostConstructor: {} channel layouts from audio-ports-config", (int)_portsConfigs.size());
++    }
+   }
+ 
+   // A plugin can legitimately declare no audio output ports (a note effect such

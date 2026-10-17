@@ -1,6 +1,8 @@
 // vergelijk.mjs — de null-test van het bouwpakket: verwachte uitvoer (uit de WASM van de Pluginbouwer) tegen een
 // render door het gebouwde binary. Staat los: alleen Node, geen andere bestanden dan testsignalen/ en wasm/.
 //   node gereedschap/vergelijk.mjs <map met renders>      exit 1 als iets boven de grens komt
+//   node gereedschap/vergelijk.mjs <map met renders> --verwacht <map>   (fase 5) verwachte uitvoer en invoer uit <map>
+//        (<geval>.verwacht.wav en <geval>.in.wav, gemaakt door maak-matrix.mjs) in plaats van uit testsignalen/
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -95,23 +97,28 @@ function standaardRender(invoer, sr) {
 }
 
 const map = process.argv[2];
-if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders>'); process.exit(2); }
+if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders> [--verwacht <map>]'); process.exit(2); }
+const VERWACHT = process.argv[3] === '--verwacht' && process.argv[4] ? process.argv[4] : join(PAKKET, 'testsignalen');
 const gevallen = JSON.parse(readFileSync(join(PAKKET, 'testsignalen', 'gevallen.json'), 'utf8'));
 let mis = 0;
 console.log('| geval | piek | RMS | bit voor bit |\n|---|---|---|---|');
 for (const g of gevallen) {
   const pad = join(map, `${g.naam}.wav`);
   if (!existsSync(pad)) { console.log(`| ${g.naam} | ontbreekt | | |`); mis++; continue; }
-  const verwacht = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.verwacht.wav`)).kanalen, gekregen = leesWav(pad).kanalen;
+  const v = leesWav(join(VERWACHT, `${g.naam}.verwacht.wav`)), verwacht = v.kanalen, k = leesWav(pad), gekregen = k.kanalen;
+  if (k.sr !== v.sr || gekregen.length !== verwacht.length || gekregen[0].length !== verwacht[0].length) {
+    console.log(`| ${g.naam} | vorm verschilt: ${k.sr} Hz, ${gekregen.length} kanalen, ${gekregen[0].length} samples; verwacht ${v.sr} Hz, ${verwacht.length}, ${verwacht[0].length} | | | **FOUT**`);
+    mis++; continue;
+  }
   const r = nullTest(verwacht, gekregen);
   let ok = r.piekDb <= GRENS_DB, extra = '';
   if (g.statistisch) {
-    const s = statistisch(verwacht, gekregen, g.sr);
+    const s = statistisch(verwacht, gekregen, v.sr);
     ok = s.band <= 1 && s.omh <= 1;
     extra = ` statistisch: terts ${s.band.toFixed(3)} dB, omhullende ${s.omh.toFixed(3)} dB`;
   }
   if (!ok && !g.statistisch) {
-    const inv = leesWav(join(PAKKET, 'testsignalen', `${g.naam}.in.wav`));
+    const inv = leesWav(join(VERWACHT, `${g.naam}.in.wav`));
     if (nullTest(standaardRender(inv.kanalen, inv.sr), gekregen).piekDb <= GRENS_DB)
       extra += ' — gelijk aan de STANDAARDwaarden: de parameters kwamen niet aan (CLAUDE.md valkuil 1)';
   }

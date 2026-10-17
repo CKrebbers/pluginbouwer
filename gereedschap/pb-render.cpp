@@ -7,10 +7,15 @@
 //                                  als events in process, op sample 0 en daarna elke K samples opnieuw, op hun sample)
 //             [--glij id=van:naar] (met --automatie: deze parameter loopt in stappen van K samples van `van` naar
 //                                  `naar` over de hele render; toetst dat de uitvoer niet van de blokgrootte afhangt)
+//             [--indeling stereo|mono|mono-stereo] (kanaalindeling via audio-ports-config vóór activate; mono leest
+//                                  kanaal 0 van de invoer; standaard stereo)
+//             [--in-place]        (uitgang = ingang: dezelfde buffers, zoals een host die in-place rekent; bij mono
+//                                  naar stereo is uitgang 0 de ingang)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
 #include <clap/clap.h>
+#include <clap/ext/audio-ports-config.h>
 #include <dlfcn.h>
 #include <cstdint>
 #include <cstdio>
@@ -108,6 +113,7 @@ int main(int argc, char** argv) {
   double sr = 0; std::vector<uint32_t> blokken = {512}; bool rondje = false;
   std::vector<std::pair<clap_id, double>> params;
   uint32_t automatie = 0; clap_id glijId = 0; double glijVan = 0, glijNaar = 0;
+  std::string indeling = "stereo"; bool inPlace = false;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--sr" && i + 1 < argc) sr = std::atof(argv[++i]);
@@ -119,6 +125,8 @@ int main(int argc, char** argv) {
       if (k == std::string::npos) fout("--p id=waarde");
       params.push_back({(clap_id)std::atoi(s.substr(0, k).c_str()), std::atof(s.substr(k + 1).c_str())});
     } else if (a == "--state-rondje") rondje = true;
+    else if (a == "--indeling" && i + 1 < argc) indeling = argv[++i];
+    else if (a == "--in-place") inPlace = true;
     else if (a == "--automatie" && i + 1 < argc) { automatie = (uint32_t)std::atoi(argv[++i]); if (!automatie) fout("--automatie K, K > 0"); }
     else if (a == "--glij" && i + 1 < argc) {
       std::string s = argv[++i]; size_t k = s.find('='), d = s.find(':');
@@ -181,15 +189,40 @@ int main(int argc, char** argv) {
     if (!st->load(pl, &is)) fout("state load mislukt");
   }
 
+  // kanaalindeling: zoeken in audio-ports-config op het aantal kanalen, dan kiezen (mainthread, niet actief)
+  uint32_t kIn = 2, kUit = 2;
+  if (indeling == "mono") kIn = kUit = 1;
+  else if (indeling == "mono-stereo") { kIn = 1; kUit = 2; }
+  else if (indeling != "stereo") fout("--indeling stereo|mono|mono-stereo");
+  {
+    auto* apc = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+    bool gekozen = false;
+    for (uint32_t k = 0, nc = apc ? apc->count(pl) : 0; k < nc && !gekozen; ++k) {
+      clap_audio_ports_config_t c{};
+      if (apc->get(pl, k, &c) && c.has_main_input && c.has_main_output && c.main_input_channel_count == kIn &&
+          c.main_output_channel_count == kUit) {
+        if (!apc->select(pl, c.id)) fout("audio-ports-config select mislukt: " + indeling);
+        gekozen = true;
+      }
+    }
+    if (!gekozen && indeling != "stereo") fout("de plugin kent de indeling " + indeling + " niet");
+    auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
+    clap_audio_port_info_t ii{}, iu{};
+    if (!ap || !ap->get(pl, 0, true, &ii) || !ap->get(pl, 0, false, &iu) || ii.channel_count != kIn ||
+        iu.channel_count != kUit)
+      fout("audio-ports meldt niet de gekozen indeling " + indeling);
+  }
+
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
-  const uint32_t kan = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  const uint32_t kan = kIn < (uint32_t)in.k.size() ? kIn : (uint32_t)in.k.size(), kanUit = kUit;
   const size_t n = in.k[0].size();
-  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kan, std::vector<float>(n));
-  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
-  std::vector<float*> pi(kan), pu(kan);
-  for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
+  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kanUit, std::vector<float>(n));
+  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kanUit, std::vector<float>(maxBlok));
+  std::vector<float*> pi(kan), pu(kanUit);
+  for (uint32_t c = 0; c < kan; ++c) pi[c] = bi[c].data();
+  for (uint32_t c = 0; c < kanUit; ++c) pu[c] = inPlace && c < kan ? pi[c] : bu[c].data();
   if (glijId && !automatie) fout("--glij kan alleen met --automatie");
   // automatisering: alle events vooraf, op hun absolute sample (geen allocatie in de lus van process)
   std::vector<clap_event_param_value_t> auto_;
@@ -217,10 +250,10 @@ int main(int argc, char** argv) {
       blokEv.ev.back().header.time -= (uint32_t)pos;  // tijd binnen dit blok
     }
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
-    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
+    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kanUit, 0, 0};
     clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
-    for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
+    for (uint32_t c = 0; c < kanUit; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;
   }
   pl->stop_processing(pl);

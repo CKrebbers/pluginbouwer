@@ -3,6 +3,7 @@
 //   node gereedschap/vergelijk-presets.mjs --au <tabel.tsv>   (AU: de tabel komt uit gereedschap/pb-au-presets)
 // Elk JSON-bestand is precies één preset in de plugin (sleutel = bestandsnaam zonder .json), met dezelfde naam en
 // uitleg, en elke parameter die de plugin kent heeft na het laden exact (bit voor bit) de waarde uit de JSON.
+// De parameter Bypass (fase 5) hoort niet bij een preset: na het laden moet hij uit (0) staan.
 // De AU kent geen sleutel en geen uitleg: daar gaat het op naam, en een AU-parameter is een float32 (Math.fround).
 // exit 1 bij een verschil.
 import { readFileSync, readdirSync } from 'node:fs';
@@ -33,6 +34,13 @@ for (const f of bestanden) {
   if (!p) { fouten.push(`${f}: niet in de plugin`); continue; }
   if (p.naam !== json.naam) fouten.push(`${f}: naam "${p.naam}" in de plugin, "${json.naam}" in de JSON`);
   if (!AU && p.uitleg !== (json.uitleg ?? '')) fouten.push(`${f}: uitleg verschilt`);
+  // de bypass (fase 5) is de schakelaar van de host, geen klank: hij hoort niet in een preset, en een preset laden
+  // laat hem staan (de toetsen laden in een verse instantie: uit = 0)
+  if (p.waarden.has('Bypass')) {
+    if (p.waarden.get('Bypass') !== 0) fouten.push(`${f}: Bypass = ${p.waarden.get('Bypass')} na laden, verwacht 0 (onveranderd)`);
+    p.waarden.delete('Bypass');
+  }
+  if ('Bypass' in json.waarden) fouten.push(`${f}: een preset hoort geen Bypass te zetten`);
   const namen = new Set([...Object.keys(json.waarden), ...p.waarden.keys()]);
   let gelijk = 0;
   for (const n of namen) {
