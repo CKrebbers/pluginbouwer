@@ -251,6 +251,10 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    \`-load\`: "Timed out after 45 seconds"): \`begin_preset\` houdt de mutex \`result\` vast en \`flush_preset\` pakt hem
    opnieuw. Gevonden door twee verse gesprekken los van elkaar (F2, F3). Zolang dat niet gerepareerd is: per preset een
    provider met een container van één, of één bestand per preset (FILE-locatie, geen load key).
+17. **Kanaalindelingen kiest elk formaat anders**: CLAP via \`audio-ports-config\`, de VST3 van clap-wrapper via
+   \`configurable-audio-ports\` (\`setBusArrangements\`), de AUv2 van clap-wrapper v0.16.0 alleen de vaste poort (zonder
+   patch biedt Logic de AU alleen stereo aan). Implementeer beide extensies; \`patches/clap-wrapper-auv2-volgt-presets-
+   mono-stereo.patch\` maakt de indelingen van audio-ports-config de AU-kanaalindelingen. Gevonden door F2 en F3.
 16. **Statische initialisatie in de AU**: de AU van clap-wrapper heeft een globale \`Clap::Library\` die
    \`clap_entry.init\` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
    \`std::string\` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
@@ -434,7 +438,11 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
 > CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
-> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst.
+> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
+> stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
+> formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met \`wasm/graaf.wasm\` (die
+> doet \`testsignalen/\` eerst bit voor bit na). Bypass: \`CLAP_PARAM_IS_BYPASS\`, de DSP rekent door, 10 ms overvloeien,
+> en ook de droge invoer door \`pb::uitvoer\` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
 **Uitslag**: ${u('5')}
 
@@ -504,6 +512,7 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
   'plugin/patches/clap-wrapper-auv2-tailtime.patch': 'patches/clap-wrapper-auv2-tailtime.patch',
   'plugin/patches/clap-wrapper-auv2-presets.patch': 'patches/clap-wrapper-auv2-presets.patch',
+  'plugin/patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch': 'patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch',
   'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };

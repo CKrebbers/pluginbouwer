@@ -71,7 +71,11 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
 > CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
-> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst.
+> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
+> stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
+> formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met `wasm/graaf.wasm` (die
+> doet `testsignalen/` eerst bit voor bit na). Bypass: `CLAP_PARAM_IS_BYPASS`, de DSP rekent door, 10 ms overvloeien,
+> en ook de droge invoer door `pb::uitvoer` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
 **Uitslag**: nog niet getoetst
 

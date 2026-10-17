@@ -54,6 +54,10 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    `-load`: "Timed out after 45 seconds"): `begin_preset` houdt de mutex `result` vast en `flush_preset` pakt hem
    opnieuw. Gevonden door twee verse gesprekken los van elkaar (F2, F3). Zolang dat niet gerepareerd is: per preset een
    provider met een container van één, of één bestand per preset (FILE-locatie, geen load key).
+17. **Kanaalindelingen kiest elk formaat anders**: CLAP via `audio-ports-config`, de VST3 van clap-wrapper via
+   `configurable-audio-ports` (`setBusArrangements`), de AUv2 van clap-wrapper v0.16.0 alleen de vaste poort (zonder
+   patch biedt Logic de AU alleen stereo aan). Implementeer beide extensies; `patches/clap-wrapper-auv2-volgt-presets-
+   mono-stereo.patch` maakt de indelingen van audio-ports-config de AU-kanaalindelingen. Gevonden door F2 en F3.
 16. **Statische initialisatie in de AU**: de AU van clap-wrapper heeft een globale `Clap::Library` die
    `clap_entry.init` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
    `std::string` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
