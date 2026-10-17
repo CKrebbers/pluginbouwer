@@ -82,7 +82,14 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 6 — signeren en installeren
 **Prompt**
-> Maak een installatiepakket (`.pkg` via pkgbuild, ad-hoc gesigneerd) dat de AU, VST3 en CLAP op de juiste plek zet.
+> Maak een installatiepakket (`.pkg` via pkgbuild) met de ad-hoc gesigneerde AU, VST3 en CLAP, dat ze op de juiste
+> plek zet (`/Library/Audio/Plug-Ins/{Components,VST3,CLAP}`). Het `.pkg` zelf kan niet ad-hoc gesigneerd worden
+> (`pkgbuild --sign`/`productsign` eisen een betaald Developer ID Installer-certificaat): het blijft ongesigneerd,
+> en LEERPAD.md zegt wat Clay bij het openen doet (macOS 15: Privacy en beveiliging → "Open toch"; rechtsklik → Open
+> werkt daar niet meer). Zet `BundleIsRelocatable` op false in de component-plist (`pkgbuild --analyze`; de sleutel
+> ontbreekt soms: toevoegen, niet zetten), anders installeert Installer in een bestaande bundel elders op de schijf.
+> postinstall: `killall -9 AudioComponentRegistrar`. Toets in een aparte job op een verse runner die niets bouwt:
+> installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan `auval -strict`.
 > Notarisatie alleen als optie in de docs, met de kosten.
 **Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
 **Uitslag**: nog niet getoetst
