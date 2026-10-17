@@ -39,8 +39,16 @@ plugin mag er velden bij hebben, nooit een id een andere betekenis geven). Na ee
 (clap-validator eist het in state-reproducibility), en als de plugin actief is `request_flush`.
 
 ## Presets (fase 4)
-Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden
-per naam). Fabriekspresets komen uit de varianten van de tool.
+Een fabriekspreset is `presets/<sleutel>.json`: `{ naam, uitleg, waarden: { <parameternaam>: waarde } }` (geen
+state-blob). Bak ze bij het bouwen in het binary (CMake maakt er een tabel van; een onbekende naam of een waarde buiten
+het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen JSON-lezer in de plugin.
+- CLAP: `preset-discovery` met locaties van soort `CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN` en `preset-load`. Laden =
+  hetzelfde pad als state.load (ontbrekende namen naar hun standaard), daarna rescan en `loaded`.
+- Per preset een eigen provider met een container van één (zie valkuil 15: clap-validator loopt vast op een container
+  met meer presets).
+- AU: `patches/clap-wrapper-auv2-presets.patch` leest dezelfde factory en geeft ze als factory presets
+  (`GetPresets`, `NewFactoryPresetSet`). VST3 krijgt van clap-wrapper geen presetlijst.
+- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

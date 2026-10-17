@@ -50,6 +50,13 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    pusht ze als `CLAP_EVENT_PARAM_GESTURE_BEGIN`/`PARAM_VALUE`/`GESTURE_END` naar de host én past de waarde zelf
    toe, zoals een event van de host. Het paneel raakt het Ontwerp nooit. Onder AUv2 doet `request_flush` niets
    (clap-wrapper v0.16.0): de host hoort de verandering pas bij de volgende Render.
+15. **clap-validator 0.4.1 loopt vast op een preset-container met meer dan één preset** (`preset-discovery-crawl` en
+   `-load`: "Timed out after 45 seconds"): `begin_preset` houdt de mutex `result` vast en `flush_preset` pakt hem
+   opnieuw. Gevonden door twee verse gesprekken los van elkaar (F2, F3). Zolang dat niet gerepareerd is: per preset een
+   provider met een container van één, of één bestand per preset (FILE-locatie, geen load key).
+16. **Statische initialisatie in de AU**: de AU van clap-wrapper heeft een globale `Clap::Library` die
+   `clap_entry.init` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
+   `std::string` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:

@@ -71,6 +71,10 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **AU SetParameter tegen Render** (clap-wrapper v0.16.0, `addParameterEvent` zonder lock): pluginval "Parameter thread
   safety" crashte één op de drie runs. Vierde patch `plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch`
   (gevonden door verse sessie F1, fase 3); CI draait pluginval op de AU daarom met `--repeat 3`.
+- **AU-fabriekspresets**: clap-wrapper v0.16.0 kent ze niet. Vijfde patch `plugin/patches/clap-wrapper-auv2-presets.patch`
+  (uit proef F2) leest de preset-discovery-factory (locaties PLUGIN). Onze eigen plugin heeft nog geen presets; de
+  patch staat erop zodat CI bewijst dat de vijf samen bouwen. clap-validator 0.4.1 loopt vast op een preset-container
+  met meer dan één preset (F2 en F3 los van elkaar; patch in upstream/).
 - **Draden in de schil**: actief = alleen de audiothread raakt het Ontwerp; get_value/state lezen `spiegel`,
   state.load zet `vuil`, tail.get leest `staartSmp` (plugin/src/plugin.cpp). Gevonden door de verse sessies (E1, E2).
 - **Bypass**: clap-wrapper geeft AU BypassEffect alleen door aan een CLAP-parameter met `CLAP_PARAM_IS_BYPASS`;

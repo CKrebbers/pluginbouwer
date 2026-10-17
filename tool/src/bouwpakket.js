@@ -174,8 +174,16 @@ plugin mag er velden bij hebben, nooit een id een andere betekenis geven). Na ee
 (clap-validator eist het in state-reproducibility), en als de plugin actief is \`request_flush\`.
 
 ## Presets (fase 4)
-Een preset is een state-blob plus naam, als JSON naast de plugin (\`presets/<naam>.json\` met de parameterwaarden
-per naam). Fabriekspresets komen uit de varianten van de tool.
+Een fabriekspreset is \`presets/<sleutel>.json\`: \`{ naam, uitleg, waarden: { <parameternaam>: waarde } }\` (geen
+state-blob). Bak ze bij het bouwen in het binary (CMake maakt er een tabel van; een onbekende naam of een waarde buiten
+het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen JSON-lezer in de plugin.
+- CLAP: \`preset-discovery\` met locaties van soort \`CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN\` en \`preset-load\`. Laden =
+  hetzelfde pad als state.load (ontbrekende namen naar hun standaard), daarna rescan en \`loaded\`.
+- Per preset een eigen provider met een container van één (zie valkuil 15: clap-validator loopt vast op een container
+  met meer presets).
+- AU: \`patches/clap-wrapper-auv2-presets.patch\` leest dezelfde factory en geeft ze als factory presets
+  (\`GetPresets\`, \`NewFactoryPresetSet\`). VST3 krijgt van clap-wrapper geen presetlijst.
+- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: \`pb_math.h\` (alleen + − × ÷ sqrt floor). Vlaggen \`-ffp-contract=off\`, geen \`-ffast-math\`.
@@ -239,6 +247,13 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    pusht ze als \`CLAP_EVENT_PARAM_GESTURE_BEGIN\`/\`PARAM_VALUE\`/\`GESTURE_END\` naar de host én past de waarde zelf
    toe, zoals een event van de host. Het paneel raakt het Ontwerp nooit. Onder AUv2 doet \`request_flush\` niets
    (clap-wrapper v0.16.0): de host hoort de verandering pas bij de volgende Render.
+15. **clap-validator 0.4.1 loopt vast op een preset-container met meer dan één preset** (\`preset-discovery-crawl\` en
+   \`-load\`: "Timed out after 45 seconds"): \`begin_preset\` houdt de mutex \`result\` vast en \`flush_preset\` pakt hem
+   opnieuw. Gevonden door twee verse gesprekken los van elkaar (F2, F3). Zolang dat niet gerepareerd is: per preset een
+   provider met een container van één, of één bestand per preset (FILE-locatie, geen load key).
+16. **Statische initialisatie in de AU**: de AU van clap-wrapper heeft een globale \`Clap::Library\` die
+   \`clap_entry.init\` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
+   \`std::string\` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
@@ -408,8 +423,10 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 4 — presets
 **Prompt**
-> Fabriekspresets uit \`presets/\` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets.
-**Stopcriterium**: clap-validator preset-tests groen; auval toont de presets.
+> Fabriekspresets uit \`presets/\` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
+> (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
+> (SKIPPED telt niet) en dat elke presetnaam in de uitvoer van \`auval -strict -v\` staat.
+**Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
 **Uitslag**: ${u('4')}
 
 ---
@@ -486,6 +503,7 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-auv2-params-voor-init.patch': 'patches/clap-wrapper-auv2-params-voor-init.patch',
   'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
   'plugin/patches/clap-wrapper-auv2-tailtime.patch': 'patches/clap-wrapper-auv2-tailtime.patch',
+  'plugin/patches/clap-wrapper-auv2-presets.patch': 'patches/clap-wrapper-auv2-presets.patch',
   'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };
