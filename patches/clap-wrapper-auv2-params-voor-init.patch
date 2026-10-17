@@ -1,0 +1,92 @@
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+index 2db27a8..b3a85a8 100644
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -1,4 +1,6 @@
+ #pragma once
++#include <vector>
++#include <utility>
+ 
+ /*
+  Copyright (c) 2023 Timo Kaluza (defiantnerd)
+@@ -759,6 +761,9 @@ class WrapAsAUV2 : public ausdk::AUBase,
+ 
+   std::unique_ptr<Clap::AUv2::ProcessAdapter> _processAdapter;
+   std::atomic<bool> _initialized = false;
++  // parameters set by the host before Initialize(): there is no process adapter yet, so they would only
++  // live in the AUBase element and never reach the CLAP. They are flushed to the CLAP in activateCLAP().
++  std::vector<std::pair<clap_id, double>> _paramsBeforeInit;
+ 
+   // some info about the wrapped clap
+   // audio-port layout captured at PostConstructor. Scanning the CLAP
+diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
+index ca783d1..8ee03fd 100644
+--- a/src/wrapasauv2.cpp
++++ b/src/wrapasauv2.cpp
+@@ -585,6 +585,22 @@ OSStatus WrapAsAUV2::SetParameter(AudioUnitParameterID inID, AudioUnitScope inSc
+         _processAdapter->addParameterEvent(param, inValue, inBufferOffsetInFrames);
+       }
+     }
++    else
++    {
++      auto p = _parametertree.find(inID);
++      if (p != _parametertree.end())
++      {
++        const auto id = p->second.get()->info().id;
++        bool found = false;
++        for (auto &pv : _paramsBeforeInit)
++          if (pv.first == id)
++          {
++            pv.second = inValue;
++            found = true;
++          }
++        if (!found) _paramsBeforeInit.emplace_back(id, (double)inValue);
++      }
++    }
+   }
+   return AUBase::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
+ }
+@@ -1124,6 +1140,43 @@ void WrapAsAUV2::activateCLAP()
+                                      &_parametertree, this, maxSampleFrames, _midi_preferred_dialect,
+                                      _midi_supported_dialects, clapAudioInputs, clapAudioOutputs);
+ 
++    if (!_paramsBeforeInit.empty() && _plugin->_ext._params)
++    {
++      struct PendingEvents
++      {
++        std::vector<clap_event_param_value_t> ev;
++        static uint32_t size(const clap_input_events_t *l)
++        {
++          return (uint32_t) static_cast<PendingEvents *>(l->ctx)->ev.size();
++        }
++        static const clap_event_header_t *get(const clap_input_events_t *l, uint32_t i)
++        {
++          return &static_cast<PendingEvents *>(l->ctx)->ev[i].header;
++        }
++        static bool push(const clap_output_events_t *, const clap_event_header_t *)
++        {
++          return true;
++        }
++      } pending;
++      for (auto &pv : _paramsBeforeInit)
++      {
++        clap_event_param_value_t e{};
++        e.header = {sizeof(e), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
++        e.param_id = pv.first;
++        e.cookie = nullptr;
++        e.note_id = -1;
++        e.port_index = -1;
++        e.channel = -1;
++        e.key = -1;
++        e.value = pv.second;
++        pending.ev.push_back(e);
++      }
++      clap_input_events_t in = {&pending, PendingEvents::size, PendingEvents::get};
++      clap_output_events_t out = {&pending, PendingEvents::push};
++      _plugin->_ext._params->flush(_plugin->_plugin, &in, &out);
++      _paramsBeforeInit.clear();
++    }
++
+     _plugin->activate();
+     _plugin->start_processing();
+     _initialized = true;

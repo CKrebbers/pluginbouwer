@@ -1,0 +1,14 @@
+{
+  "naam": "Slapback",
+  "uitleg": "Eén korte, heldere tik achter het origineel.",
+  "waarden": {
+    "Tijd": 110,
+    "Terugkoppeling": 0.1875,
+    "Toon": 6000,
+    "Laag weg": 150,
+    "Resonantie": 0.70703125,
+    "Verzadiging": 4,
+    "Haperen": 0.125,
+    "Mix": 0.3125
+  }
+}
