@@ -56,8 +56,23 @@ jobs:
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
           unzip -q pluginval.zip -d pluginval
           chmod +x pluginval/pluginval
-      - name: pluginval strictness 10 (VST3, xvfb)
-        run: xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3"
+      - name: pluginval strictness 10 (VST3, xvfb; met de editortests)
+        run: |
+          set -o pipefail
+          # diepte 24 (expliciet): dan tekent het X11-paneel echt (op een 8-bit scherm blijft het effen)
+          xvfb-run -a -s "-screen 0 1280x1024x24" ./pluginval/pluginval validate --strictness-level 10 --verbose \
+            "build/plugins/PB Dub-echo.vst3" 2>&1 | tee pv-vst3-linux.log
+          grep "Time taken to open editor" pv-vst3-linux.log  # fase 3: de editor is echt geopend
+      - name: Frontpaneel (pb-paneel; X11 onder xvfb, muis, schermafbeeldingen)
+        run: |
+          mkdir -p schermafbeelding/linux
+          xvfb-run -a -s "-screen 0 1280x1024x24" ./build/pb-paneel "build/plugins/PB Dub-echo.clap" schermafbeelding/linux
+      - name: Schermafbeelding (Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schermafbeelding-linux
+          path: schermafbeelding/linux/
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -87,7 +102,7 @@ jobs:
       - name: clang 20 via apt.llvm.org
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake lsb-release wget software-properties-common gnupg
+          sudo apt-get install -y ninja-build cmake lsb-release wget software-properties-common gnupg libx11-dev xvfb
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 20
           clang-20 --version
@@ -96,7 +111,7 @@ jobs:
           for b in rtsan:OFF kanarie:ON; do
             CC=clang-20 CXX=clang++-20 cmake -S plugin -B "build-${b%%:*}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DPB_RTSAN=ON -DPB_KANARIE="${b#*:}"
-            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap pb-state-toets
+            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap pb-state-toets pb-paneel-toets
           done
       - name: RTSan draait schoon (elk testsignaal, blok 512 en wisselend, state-rondje)
         run: |
@@ -118,6 +133,11 @@ jobs:
             ./build-rtsan/pb-state-toets "build-rtsan/toets/zonder-$n.clap" "build-rtsan/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
           done
           echo "RTSan (state-toets): schoon"
+      - name: RTSan met het frontpaneel (gebaren van het paneel door process op een real-time audiothread)
+        run: |
+          mkdir -p uit/rtsan-paneel
+          xvfb-run -a -s "-screen 0 1280x1024x24" ./build-rtsan/pb-paneel "build-rtsan/plugins/PB Dub-echo.clap" uit/rtsan-paneel
+          echo "RTSan (paneel): schoon"
       - name: Kanarie MOET falen (malloc in process)
         run: |
           set +e
@@ -129,6 +149,46 @@ jobs:
           grep -q "RealtimeSanitizer" kanarie.log || { echo "FOUT: faalde, maar niet door RTSan"; exit 1; }
           grep -q "malloc" kanarie.log || { echo "FOUT: RTSan ving iets anders dan de malloc"; exit 1; }
           echo "Kanarie gevangen door RTSan (exitcode $code), zoals bedoeld"
+
+  tsan:
+    name: TSan (paneel en audiothread tegelijk, kanarie)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakketten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ xvfb libx11-dev
+          # TSan van gcc 13 kan niet tegen de adresruimte-randomisatie van de runner-kernel
+          sudo sysctl vm.mmap_rnd_bits=28
+      - name: Bouwen met -fsanitize=thread (gcc), en een kanariebouw
+        run: |
+          for b in tsan:OFF tsan-kanarie:ON; do
+            CC=gcc CXX=g++ cmake -S plugin -B "build-${b%%:*}" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_TOETSEN=OFF \
+              -DPB_UI_KANARIE="${b#*:}" -DCMAKE_C_FLAGS=-fsanitize=thread -DCMAKE_CXX_FLAGS=-fsanitize=thread \
+              -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread \
+              -DCMAKE_MODULE_LINKER_FLAGS=-fsanitize=thread
+            cmake --build "build-${b%%:*}" --target keten_dub_echo_clap pb-paneel-toets
+          done
+      - name: TSan draait schoon (paneel op de mainthread, process op een audiothread)
+        run: |
+          mkdir -p uit/tsan
+          TSAN_OPTIONS="halt_on_error=1" xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ./build-tsan/pb-paneel "build-tsan/plugins/PB Dub-echo.clap" uit/tsan
+          echo "TSan: schoon"
+      - name: Kanarie MOET falen (het paneel zet de DSP zelf)
+        run: |
+          set +e
+          mkdir -p uit/tsan-kanarie
+          TSAN_OPTIONS="halt_on_error=1" xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ./build-tsan/pb-paneel "build-tsan-kanarie/plugins/PB Dub-echo.clap" uit/tsan-kanarie > kanarie.log 2>&1
+          code=$?
+          set -e
+          cat kanarie.log
+          if [ "$code" -eq 0 ]; then echo "FOUT: de kanarie liep schoon; TSan bewaakt het paneel niet"; exit 1; fi
+          grep -q "ThreadSanitizer: data race" kanarie.log || { echo "FOUT: faalde, maar niet door TSan"; exit 1; }
+          grep -q "paneelStuur" kanarie.log || { echo "FOUT: TSan ving iets anders dan het paneel"; exit 1; }
+          echo "Kanarie gevangen door TSan (exitcode $code), zoals bedoeld"
 
   macos:
     name: macOS arm64 (auval, pluginval --rtcheck)
@@ -167,14 +227,28 @@ jobs:
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
           unzip -q pluginval.zip -d pluginval
-      - name: pluginval strictness 10 --rtcheck enabled (AU)
+      - name: pluginval strictness 10 --rtcheck enabled (AU; met de editortests)
         run: |
+          set -o pipefail
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component"
-      - name: pluginval strictness 10 --rtcheck enabled (VST3)
+            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" 2>&1 | tee pv-au.log
+          grep "Time taken to open editor" pv-au.log  # fase 3: de editor is echt geopend
+      - name: pluginval strictness 10 --rtcheck enabled (VST3; met de editortests)
         run: |
+          set -o pipefail
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
-            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3"
+            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" 2>&1 | tee pv-vst3-macos.log
+          grep "Time taken to open editor" pv-vst3-macos.log
+      - name: Frontpaneel (pb-paneel; Cocoa, muis, schermafbeeldingen)
+        run: |
+          mkdir -p schermafbeelding/macos
+          ./build/pb-paneel "build/plugins/PB Dub-echo.clap" schermafbeelding/macos
+      - name: Schermafbeelding (macOS)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schermafbeelding-macos
+          path: schermafbeelding/macos/
       - uses: actions/setup-node@v4
         with:
           node-version: 22
