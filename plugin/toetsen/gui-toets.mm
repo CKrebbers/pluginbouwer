@@ -3,7 +3,7 @@
 //   gui-toets <PB-Dub-echo.clap> <map-voor-png>
 //
 // Laadt de CLAP, maakt het paneel met de gui-extensie (api "cocoa") en hangt het in een NSWindow. Dan:
-//   - slepen op Toon (100 punten omhoog = een halve slag), shift-slepen op Mix (10x fijner), dubbelklik op Toon;
+//   - slepen op Toon (50 punten omhoog = een kwart slag), shift-slepen op Mix (10x fijner), dubbelklik op Toon;
 //     vóór params.flush mag niets veranderd zijn; na flush moet de host GESTURE_BEGIN, PARAM_VALUE..., GESTURE_END
 //     krijgen met de juiste waarde, en get_value moet volgen;
 //   - de host zet Haperen (zoals automatisering): het paneel moet binnen een paar frames opnieuw tekenen;
@@ -196,12 +196,12 @@ int toets(const std::string& pad, const std::string& map) {
   eis(tel(voor, v, d.cel[3], pb_ui::SPOOR) > 30, "kleur: boog van een knop spoor #40cbda");
   eis(tel(voor, v, d.cel[3], pb_ui::TAPE) == 0, "kleur: nog geen gekozen knop (geen tape in de rij)");
 
-  // slepen op Toon: 100 punten omhoog = een halve slag (200 punten = hele slag)
+  // slepen op Toon: 50 punten omhoog = een kwart slag (200 punten = hele slag); blijft onder de 12 kHz
   {
     pb_ui::Knop toon = {3, "Toon", "", 300, 12000, 3000, true};
-    const double verwacht = pb_ui::uitStand(toon, pb_ui::naarStand(toon, 3000) + 0.5);
+    const double verwacht = pb_ui::uitStand(toon, pb_ui::naarStand(toon, 3000) + 0.25);
     g_flushVerzoeken = 0;
-    sleepKnop(v, d, 2, 100, false);
+    sleepKnop(v, d, 2, 50, false);
     eis(g_flushVerzoeken > 0, "slepen: de plugin vraagt de host om een flush (" + std::to_string(g_flushVerzoeken) + "x)");
     eis(waarde(3) == 3000, "slepen: vóór de flush is er niets veranderd (Toon 3000 Hz)");
     flush();
@@ -260,8 +260,11 @@ int toets(const std::string& pad, const std::string& map) {
         std::to_string(nh));
     NSBitmapImageRep* r = foto(v, map + "/paneel-" + std::to_string(nb) + "x" + std::to_string(nh) + ".png");
     pb_ui::Indeling dn = pb_ui::indeling(nb, nh, 8);
-    eis(tel(r, v, dn.naamlabel, pb_ui::TAPE) > 100 && tel(r, v, dn.cel[4], pb_ui::SPOOR) > 30,
-        "schaal: naamlabel en bogen op hun plek bij " + std::to_string(nb) + " x " + std::to_string(nh));
+    // Tijd (cel 0) staat op 72 % van de slag: een lange boog, ook klein geschaald
+    const int geel = tel(r, v, dn.naamlabel, pb_ui::TAPE), blauw = tel(r, v, dn.cel[0], pb_ui::SPOOR);
+    eis(geel > 100 && blauw > 30, "schaal: naamlabel en bogen op hun plek bij " + std::to_string(nb) + " x " +
+        std::to_string(nh) + " (" + std::to_string(geel) + " tape-pixels in het label, " + std::to_string(blauw) +
+        " spoor-pixels bij Tijd)");
     // slepen werkt ook geschaald (100 punten blijft een halve slag)
     sleepKnop(v, dn, 3, nb == 1440 ? -100 : 100, false);
     flush();
