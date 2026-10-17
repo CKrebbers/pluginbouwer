@@ -131,7 +131,7 @@ jobs:
           grep -E '^### Null-test CLAP \(matrix' null-clap.log
           echo "fase 5, null-test VST3 Linux: $(grep -c '^### Null-test vst3-linux' null-vst3.log) tabellen, $(grep -cE '^\| (echo|zelf|sweep).*\| ja \|' null-vst3.log) gevallen bit voor bit, $(grep -E '^\| (echo|zelf|sweep)' null-vst3.log | grep -vc '| ja |') niet"
           grep -E '^### Null-test vst3-linux \(matrix' null-vst3.log
-          echo "eigen toets fase 5 Linux:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; grep -c '^  ok:' toets-fase5.log
+          echo "eigen toets fase 5 Linux:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; echo "$(grep -c '^  ok ' toets-fase5.log) controles ok"
           echo "pluginval VST3 Linux, kanaalindelingen en bypass:"; grep -A3 -E '^\[(In: (Mono|Stereo): [12] Channels, Out: (Mono|Stereo): [12] Channels|Parameter Bypass persistence)\]' pluginval-vst3.log | grep -E '^\[' | head -12
 
   rtsan:
@@ -346,7 +346,7 @@ jobs:
             echo "fase 5, $l: $(grep -c '^### Null-test' $l) tabellen, $(grep -cE '^\| (echo|zelf|sweep).*\| ja \|' $l) gevallen bit voor bit, $(grep -E '^\| (echo|zelf|sweep)' $l | grep -vc '| ja |') niet"
             grep -E '^### Null-test .*\(matrix' $l
           done
-          echo "eigen toets fase 5 macOS:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; grep -c '^  ok:' toets-fase5.log
+          echo "eigen toets fase 5 macOS:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; echo "$(grep -c '^  ok ' toets-fase5.log) controles ok"
           echo "auval, kanaalindelingen:"; grep -A1 "Reported Channel Capabilities" auval.log
           echo "pluginval AU, kanaalindelingen en bypass:"; grep -E 'Bypass|Channel|Bus|layout' pluginval-au.log | head -12
           echo "pluginval VST3 macOS, kanaalindelingen en bypass:"; grep -A3 -E '^\[(In: (Mono|Stereo): [12] Channels, Out: (Mono|Stereo): [12] Channels|Parameter Bypass persistence)\]' pluginval-vst3.log | grep -E '^\[' | head -12
