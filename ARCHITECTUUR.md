@@ -98,6 +98,26 @@ parameternaam). Fabriekspresets komen uit de varianten van de tool.
     actief is, en ook onder een komma-locale;
   - de foutgevallen.
 
+## Formaten (fase 5)
+- **Kanaalindelingen**: `audio-ports-config` geeft Stereo (id 0, 2-2, standaard), Mono (id 1, 1-1) en Mono naar stereo
+  (id 2, 1-2); `audio-ports` volgt de gekozen indeling. Kiezen kan alleen als de plugin niet actief is. Daarnaast
+  `configurable-audio-ports`, want daarmee kiest de VST3 van clap-wrapper (setBusArrangements); een verzoek moet op een
+  van de drie indelingen uitkomen. De AUv2 van clap-wrapper v0.16.0 kijkt alleen naar de huidige poorten (stereo), dus
+  `patches/clap-wrapper-auv2-stereo-en-mono.patch`: SupportedNumChannels en ValidFormat uit audio-ports-config, en
+  Initialize kiest de indeling die bij de streamformaten van de host past (anders kAudioUnitErr_FormatNotSupported).
+- **process**: de invoer wordt eerst gekopieerd (`droog`, 2 × blokMax, gereserveerd in activate; process werkt in
+  stukken van ten hoogste blokMax). De DSP leest uit die kopie, nooit uit de hostbuffer: bij in-place schrijft de DSP
+  per sample kanaal 0 vóór hij kanaal 1 leest, dus bij mono naar stereo (beide DSP-ingangen uit één buffer die ook
+  uitgang 0 is) zou kanaal 1 de uitvoer lezen. Mono rekent één DSP-kanaal (de kanalen zijn onafhankelijk, de
+  bandbeweging is gedeeld, dus bit voor bit het linkerkanaal van stereo); mono naar stereo kopieert dat naar kanaal 1.
+- **Bypass**: parameter id 100, van de schil (de DSP kent hem niet). `CLAP_PARAM_IS_BYPASS`, zodat clap-wrapper hem
+  koppelt aan VST3 `kIsBypass` en AU `kAudioUnitProperty_BypassEffect`. De DSP draait door; de uitgang vloeit per sample
+  in 10 ms lineair naar de gekopieerde invoer (op 1 precies de invoer) en terug. Een event volgt die overvloeier; een
+  state, preset of `params.flush` (er loopt dan geen audio) en activate laten hem springen. De state bewaart de bypass
+  (id 100; een oudere state zonder bypass laadt met bypass uit). Presets raken hem niet.
+- **Samplerates en blokken**: de DSP rekent op elke samplerate (geheugen in activate); getoetst 44,1–192 kHz, blok
+  1..4096 en wisselend.
+
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
 - Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.

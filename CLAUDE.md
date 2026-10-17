@@ -40,6 +40,12 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
     Oplossing: `patches/clap-wrapper-auv2-presets.patch`. Die haalt de presets uit de preset-discovery-factory van de
     CLAP en laadt ze via preset-load. Hij hoort na `…-auv2-params-voor-init.patch`: hij gebruikt `_paramsBeforeInit`.
 
+12. **De AUv2 van clap-wrapper v0.16.0 kent alleen de huidige poorten** (SupportedNumChannels en ValidFormat uit
+    audio-ports bij PostConstructor, dus alleen stereo; audio-ports-config wordt genegeerd). De VST3 kiest wel, maar via
+    `configurable-audio-ports`, niet via audio-ports-config. Oplossing: de plugin heeft beide extensies, en
+    `patches/clap-wrapper-auv2-stereo-en-mono.patch` (na `…-auv2-presets.patch`) laat de AU de indelingen uit
+    audio-ports-config melden en in Initialize kiezen.
+
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in `VERSLAG.md`; zet een toets nooit uit om groen te worden.

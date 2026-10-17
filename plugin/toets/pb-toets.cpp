@@ -31,6 +31,15 @@
 //       de preset komt terwijl hij actief is. Ook onder een locale met een decimale komma. Een onbekend bestand of
 //       soort locatie geeft false en on_error, en verandert niets.
 //
+//   pb-toets formaten <plugin.clap>
+//       Fase 5. Kanaalindelingen: audio-ports-config geeft Stereo (2-2), Mono (1-1) en Mono naar stereo (1-2), kiezen kan
+//       alleen als hij niet actief is, en audio-ports (en audio-ports-config-info) volgen de keuze; configurable-audio-ports
+//       (zo kiest de VST3 van clap-wrapper) neemt mono en stereo aan en weigert de rest. Mono klinkt bit voor bit als
+//       kanaal 0 van stereo met dezelfde invoer links en rechts, ook in-place (de uitgang in de buffers van de ingang).
+//       Bypass: een parameter met CLAP_PARAM_IS_BYPASS; aan vóór activate geeft precies de invoer, en een bypass midden
+//       in het spel vloeit in 10 ms over naar precies de invoer en daarna terug naar precies de uitvoer zonder bypass (de
+//       DSP draait door), voor elke indeling, in-place, op 44,1 en 192 kHz en bij blok 1, wisselend en 4096.
+//
 // Exit 0 = geslaagd; anders een melding op stderr en exit 1 (toets mislukt) of 2 (gebruik/laden).
 #include <clap/clap.h>
 #include <clocale>
@@ -862,6 +871,180 @@ int toetsPresets(const std::string& pad, const std::string& verwachtPad) {
   return mislukt ? 1 : 0;
 }
 
+// --- formaten (fase 5): kanaalindelingen en bypass -------------------------------------------------------------------
+constexpr clap_id BYPASS = 100;
+// render met een gekozen indeling (nIn → nUit) via audio-ports-config, eventueel in-place (de uitgang schrijft in de
+// buffers van de ingang); invoer: de eerste nIn kanalen van in
+Wav renderIndeling(const clap_plugin_t* pl, const Wav& in, uint32_t nIn, uint32_t nUit, bool inPlace,
+                   std::vector<uint32_t> blokken, std::vector<AbsEvent> events) {
+  auto* pc = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+  if (!pc) fout("geen audio-ports-config");
+  bool gekozen = false;
+  for (uint32_t k = 0; k < pc->count(pl) && !gekozen; ++k) {
+    clap_audio_ports_config_t c{};
+    if (pc->get(pl, k, &c) && c.main_input_channel_count == nIn && c.main_output_channel_count == nUit) gekozen = pc->select(pl, c.id);
+  }
+  if (!gekozen) fout("indeling " + std::to_string(nIn) + "-" + std::to_string(nUit) + " niet te kiezen");
+  std::stable_sort(events.begin(), events.end(), [](const AbsEvent& a, const AbsEvent& b) { return a.tijd < b.tijd; });
+  uint32_t maxBlok = 1; for (auto b : blokken) maxBlok = std::max(maxBlok, b);
+  if (!pl->activate(pl, in.sr, 1, maxBlok)) fout("activate mislukt");
+  if (!pl->start_processing(pl)) fout("start_processing mislukt");
+  const size_t n = in.k[0].size();
+  Wav uit; uit.sr = in.sr; uit.k.assign(nUit, std::vector<float>(n));
+  std::vector<std::vector<float>> bi(nIn, std::vector<float>(maxBlok)), bu(nUit, std::vector<float>(maxBlok));
+  std::vector<float*> pi(nIn), pu(nUit);
+  for (uint32_t c = 0; c < nIn; ++c) pi[c] = bi[c].data();
+  for (uint32_t c = 0; c < nUit; ++c) pu[c] = inPlace && c < nIn ? bi[c].data() : bu[c].data();
+  clap_output_events_t uitEv = {nullptr, evPush};
+  Events blokEv; blokEv.ev.reserve(events.size());
+  size_t pos = 0, bnr = 0, e = 0;
+  while (pos < n) {
+    uint32_t m = blokken[bnr++ % blokken.size()];
+    if (pos + m > n) m = (uint32_t)(n - pos);
+    blokEv.ev.clear();
+    while (e < events.size() && events[e].tijd < pos + m) {
+      blokEv.ev.push_back(maakEvent((uint32_t)(events[e].tijd - pos), events[e].id, events[e].v));
+      ++e;
+    }
+    clap_input_events_t inEv = {&blokEv, evSize, evGet};
+    for (uint32_t c = 0; c < nIn; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
+    clap_audio_buffer_t ai = {pi.data(), nullptr, nIn, 0, 0}, au = {pu.data(), nullptr, nUit, 0, 0};
+    clap_process_t pr = {(int64_t)pos, m, nullptr, &ai, &au, 1, 1, &inEv, &uitEv};
+    if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
+    for (uint32_t c = 0; c < nUit; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
+    pos += m;
+  }
+  pl->stop_processing(pl);
+  pl->deactivate(pl);
+  return uit;
+}
+bool zelfdeSample(float a, float b) { return !std::memcmp(&a, &b, 4); }
+
+int toetsFormaten(const std::string& pad) {
+  std::printf("formaten: %s\n", pad.c_str());
+  Bib b = laad(pad);
+
+  // 1. de indelingen
+  {
+    const clap_plugin_t* pl = maak(b);
+    auto* pc = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+    auto* pci = static_cast<const clap_plugin_audio_ports_config_info_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO));
+    auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
+    auto* cap = static_cast<const clap_plugin_configurable_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS));
+    eis(pc && pci && ap && cap, "audio-ports, audio-ports-config (+ info) en configurable-audio-ports");
+    if (!(pc && pci && ap && cap)) return 1;
+    auto poort = [&](bool isIn) { clap_audio_port_info_t i{}; ap->get(pl, 0, isIn, &i); return i; };
+    eis(pc->count(pl) == 3, "drie indelingen");
+    const uint32_t verwacht[3][2] = {{2, 2}, {1, 1}, {1, 2}};
+    for (uint32_t k = 0; k < pc->count(pl) && k < 3; ++k) {
+      clap_audio_ports_config_t c{};
+      eis(pc->get(pl, k, &c), "indeling " + std::to_string(k) + " lezen");
+      std::printf("  indeling %u: %s (%u in, %u uit)\n", c.id, c.name, c.main_input_channel_count, c.main_output_channel_count);
+      eis(c.has_main_input && c.has_main_output && c.input_port_count == 1 && c.output_port_count == 1 &&
+              c.main_input_channel_count == verwacht[k][0] && c.main_output_channel_count == verwacht[k][1] &&
+              !std::strcmp(c.main_input_port_type, verwacht[k][0] == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO) &&
+              !std::strcmp(c.main_output_port_type, verwacht[k][1] == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO),
+          std::string("indeling ") + c.name + ": " + std::to_string(verwacht[k][0]) + " in, " + std::to_string(verwacht[k][1]) + " uit");
+      eis(pc->select(pl, c.id) && pci->current_config(pl) == c.id && poort(true).channel_count == verwacht[k][0] &&
+              poort(false).channel_count == verwacht[k][1],
+          std::string("kiezen: ") + c.name + " (audio-ports en config-info volgen)");
+      clap_audio_port_info_t i{};
+      eis(pci->get(pl, c.id, 0, false, &i) && i.channel_count == verwacht[k][1], std::string("config-info van ") + c.name);
+    }
+    eis(!pc->select(pl, 77), "een onbekende indeling wordt geweigerd");
+    clap_audio_port_configuration_request_t mono[2] = {{true, 0, 1, CLAP_PORT_MONO, nullptr}, {false, 0, 1, CLAP_PORT_MONO, nullptr}};
+    clap_audio_port_configuration_request_t uitStereo[1] = {{false, 0, 2, CLAP_PORT_STEREO, nullptr}};
+    clap_audio_port_configuration_request_t drie[1] = {{true, 0, 3, nullptr, nullptr}};
+    clap_audio_port_configuration_request_t tweede[1] = {{true, 1, 2, CLAP_PORT_STEREO, nullptr}};
+    eis(cap->can_apply_configuration(pl, mono, 2) && cap->apply_configuration(pl, mono, 2) && poort(true).channel_count == 1 &&
+            poort(false).channel_count == 1, "configurable-audio-ports: mono in, mono uit");
+    eis(cap->apply_configuration(pl, uitStereo, 1) && poort(true).channel_count == 1 && poort(false).channel_count == 2,
+        "configurable-audio-ports: alleen de uitgang naar stereo (mono naar stereo)");
+    eis(!cap->can_apply_configuration(pl, drie, 1) && !cap->apply_configuration(pl, drie, 1) && !cap->apply_configuration(pl, tweede, 1),
+        "configurable-audio-ports weigert 3 kanalen en een tweede poort");
+    eis(pc->select(pl, 0), "terug naar stereo");
+    if (!pl->activate(pl, 48000, 1, 512)) fout("activate mislukt");
+    eis(!pc->select(pl, 1) && !cap->apply_configuration(pl, mono, 2) && poort(true).channel_count == 2,
+        "kiezen terwijl hij actief is wordt geweigerd");
+    pl->deactivate(pl);
+    pl->destroy(pl);
+  }
+
+  // 2. de bypass-parameter
+  {
+    const clap_plugin_t* pl = maak(b);
+    const auto info = infos(pl);
+    eis(info.count(BYPASS) && (info.at(BYPASS).flags & CLAP_PARAM_IS_BYPASS) && (info.at(BYPASS).flags & CLAP_PARAM_IS_STEPPED) &&
+            info.at(BYPASS).min_value == 0 && info.at(BYPASS).max_value == 1 && info.at(BYPASS).default_value == 0,
+        "parameter 100 \"Bypass\": CLAP_PARAM_IS_BYPASS, stapjes, 0..1, standaard 0");
+    int nBypass = 0;
+    for (auto& [id, i] : info) nBypass += (i.flags & CLAP_PARAM_IS_BYPASS) ? 1 : 0;
+    eis(nBypass == 1, "precies één bypass-parameter");
+    pl->destroy(pl);
+  }
+
+  // 3. klank: per samplerate, indeling, in-place en blokindeling
+  struct Indeling { uint32_t in, uit; const char* naam; };
+  const Indeling indelingen[] = {{2, 2, "stereo"}, {1, 1, "mono"}, {1, 2, "mono naar stereo"}};
+  const std::vector<std::pair<clap_id, double>> waarden = {{1, 93.75}, {2, 0.9375}, {6, 12}, {8, 0.75}};
+  for (const uint32_t sr : {44100u, 192000u}) {
+    const size_t n = sr;  // 1 s
+    Wav in = testsignaal(sr, n);
+    Wav inMono = in; inMono.k[1] = inMono.k[0];  // links en rechts gelijk: kanaal 0 van stereo = mono
+    const size_t aan = n / 4, uit = n / 2, overvloei = (size_t)std::ceil(0.010 * sr);
+    const std::vector<AbsEvent> bypassEvents = {{aan, BYPASS, 1}, {uit, BYPASS, 0}};
+    auto doe = [&](const Wav& w, const Indeling& d, bool inPlace, std::vector<uint32_t> blokken, std::vector<AbsEvent> ev,
+                   const std::vector<std::pair<clap_id, double>>& vooraf) {
+      const clap_plugin_t* pl = maak(b);
+      flush(pl, vooraf);
+      Wav r = renderIndeling(pl, w, d.in, d.uit, inPlace, std::move(blokken), std::move(ev));
+      pl->destroy(pl);
+      return r;
+    };
+    const Wav refStereo = doe(inMono, indelingen[0], false, {512}, {}, waarden);
+    eis(eindig(refStereo), "referentie (stereo, blok 512) is eindig");
+    for (const auto& d : indelingen)
+      for (const bool inPlace : {false, true})
+        for (const auto& blokken : std::vector<std::vector<uint32_t>>{{512}, {1}, {3, 128, 1, 4096, 77}, {4096}}) {
+          std::string naam = std::string(d.naam) + (inPlace ? ", in-place" : "") + ", " + std::to_string(sr) + " Hz, blok " +
+                             (blokken.size() > 1 ? std::string("wisselend") : std::to_string(blokken[0]));
+          // a. zonder bypass: elk uitgangskanaal bit voor bit kanaal 0 van stereo (mono) of het stereokanaal
+          const Wav r = doe(inMono, d, inPlace, blokken, {}, waarden);
+          bool gelijk = r.k.size() == d.uit;
+          for (uint32_t c = 0; c < r.k.size() && gelijk; ++c)
+            gelijk = !std::memcmp(r.k[c].data(), refStereo.k[d.in == 1 ? 0 : c].data(), n * 4);
+          eis(gelijk, naam + ": bit voor bit gelijk aan stereo");
+          // b. bypass aan vóór activate: precies de invoer
+          auto metBypass = waarden; metBypass.push_back({BYPASS, 1});
+          const Wav droog = doe(inMono, d, inPlace, blokken, {}, metBypass);
+          gelijk = true;
+          for (uint32_t c = 0; c < d.uit && gelijk; ++c) gelijk = !std::memcmp(droog.k[c].data(), inMono.k[c < d.in ? c : 0].data(), n * 4);
+          eis(gelijk, naam + ": bypass aan = precies de invoer");
+          // c. bypass midden in het spel (aan op 1/4, uit op 1/2)
+          const Wav bp = doe(inMono, d, inPlace, blokken, bypassEvents, waarden);
+          long fout = -1; bool binnen = true;
+          for (uint32_t c = 0; c < d.uit; ++c) {
+            const auto& nat = r.k[c]; const auto& dr = inMono.k[c < d.in ? c : 0]; const auto& x = bp.k[c];
+            for (size_t i = 0; i < n; ++i) {
+              const bool effect = i < aan || i >= uit + overvloei, schoon = i >= aan + overvloei && i < uit;
+              if (effect && !zelfdeSample(x[i], nat[i])) { if (fout < 0) fout = (long)i; }
+              else if (schoon && !zelfdeSample(x[i], dr[i])) { if (fout < 0) fout = (long)i; }
+              else if (!effect && !schoon) {
+                const float lo = std::min(nat[i], dr[i]), hi = std::max(nat[i], dr[i]), marge = 1e-6f * (1 + std::fabs(hi));
+                if (x[i] < lo - marge || x[i] > hi + marge) binnen = false;
+              }
+            }
+          }
+          eis(fout < 0, naam + ": bypass midden in het spel: daarvoor en 10 ms na het uitzetten precies het effect, 10 ms na het aanzetten precies de invoer" +
+                            (fout < 0 ? std::string() : " (verschil op sample " + std::to_string(fout) + ")"));
+          eis(binnen, naam + ": de overvloeier blijft tussen effect en invoer");
+        }
+  }
+  b.entry->deinit();
+  std::printf("formaten: %s\n", mislukt ? "MISLUKT" : "geslaagd");
+  return mislukt ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -871,6 +1054,7 @@ int main(int argc, char** argv) {
   if (wat == "tekst" && argc == 3) return toetsTekst(argv[2]);
   if (wat == "automatisering" && argc == 3) return toetsAutomatisering(argv[2]);
   if (wat == "presets" && argc == 4) return toetsPresets(argv[2], argv[3]);
+  if (wat == "formaten" && argc == 3) return toetsFormaten(argv[2]);
   fout("gebruik: pb-toets state <oud.clap> <nieuw.clap> <id> | render <plugin.clap> <in.wav> <uit.wav> [--p id=waarde] | "
-       "tekst <plugin.clap> | automatisering <plugin.clap> | presets <plugin.clap> <verwacht.tsv>");
+       "tekst <plugin.clap> | automatisering <plugin.clap> | presets <plugin.clap> <verwacht.tsv> | formaten <plugin.clap>");
 }

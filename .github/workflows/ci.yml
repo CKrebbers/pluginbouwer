@@ -36,10 +36,12 @@ jobs:
       - name: Tweede configure (patches mogen er al op zitten)
         run: cmake -S plugin -B build
 
-      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, 1, 4096, state-rondje; matrix 44,1–192 kHz × stereo, mono, mono naar stereo)
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
+          # fase 5: de matrix moet echt gedraaid hebben (6 samplerates × 3 indelingen)
+          test "$(grep -c '^### Null-test CLAP (matrix' null-clap.log)" = 18
 
       - name: Fase 2 — tekst, state-toets (build zonder parameter N), automatisering
         run: |
@@ -57,6 +59,11 @@ jobs:
         run: |
           set -o pipefail
           PB_EIS_KOMMA=1 sh plugin/toets/toets-fase4.sh build 2>&1 | tee toets-fase4.log
+
+      - name: Fase 5 — formaten (kanaalindelingen, mono en mono naar stereo in-place, bypass, 44,1 en 192 kHz, blok 1..4096)
+        run: |
+          set -o pipefail
+          sh plugin/toets/toets-fase5.sh build 2>&1 | tee toets-fase5.log
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -102,10 +109,11 @@ jobs:
           set -o pipefail
           xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
 
-      - name: Null-test VST3 (pluginval test, xvfb)
+      - name: Null-test VST3 (pluginval test, xvfb; ook op 44,1–192 kHz)
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "xvfb-run -a ./pluginval/pluginval" vst3-linux 2>&1 | tee null-vst3.log
+          test "$(grep -c '^### Null-test vst3-linux (matrix' null-vst3.log)" = 6
 
       - name: Bewijs (kernregels uit de logs hierboven)
         run: |
@@ -119,6 +127,12 @@ jobs:
           echo "eigen toets fase 3 Linux:"; grep -E '^pb-paneel:|^  ok:|^paneel:|FOUT' toets-fase3.log
           echo "clap-validator fase 4 (presets):"; sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -A8 -E '─ preset-' | grep -E '─ |PASSED|FAILED|SKIPPED'
           echo "eigen toets fase 4 Linux:"; grep -E '^presets:|FOUT|\.json: één preset|komma|nl_NL' toets-fase4.log
+          echo "fase 5, null-test CLAP Linux: $(grep -c '^### Null-test CLAP' null-clap.log) tabellen, $(grep -cE '^\| (echo|zelf|sweep).*\| ja \|' null-clap.log) gevallen bit voor bit, $(grep -E '^\| (echo|zelf|sweep)' null-clap.log | grep -vc '| ja |') niet"
+          grep -E '^### Null-test CLAP \(matrix' null-clap.log
+          echo "fase 5, null-test VST3 Linux: $(grep -c '^### Null-test vst3-linux' null-vst3.log) tabellen, $(grep -cE '^\| (echo|zelf|sweep).*\| ja \|' null-vst3.log) gevallen bit voor bit, $(grep -E '^\| (echo|zelf|sweep)' null-vst3.log | grep -vc '| ja |') niet"
+          grep -E '^### Null-test vst3-linux \(matrix' null-vst3.log
+          echo "eigen toets fase 5 Linux:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; grep -c '^  ok:' toets-fase5.log
+          echo "pluginval VST3 Linux, kanaalindelingen en bypass:"; grep -A3 -E '^\[(In: (Mono|Stereo): [12] Channels, Out: (Mono|Stereo): [12] Channels|Parameter Bypass persistence)\]' pluginval-vst3.log | grep -E '^\[' | head -12
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -150,6 +164,9 @@ jobs:
             n=$(basename "$f" .in.wav)
             ./build/pb-render "build/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n.wav" --blok 512
             ./build/pb-render "build/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n-w.wav" --blok 3,128,1,4096,77 --state-rondje
+            # fase 5: mono en mono naar stereo, in-place, op 44,1 en 192 kHz
+            ./build/pb-render "build/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n-m.wav" --kanalen 1 --in-place --sr 192000 --blok 1,4096,77
+            ./build/pb-render "build/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n-ms.wav" --kanalen 1-2 --in-place --sr 44100 --blok 512
             echo "RTSan schoon: $n"
           done
           ls -la uit/rtsan
@@ -170,6 +187,9 @@ jobs:
 
       - name: Fase 4 met de RTSan-bouw (presets laden, ook terwijl actief, dan process)
         run: sh plugin/toets/toets-fase4.sh build
+
+      - name: Fase 5 met de RTSan-bouw (indelingen, in-place, bypass met overvloeier, blok 1..4096)
+        run: sh plugin/toets/toets-fase5.sh build
 
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
@@ -206,10 +226,12 @@ jobs:
           cmake --build build --parallel 4
           ls -la build/plugins
 
-      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, 1, 4096, state-rondje; matrix 44,1–192 kHz × stereo, mono, mono naar stereo)
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
+          # fase 5: de matrix moet echt gedraaid hebben (6 samplerates × 3 indelingen)
+          test "$(grep -c '^### Null-test CLAP (matrix' null-clap.log)" = 18
 
       - name: Fase 2 — tekst, state-toets (build zonder parameter N), automatisering
         run: |
@@ -225,6 +247,11 @@ jobs:
         run: |
           set -o pipefail
           PB_EIS_KOMMA=1 sh plugin/toets/toets-fase4.sh build 2>&1 | tee toets-fase4.log
+
+      - name: Fase 5 — formaten (kanaalindelingen, mono en mono naar stereo in-place, bypass, 44,1 en 192 kHz, blok 1..4096)
+        run: |
+          set -o pipefail
+          sh plugin/toets/toets-fase5.sh build 2>&1 | tee toets-fase5.log
 
       - name: Ad-hoc signeren
         run: |
@@ -249,6 +276,14 @@ jobs:
           set -o pipefail
           auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: auval toont de kanaalindelingen (mono, mono naar stereo, stereo)
+        run: |
+          grep -A2 "Reported Channel Capabilities" auval.log
+          for c in "[1, 1]" "[1, 2]" "[2, 2]"; do
+            grep -A2 "Reported Channel Capabilities" auval.log | grep -F -- "$c" > /dev/null || { echo "FOUT: auval meldt $c niet"; exit 1; }
+          done
+          grep -A3 -E "Input/Output Channel Handling" auval.log || true
 
       - name: auval toont de fabriekspresets (elke naam uit presets/*.json)
         run: |
@@ -279,17 +314,19 @@ jobs:
           ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
             ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" 2>&1 | tee pluginval-vst3.log
 
-      - name: Null-test AU (pluginval test)
+      - name: Null-test AU (pluginval test; ook op 44,1–192 kHz)
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component" \
             "./pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos 2>&1 | tee null-au.log
+          test "$(grep -c '^### Null-test au-macos (matrix' null-au.log)" = 6
 
-      - name: Null-test VST3 (pluginval test)
+      - name: Null-test VST3 (pluginval test; ook op 44,1–192 kHz)
         run: |
           set -o pipefail
           sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \
             "./pluginval/pluginval.app/Contents/MacOS/pluginval" vst3-macos 2>&1 | tee null-vst3.log
+          test "$(grep -c '^### Null-test vst3-macos (matrix' null-vst3.log)" = 6
 
       - name: Bewijs (kernregels uit de logs hierboven)
         run: |
@@ -305,6 +342,14 @@ jobs:
           echo "eigen toets fase 3 macOS:"; grep -E '^pb-paneel:|^  ok:|^  schermafbeelding|^paneel:|FOUT' toets-fase3.log
           echo "eigen toets fase 4 macOS:"; grep -E '^presets:|FOUT|\.json: één preset|komma|nl_NL' toets-fase4.log
           echo "auval, fabriekspresets:"; grep -A8 "HAS FACTORY PRESETS" auval.log | grep -E "FACTORY|ID:"
+          for l in null-clap.log null-au.log null-vst3.log; do
+            echo "fase 5, $l: $(grep -c '^### Null-test' $l) tabellen, $(grep -cE '^\| (echo|zelf|sweep).*\| ja \|' $l) gevallen bit voor bit, $(grep -E '^\| (echo|zelf|sweep)' $l | grep -vc '| ja |') niet"
+            grep -E '^### Null-test .*\(matrix' $l
+          done
+          echo "eigen toets fase 5 macOS:"; grep -E '^formaten:|^  indeling|FOUT' toets-fase5.log; grep -c '^  ok:' toets-fase5.log
+          echo "auval, kanaalindelingen:"; grep -A1 "Reported Channel Capabilities" auval.log
+          echo "pluginval AU, kanaalindelingen en bypass:"; grep -E 'Bypass|Channel|Bus|layout' pluginval-au.log | head -12
+          echo "pluginval VST3 macOS, kanaalindelingen en bypass:"; grep -A3 -E '^\[(In: (Mono|Stereo): [12] Channels, Out: (Mono|Stereo): [12] Channels|Parameter Bypass persistence)\]' pluginval-vst3.log | grep -E '^\[' | head -12
 
       - name: Artefact klaarzetten
         if: always()

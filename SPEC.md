@@ -44,12 +44,23 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 7 | Haperen | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt |
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
 
+| 100 | Bypass | 0 – 1 (stapjes) | — | 0 | 10 ms overvloeier | springen | Van de schil, niet van de DSP: de host schakelt hem (CLAP_PARAM_IS_BYPASS; VST3 kIsBypass, AU BypassEffect). Aan = precies de invoer; de echo loopt intussen door |
+
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
 - Tekst in gewone eenheden (ms/s, Hz/kHz, dB, Q, en procenten voor de parameters zonder eenheid); zie
   ARCHITECTUUR.md "Parameters: tekst en eenheden".
+
+## Formaten (fase 5)
+- CLAP, VST3 en AUv2 (clap-wrapper), elk als **stereo** (2 in, 2 uit), **mono** (1 in, 1 uit) en **mono naar stereo**
+  (1 in, 2 uit). Mono klinkt bit voor bit als het linkerkanaal van stereo met dezelfde invoer links en rechts; mono naar
+  stereo geeft dat op beide kanalen.
+- Samplerates 44,1–192 kHz (de vertragingslijnen worden in activate voor die samplerate gereserveerd), blokgrootte
+  1..4096 (en elke wisselende blokindeling), in-place of met eigen buffers.
+- Bypass zoals de host het wil: de parameter Bypass (id 100) hierboven. Een host die zelf bypast (de plugin niet
+  aanroept) kan dat ook; dan stopt de echo.
 
 ## Budgetten
 | wat | budget | geschat/gemeten |
@@ -94,3 +105,11 @@ controleert:
 
 clap-validator moet zijn drie preset-toetsen PASSED geven, niet SKIPPED. Op macOS moet `auval -strict -v` elke
 presetnaam tonen.
+Fase 5 (`plugin/toets/toets-fase5.sh`, pb-toets formaten, en de matrix in `gereedschap/ci-null.sh`):
+- de null-test op 44,1, 48, 88,2, 96, 176,4 en 192 kHz × stereo, mono en mono naar stereo (CLAP via pb-render, in-place
+  en met wisselende blokken; VST3 en AU via `pluginval test`, stereo). De referentie komt uit dezelfde WASM van de tool
+  (`gereedschap/verwacht.mjs`), die eerst `testsignalen/*.verwacht.wav` bit voor bit moet nadoen;
+- de null-test op blok 1 en blok 4096;
+- de indelingen (audio-ports-config, configurable-audio-ports), in-place, en de bypass (precies de invoer, overvloeier,
+  daarna precies het effect);
+- op macOS meldt `auval -v` de kanaalindelingen `[1, 1] [1, 2] [2, 2]`; pluginval toetst de VST3- en AU-indelingen.
