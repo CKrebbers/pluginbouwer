@@ -4,6 +4,10 @@
 // Fase 2: tekst <-> waarde in gewone eenheden (ms, Hz/kHz, dB, Q, %), stapjes voor parameters met de vlag STAPPEN,
 // params.flush buiten process. Met -DPB_ZONDER_PARAM=<id> bouw je een "oudere" versie zonder die parameter
 // (alleen voor de state-toets: state van zo'n build moet in de volledige build laden).
+// Fase 3: het frontpaneel (design.md) via de CLAP gui-extensie, api "cocoa" (macOS; met -DPB_MET_UI). De UI stuurt
+// gebaren en waarden door een lock-free wachtrij naar de audiothread; die past ze in process of params.flush toe zoals
+// een host-event en meldt ze de host als CLAP_EVENT_PARAM_GESTURE_BEGIN / PARAM_VALUE / GESTURE_END (out_events).
+// De UI raakt de DSP nooit aan.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -16,6 +20,10 @@
 
 #include "entry.h"
 #include "ontwerpen/keten_dub_echo.h"
+#include "ui/paneel.h"
+#ifdef PB_MET_UI
+#include "ui/paneel_mac.h"
+#endif
 
 namespace {
 
@@ -50,6 +58,50 @@ constexpr int telZichtbaar() {
 }
 constexpr int N_ZICHTBAAR = telZichtbaar();
 
+// Van de UI (main thread, één schrijver) naar de audiothread (process of flush, één lezer tegelijk). Vaste grootte,
+// geen locks: de lezer alloceert en wacht nooit.
+struct UiBericht {
+  enum Soort : uint8_t { BEGIN, WAARDE, EINDE } soort;
+  uint8_t index;  // in PARAMS
+  double waarde;
+};
+struct UiWachtrij {
+  static constexpr uint32_t GROOTTE = 4096;  // macht van 2
+  UiBericht ring[GROOTTE];
+  std::atomic<uint32_t> kop{0};     // alleen de UI schrijft
+  std::atomic<uint32_t> staart{0};  // alleen de audiothread schrijft
+  // `reserve`: zoveel plekken moeten daarna nog vrij blijven (zodat een gebaar altijd nog kan eindigen)
+  bool zet(const UiBericht& b, uint32_t reserve) {
+    const uint32_t k = kop.load(std::memory_order_relaxed);
+    const uint32_t st = staart.load(std::memory_order_acquire);
+    if (GROOTTE - (k - st) < 1 + reserve) return false;
+    ring[k & (GROOTTE - 1)] = b;
+    kop.store(k + 1, std::memory_order_release);
+    return true;
+  }
+  bool haal(UiBericht& b) {
+    const uint32_t st = staart.load(std::memory_order_relaxed);
+    if (st == kop.load(std::memory_order_acquire)) return false;
+    b = ring[st & (GROOTTE - 1)];
+    staart.store(st + 1, std::memory_order_release);
+    return true;
+  }
+};
+
+struct Plugin;
+struct PluginBediening final : pb_ui::Bediening {
+  Plugin* s = nullptr;
+  int aantal() const override;
+  pb_ui::Knop knop(int k) const override;
+  double waarde(int k) const override;
+  bool wachtend(int k) const override;
+  void alsTekst(int k, double v, char* t, uint32_t cap) const override;
+  void gebaarBegin(int k) override;
+  void zet(int k, double v) override;
+  void gebaarEinde(int k) override;
+  bool stuur(const UiBericht& b, uint32_t reserve);
+};
+
 struct Plugin {
   clap_plugin_t clap{};
   const clap_host_t* host = nullptr;
@@ -63,6 +115,16 @@ struct Plugin {
   // events (process/flush) of, bij een state load terwijl hij draait, via `teLaden` aan het begin van process.
   std::atomic<double> waarde[N];
   std::atomic<bool> teLaden{false};
+  // fase 3: de UI
+  const clap_host_params_t* hostParams = nullptr;  // opgehaald in init (main thread)
+  UiWachtrij ui;
+  std::atomic<uint32_t> uiGezet[N];     // waarden die de UI stuurde (main thread telt op)
+  std::atomic<uint32_t> uiVerwerkt[N];  // waarden die de audiothread toepaste (audiothread telt op)
+  bool uiGebaar[N] = {};                // main thread: een gebaar is bij de wachtrij begonnen
+  bool uiVerloren[N] = {};              // main thread: het begin paste niet meer; tot het einde vervalt alles
+  PluginBediening bediening;
+  void* view = nullptr;                 // de NSView (main thread)
+  uint32_t guiB = (uint32_t)pb_ui::BASIS_B, guiH = (uint32_t)pb_ui::BASIS_H;
 };
 
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
@@ -101,6 +163,42 @@ void doeEvent(Plugin* s, const clap_event_header_t* h) {
   if (i >= 0) zet(s, i, e->value);
 }
 
+// Alles wat de UI stuurde: toepassen zoals een host-event (op sample 0 van dit blok, vóór de host-events) en de host
+// melden via out_events, zodat hij het opneemt (automatisering, undo) en zijn eigen kopie bijwerkt. Audiothread (of
+// main thread via flush als de plugin niet actief is); de gebeurtenissen staan op de stack, er wordt niets gealloceerd.
+void verwerkUi(Plugin* s, const clap_output_events_t* uit) {
+  UiBericht b;
+  while (s->ui.haal(b)) {
+    const int i = b.index;
+    if (i >= N || !bestaat(i)) continue;
+    const clap_id id = Ontwerp::PARAMS[i].id;
+    if (b.soort == UiBericht::WAARDE) {
+      zet(s, i, b.waarde);
+      if (uit) {
+        clap_event_param_value_t e;
+        std::memset(&e, 0, sizeof e);
+        e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+        e.param_id = id;
+        e.cookie = nullptr;
+        e.note_id = -1;
+        e.port_index = -1;
+        e.channel = -1;
+        e.key = -1;
+        e.value = s->waarde[i].load(std::memory_order_relaxed);
+        uit->try_push(uit, &e.header);
+      }
+      s->uiVerwerkt[i].fetch_add(1, std::memory_order_release);
+    } else if (uit) {
+      clap_event_param_gesture_t g;
+      std::memset(&g, 0, sizeof g);
+      g.header = {sizeof g, 0, CLAP_CORE_EVENT_SPACE_ID,
+                  (uint16_t)(b.soort == UiBericht::BEGIN ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END), 0};
+      g.param_id = id;
+      uit->try_push(uit, &g.header);
+    }
+  }
+}
+
 // Een subnormale uitvoersample wordt (getekende) 0. De DSP poetst zijn invoer en zijn interne toestand zelf, maar een
 // heel zachte maar normale invoer (rond 1e-38, clap-validator fuzz) komt via het droge pad × mix subnormaal uit de
 // uitgang. Alleen de bits worden bekeken, en het gebeurt NA de DSP: de DSP rekent precies wat hij altijd rekende
@@ -122,8 +220,20 @@ void laadUitHostKopie(Plugin* s) {
 }
 
 // --- plugin -------------------------------------------------------------------------------------------------
-bool init(const clap_plugin_t*) { return true; }
-void destroy(const clap_plugin_t* p) { delete zelf(p); }
+bool init(const clap_plugin_t* p) {
+  Plugin* s = zelf(p);
+  if (s->host && s->host->get_extension)
+    s->hostParams = static_cast<const clap_host_params_t*>(s->host->get_extension(s->host, CLAP_EXT_PARAMS));
+  return true;
+}
+void destroy(const clap_plugin_t* p) {
+  Plugin* s = zelf(p);
+#ifdef PB_MET_UI
+  if (s->view) pb_ui::sluit(s->view);  // een host hoort gui.destroy eerst te doen; voor de zekerheid
+  s->view = nullptr;
+#endif
+  delete s;
+}
 
 bool activate(const clap_plugin_t* p, double sr, uint32_t minFrames, uint32_t maxFrames) {
   Plugin* s = zelf(p);
@@ -150,6 +260,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
 #endif
   Plugin* s = zelf(p);
   if (s->teLaden.exchange(false, std::memory_order_acquire)) laadUitHostKopie(s);
+  verwerkUi(s, pr->out_events);
 
   const uint32_t n = pr->frames_count;
   const clap_input_events_t* ev = pr->in_events;
@@ -369,9 +480,10 @@ bool paramsFromText(const clap_plugin_t*, clap_id id, const char* t, double* v) 
 // Buiten process: als de plugin niet actief is op de main thread, als hij actief is op de audiothread tussen twee
 // process-aanroepen (nooit tegelijk met process). De waarden gaan meteen naar het Ontwerp; de glijders lopen vanaf
 // de volgende sample, net als bij een event in process.
-void paramsFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
+void paramsFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t* uit) {
   Plugin* s = zelf(p);
   if (s->teLaden.exchange(false)) laadUitHostKopie(s);
+  verwerkUi(s, uit);
   const uint32_t n = in ? in->size(in) : 0;
   for (uint32_t i = 0; i < n; ++i) doeEvent(s, in->get(in, i));
   if (s->actief) s->staart.store(s->ontwerp.staartSec(), std::memory_order_relaxed);
@@ -481,12 +593,138 @@ uint32_t tailGet(const clap_plugin_t* p) {
 }
 const clap_plugin_tail_t TAIL = {tailGet};
 
+// --- de UI (main thread) ---------------------------------------------------------------------------------------
+int PluginBediening::aantal() const { return N_ZICHTBAAR; }
+pb_ui::Knop PluginBediening::knop(int k) const {
+  const int i = zichtbaar((uint32_t)k);
+  const auto& p = Ontwerp::PARAMS[i < 0 ? 0 : i];
+  const Soort so = soortVan(i < 0 ? 0 : i);
+  return {p.id, p.naam, p.uitleg, p.min, p.max, p.standaard, so == Soort::Hz || so == Soort::Ms};
+}
+double PluginBediening::waarde(int k) const {
+  const int i = zichtbaar((uint32_t)k);
+  return i < 0 ? 0 : s->waarde[i].load(std::memory_order_relaxed);
+}
+bool PluginBediening::wachtend(int k) const {
+  const int i = zichtbaar((uint32_t)k);
+  return i >= 0 && s->uiGezet[i].load(std::memory_order_relaxed) != s->uiVerwerkt[i].load(std::memory_order_acquire);
+}
+void PluginBediening::alsTekst(int k, double v, char* t, uint32_t cap) const {
+  const int i = zichtbaar((uint32_t)k);
+  if (i < 0 || !paramsToText(&s->clap, Ontwerp::PARAMS[i].id, v, t, cap)) std::snprintf(t, cap, "-");
+}
+// De wachtrij raakt alleen vol als de host lang geen process of flush aanroept. Dan vervalt wat niet past, maar een
+// gebaar blijft altijd heel: een begin houdt 16 plekken vrij, een waarde 8, een einde past dus altijd; en past een
+// begin niet, dan vervalt alles tot het bijbehorende einde.
+bool PluginBediening::stuur(const UiBericht& b, uint32_t reserve) {
+  if (b.soort == UiBericht::WAARDE) s->uiGezet[b.index].fetch_add(1, std::memory_order_relaxed);
+  if (!s->ui.zet(b, reserve)) {
+    if (b.soort == UiBericht::WAARDE) s->uiGezet[b.index].fetch_sub(1, std::memory_order_relaxed);
+    return false;
+  }
+  // de host plant process of params.flush; daar gaat het naar de DSP en naar de host
+  if (s->hostParams && s->hostParams->request_flush) s->hostParams->request_flush(s->host);
+  return true;
+}
+void PluginBediening::gebaarBegin(int k) {
+  const int i = zichtbaar((uint32_t)k);
+  if (i < 0) return;
+  if (s->uiGebaar[i]) gebaarEinde(k);  // nooit twee gebaren tegelijk op één parameter
+  const bool gelukt = stuur({UiBericht::BEGIN, (uint8_t)i, 0}, 16);
+  s->uiGebaar[i] = gelukt;
+  s->uiVerloren[i] = !gelukt;
+}
+void PluginBediening::zet(int k, double v) {
+  const int i = zichtbaar((uint32_t)k);
+  if (i >= 0 && !s->uiVerloren[i]) stuur({UiBericht::WAARDE, (uint8_t)i, klem(i, v)}, 8);
+}
+void PluginBediening::gebaarEinde(int k) {
+  const int i = zichtbaar((uint32_t)k);
+  if (i < 0) return;
+  if (s->uiGebaar[i]) stuur({UiBericht::EINDE, (uint8_t)i, 0}, 0);
+  s->uiGebaar[i] = false;
+  s->uiVerloren[i] = false;
+}
+
+#ifdef PB_MET_UI
+// --- gui (CLAP gui-extensie; clap-wrapper geeft hem door aan de AU en de VST3) ---------------------------------
+// Alleen "cocoa", ingebed. Maten in logische punten (op macOS doet set_scale niets).
+bool guiApi(const clap_plugin_t*, const char* api, bool zwevend) {
+  return !zwevend && api && !std::strcmp(api, CLAP_WINDOW_API_COCOA);
+}
+bool guiVoorkeur(const clap_plugin_t*, const char** api, bool* zwevend) {
+  *api = CLAP_WINDOW_API_COCOA;
+  *zwevend = false;
+  return true;
+}
+bool guiMaak(const clap_plugin_t* p, const char* api, bool zwevend) {
+  Plugin* s = zelf(p);
+  if (!guiApi(p, api, zwevend) || s->view) return false;
+  s->view = pb_ui::maakView(&s->bediening, s->guiB, s->guiH);
+  return s->view != nullptr;
+}
+void guiWeg(const clap_plugin_t* p) {
+  Plugin* s = zelf(p);
+  if (s->view) pb_ui::sluit(s->view);
+  s->view = nullptr;
+}
+bool guiSchaal(const clap_plugin_t*, double) { return false; }
+bool guiMaat(const clap_plugin_t* p, uint32_t* b, uint32_t* h) {
+  *b = zelf(p)->guiB;
+  *h = zelf(p)->guiH;
+  return true;
+}
+bool guiKanSchalen(const clap_plugin_t*) { return true; }
+bool guiHints(const clap_plugin_t*, clap_gui_resize_hints_t* h) {
+  h->can_resize_horizontally = true;
+  h->can_resize_vertically = true;
+  h->preserve_aspect_ratio = false;  // het paneel schaalt gelijkmatig mee en blijft in het midden
+  h->aspect_ratio_width = 0;
+  h->aspect_ratio_height = 0;
+  return true;
+}
+bool guiPasMaat(const clap_plugin_t*, uint32_t* b, uint32_t* h) {
+  pb_ui::klemMaat(b, h);
+  return true;
+}
+bool guiZetMaat(const clap_plugin_t* p, uint32_t b, uint32_t h) {
+  Plugin* s = zelf(p);
+  s->guiB = b;
+  s->guiH = h;
+  if (s->view) pb_ui::zetMaat(s->view, b, h);
+  return true;
+}
+bool guiOuder(const clap_plugin_t* p, const clap_window_t* w) {
+  Plugin* s = zelf(p);
+  if (!s->view || !w || !w->api || std::strcmp(w->api, CLAP_WINDOW_API_COCOA)) return false;
+  return pb_ui::zetOuder(s->view, w->cocoa);
+}
+bool guiTijdelijk(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiTitel(const clap_plugin_t*, const char*) {}
+bool guiToon(const clap_plugin_t* p) {
+  if (!zelf(p)->view) return false;
+  pb_ui::toon(zelf(p)->view, true);
+  return true;
+}
+bool guiVerberg(const clap_plugin_t* p) {
+  if (!zelf(p)->view) return false;
+  pb_ui::toon(zelf(p)->view, false);
+  return true;
+}
+const clap_plugin_gui_t GUI = {guiApi,      guiVoorkeur, guiMaak,     guiWeg,       guiSchaal,   guiMaat,
+                               guiKanSchalen, guiHints,  guiPasMaat,  guiZetMaat,   guiOuder,    guiTijdelijk,
+                               guiTitel,    guiToon,     guiVerberg};
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
+#ifdef PB_MET_UI
+  if (!std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
+#endif
   return nullptr;
 }
 void onMainThread(const clap_plugin_t*) {}
@@ -501,7 +739,12 @@ const clap_plugin_t* factoryCreate(const clap_plugin_factory_t*, const clap_host
   auto* s = new (std::nothrow) Plugin();
   if (!s) return nullptr;
   s->host = host;
-  for (int i = 0; i < N; ++i) s->waarde[i].store(Ontwerp::PARAMS[i].standaard);
+  s->bediening.s = s;
+  for (int i = 0; i < N; ++i) {
+    s->waarde[i].store(Ontwerp::PARAMS[i].standaard);
+    s->uiGezet[i].store(0);
+    s->uiVerwerkt[i].store(0);
+  }
   s->clap = {&DESCRIPTOR, s, init, destroy, activate, deactivate, startProcessing, stopProcessing, reset,
              process, getExtension, onMainThread};
   return &s->clap;

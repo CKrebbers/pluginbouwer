@@ -91,6 +91,9 @@ jobs:
             build/param-toets state build/plugins/PB-Dub-echo.clap build/toetsen/PB-Dub-echo-zonder-$n.clap $n
           done
 
+      - name: Eigen toets fase 3 (paneel -> host; gui-extensie, gebaren, wachtrij)
+        run: build/ui-toets build/toetsen/PB-Dub-echo-ui-stub.clap
+
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -131,7 +134,8 @@ jobs:
           CXX: clang++-20
         run: |
           cmake -S plugin -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_RTSAN=ON -DPB_KANARIE=ON
-          cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie param-toets dub_echo_zonder_8
+          cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie param-toets dub_echo_zonder_8 \
+            ui-toets dub_echo_ui_stub
           ls -la build-rtsan/plugins build-rtsan/kanarie build-rtsan/toetsen
 
       - name: RTSan schoon (alle testsignalen, blok 512 en wisselend)
@@ -151,6 +155,11 @@ jobs:
           build-rtsan/param-toets automatisering build-rtsan/plugins/PB-Dub-echo.clap
           build-rtsan/param-toets state build-rtsan/plugins/PB-Dub-echo.clap build-rtsan/toetsen/PB-Dub-echo-zonder-8.clap 8
           echo "RTSan: geen overtreding in process of flush"
+
+      - name: RTSan schoon met het paneel (UI-berichten in process, gebaren en waarden naar de host)
+        run: |
+          build-rtsan/ui-toets build-rtsan/toetsen/PB-Dub-echo-ui-stub.clap
+          echo "RTSan: geen overtreding in process met UI-berichten"
 
       - name: Kanarie moet falen (malloc in process)
         run: |
@@ -237,6 +246,21 @@ jobs:
           for n in 1 2 3 4 5 6 7 8; do
             build/param-toets state build/plugins/PB-Dub-echo.clap build/toetsen/PB-Dub-echo-zonder-$n.clap $n
           done
+
+      - name: Eigen toetsen fase 3 (paneel -> host met de stub; het echte paneel met muis, kleuren, maten en schermafbeeldingen)
+        run: |
+          build/ui-toets build/toetsen/PB-Dub-echo-ui-stub.clap
+          mkdir -p uit/gui
+          build/gui-toets ~/Library/Audio/Plug-Ins/CLAP/PB-Dub-echo.clap uit/gui
+          ls -la uit/gui
+
+      - name: Schermafbeeldingen van het paneel als artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-schermafbeelding
+          path: uit/gui/*.png
+          if-no-files-found: error
 
       - name: Null-test VST3 (pluginval test)
         run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3 "$PV" vst3-macos

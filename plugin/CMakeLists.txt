@@ -43,6 +43,31 @@ target_include_directories(dub_echo_impl PUBLIC ${PB_PAKKET}/dsp)
 target_link_libraries(dub_echo_impl PUBLIC clap)
 target_compile_options(dub_echo_impl PRIVATE ${PB_DSP_VLAGGEN})
 
+# fase 3: het frontpaneel (design.md) als NSView voor de CLAP gui-extensie (api "cocoa"); clap-wrapper geeft het door
+# aan de AU en de VST3. De lettertypen (IBM Plex Mono, Silkscreen; OFL) gaan als bytes het binary in.
+if (APPLE)
+  set(PB_LETTERS ${CMAKE_CURRENT_SOURCE_DIR}/ui/lettertypen)
+  set(PB_LETTERS_CPP ${CMAKE_BINARY_DIR}/lettertypen.cpp)
+  set(PB_LETTERS_INHOUD "// gemaakt door plugin/CMakeLists.txt uit plugin/ui/lettertypen/ (niet bewerken)\n")
+  foreach(PB_L SILKSCREEN:Silkscreen-Regular.ttf PLEXMONO:IBMPlexMono-Medium.ttf)
+    string(REPLACE ":" ";" PB_L "${PB_L}")
+    list(GET PB_L 0 PB_L_NAAM)
+    list(GET PB_L 1 PB_L_BESTAND)
+    file(READ ${PB_LETTERS}/${PB_L_BESTAND} PB_L_HEX HEX)
+    string(LENGTH "${PB_L_HEX}" PB_L_LEN)
+    math(EXPR PB_L_LEN "${PB_L_LEN} / 2")
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," PB_L_HEX "${PB_L_HEX}")
+    string(APPEND PB_LETTERS_INHOUD "extern const unsigned char PB_LETTER_${PB_L_NAAM}[] = {${PB_L_HEX}};\n")
+    string(APPEND PB_LETTERS_INHOUD "extern const unsigned long PB_LETTER_${PB_L_NAAM}_N = ${PB_L_LEN};\n")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PB_LETTERS}/${PB_L_BESTAND})
+  endforeach()
+  file(CONFIGURE OUTPUT ${PB_LETTERS_CPP} CONTENT "${PB_LETTERS_INHOUD}" @ONLY)
+  target_sources(dub_echo_impl PRIVATE ui/paneel_mac.mm ${PB_LETTERS_CPP})
+  set_source_files_properties(ui/paneel_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  target_compile_definitions(dub_echo_impl PRIVATE PB_MET_UI=1)
+  target_link_libraries(dub_echo_impl PUBLIC "-framework AppKit" "-framework CoreText" "-framework CoreGraphics")
+endif()
+
 make_clapfirst_plugins(
   TARGET_NAME dub_echo
   IMPL_TARGET dub_echo_impl
@@ -62,6 +87,16 @@ make_clapfirst_plugins(
 # valkuil 2: statics van de VST3 SDK draaien bij exit anders in uitgeladen geheugen (crash na SUCCESS in pluginval)
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_options(dub_echo_vst3 PRIVATE -Wl,-z,nodelete)
+endif()
+
+# gui-toets (macOS): opent het paneel van de .clap in een venster, sleept/dubbelklikt met nagemaakte muis-events,
+# eist dat de gebaren en waarden via params.flush bij de host aankomen, en bewaart schermafbeeldingen (PNG).
+if (APPLE)
+  add_executable(gui-toets toetsen/gui-toets.mm)
+  target_include_directories(gui-toets PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(gui-toets PRIVATE clap "-framework AppKit")
+  set_source_files_properties(toetsen/gui-toets.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  set_target_properties(gui-toets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
 
 # pb-render: de kleine CLAP-host uit gereedschap/ (null-test en RTSan)
@@ -94,6 +129,22 @@ if (PB_TOETSEN)
   if (PB_RTSAN)
     target_compile_options(param-toets PRIVATE -fsanitize=realtime)
     target_link_options(param-toets PRIVATE -fsanitize=realtime)
+  endif()
+  # fase 3: de plugin-kant van het paneel (gui-extensie, Bediening, wachtrij) zonder Cocoa, voor ui-toets op elk
+  # platform en onder RTSan (toetsen/ui-stub.cpp is de "view")
+  add_library(dub_echo_ui_stub MODULE dub_echo.cpp entry.cpp toetsen/ui-stub.cpp)
+  target_include_directories(dub_echo_ui_stub PRIVATE ${PB_PAKKET}/dsp ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(dub_echo_ui_stub PRIVATE clap)
+  target_compile_options(dub_echo_ui_stub PRIVATE ${PB_DSP_VLAGGEN})
+  target_compile_definitions(dub_echo_ui_stub PRIVATE PB_MET_UI=1)
+  set_target_properties(dub_echo_ui_stub PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "PB-Dub-echo-ui-stub"
+                        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/toetsen)
+  add_executable(ui-toets toetsen/ui-toets.cpp)
+  target_link_libraries(ui-toets PRIVATE clap ${CMAKE_DL_LIBS})
+  set_target_properties(ui-toets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  if (PB_RTSAN)
+    target_compile_options(ui-toets PRIVATE -fsanitize=realtime)
+    target_link_options(ui-toets PRIVATE -fsanitize=realtime)
   endif()
   foreach(PB_ID RANGE 1 8)
     add_library(dub_echo_zonder_${PB_ID} MODULE dub_echo.cpp entry.cpp)
