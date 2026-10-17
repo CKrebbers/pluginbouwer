@@ -85,3 +85,12 @@ als automatisering (events midden in wisselende blokken).
 Fase 3 (`plugin/toets/toets-fase3.sh`, pb-paneel): het frontpaneel in een echt venster (Cocoa/X11) bedienen; de
 plugin meldt gebaar en waarde aan de host, Shift = fijn, dubbelklik = standaard, host-waarden verschijnen op het
 paneel; ook met process op een audiothread onder RTSan. Schermafbeeldingen als CI-artefact.
+Fase 4 (`plugin/toets/toets-fase4.sh`, pb-toets presets): de fabriekspresets uit `presets/*.json`. De toets
+controleert:
+- dat CLAP preset-discovery ze vindt;
+- dat preset-load elke waarde exact zet, de rest op zijn standaard;
+- dat de plugin daarna bit voor bit klinkt als dezelfde waarden via flush, ook als hij actief is, onder een
+  komma-locale en onder RTSan.
+
+clap-validator moet zijn drie preset-toetsen PASSED geven, niet SKIPPED. Op macOS moet `auval -strict -v` elke
+presetnaam tonen.

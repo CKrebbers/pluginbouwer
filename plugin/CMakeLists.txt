@@ -84,6 +84,29 @@ make_clapfirst_plugins(
   AUV2_INSTRUMENT_TYPE "aufx"
 )
 
+# Fase 4: de fabriekspresets (presets/*.json) naast de plugin, waar de preset-discovery van plugin.cpp ze zoekt:
+# macOS in elke bundel (CLAP, VST3, AU) onder Contents/Resources/presets, elders de map "<naam>-presets" naast de .clap
+file(GLOB PB_PRESET_JSON CONFIGURE_DEPENDS ${PB_PAKKET}/presets/*.json)
+foreach(formaat clap vst3 auv2)
+  set(doel keten_dub_echo_${formaat})
+  if (NOT TARGET ${doel})
+    continue()
+  endif()
+  if (APPLE)
+    set(map "$<TARGET_BUNDLE_DIR:${doel}>/Contents/Resources/presets")
+  elseif (formaat STREQUAL "clap")
+    set(map "$<TARGET_FILE_DIR:${doel}>/$<TARGET_FILE_BASE_NAME:${doel}>-presets")
+  else()
+    continue()
+  endif()
+  add_custom_command(TARGET ${doel} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${map}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${map}"
+    COMMAND ${CMAKE_COMMAND} -E copy ${PB_PRESET_JSON} "${map}/"
+    COMMENT "fabriekspresets naast ${doel}"
+    VERBATIM)
+endforeach()
+
 # valkuil 2: statics van de VST3 SDK draaien bij exit anders in uitgeladen geheugen
 if (UNIX AND NOT APPLE AND TARGET keten_dub_echo_vst3)
   target_link_options(keten_dub_echo_vst3 PRIVATE -Wl,-z,nodelete)

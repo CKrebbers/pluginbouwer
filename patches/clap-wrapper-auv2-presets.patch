@@ -1,0 +1,323 @@
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+index b3a85a8..4b54ff9 100644
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -416,6 +416,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
+   OSStatus SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement,
+                        const void *inData, UInt32 inDataSize) override;
+ 
++  // Factory presets: the presets the CLAP's preset-discovery factory declares for this plugin (file locations,
++  // crawled like a host does, and presets inside the plugin), loaded through clap.preset-load.
++  OSStatus GetPresets(CFArrayRef *outData) const override;
++  OSStatus NewFactoryPresetSet(const AUPreset &inNewFactoryPreset) override;
++
+   // Render Notification
+   OSStatus SetRenderNotification(AURenderCallback inProc, void *inRefCon) override;
+   OSStatus RemoveRenderNotification(AURenderCallback inProc, void *inRefCon) override;
+@@ -810,6 +815,20 @@ class WrapAsAUV2 : public ausdk::AUBase,
+ 
+   CFStringRef _current_program_name = 0;
+ 
++  // factory presets (see GetPresets), collected once in PostConstructor; the AUPreset names are owned here
++  struct FactoryPreset
++  {
++    std::string name;
++    std::string location;  // empty for CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
++    std::string loadKey;
++    uint32_t kind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
++    bool hasLoadKey = false;
++  };
++  std::vector<FactoryPreset> _factoryPresets;
++  std::vector<AUPreset> _factoryPresetArray;
++  const clap_plugin_preset_load_t *_presetLoad = nullptr;
++  void collectFactoryPresets();
++
+   // ------------- for the MIDI output
+   AUMIDIOutputCallbackStruct _midioutput_hostcallback = {nullptr, nullptr};
+ #if AUSDK_MIDI2_AVAILABLE
+diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
+index 8ee03fd..865afc4 100644
+--- a/src/wrapasauv2.cpp
++++ b/src/wrapasauv2.cpp
+@@ -4,6 +4,8 @@
+ #include <limits>
+ #include <cassert>
+ #include <Block.h>
++#include <AudioToolbox/AudioUnitUtilities.h>
++#include <algorithm>
+ 
+ extern bool fillAudioUnitCocoaView(AudioUnitCocoaViewInfo *viewInfo, std::shared_ptr<Clap::Plugin>);
+ 
+@@ -181,6 +183,10 @@ WrapAsAUV2::~WrapAsAUV2()
+   {
+     CFRelease(_current_program_name);
+   }
++  for (auto &p : _factoryPresetArray)
++  {
++    if (p.presetName) CFRelease(p.presetName);
++  }
+ }
+ 
+ // the very very reduced state machine
+@@ -1749,6 +1755,261 @@ void WrapAsAUV2::PostConstructor()
+     Inputs().GetElement(0)->SetName(CFSTR("Input"));
+     LOGINFO("[clap-wrapper] PostConstructor: added placeholder silent input bus");
+   }
++
++  // factory presets from the preset-discovery factory (the plugin keeps its own initial state)
++  collectFactoryPresets();
++}
++
++namespace
++{
++// A minimal preset-discovery indexer and metadata receiver, as a host would use them: it collects the presets for
++// one CLAP plugin id from every declared location. A file location that is a directory is crawled (recursively,
++// sorted by path, filtered by the declared file extensions), a file location is queried as is, and a location of
++// kind CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN is queried with a null location.
++struct FactoryPresetCollector
++{
++  struct Location
++  {
++    uint32_t kind;
++    std::string location;
++  };
++  struct Found
++  {
++    std::string name, location, loadKey;
++    uint32_t kind = CLAP_PRESET_DISCOVERY_LOCATION_FILE;
++    bool hasLoadKey = false, forThisPlugin = false;
++  };
++  std::string pluginId;
++  std::vector<std::string> extensions;
++  std::vector<Location> locations;
++  std::vector<Found> found;
++  Location current;  // the location being queried by get_metadata
++
++  static FactoryPresetCollector *self(const clap_preset_discovery_indexer_t *i)
++  {
++    return static_cast<FactoryPresetCollector *>(i->indexer_data);
++  }
++  static FactoryPresetCollector *self(const clap_preset_discovery_metadata_receiver_t *r)
++  {
++    return static_cast<FactoryPresetCollector *>(r->receiver_data);
++  }
++  static bool declare_filetype(const clap_preset_discovery_indexer_t *i, const clap_preset_discovery_filetype_t *t)
++  {
++    if (t && t->file_extension && *t->file_extension) self(i)->extensions.push_back(t->file_extension);
++    return true;
++  }
++  static bool declare_location(const clap_preset_discovery_indexer_t *i, const clap_preset_discovery_location_t *l)
++  {
++    if (!l) return false;
++    if (l->kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
++      self(i)->locations.push_back({l->kind, ""});
++    else if (l->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && l->location)
++      self(i)->locations.push_back({l->kind, l->location});
++    return true;
++  }
++  static bool declare_soundpack(const clap_preset_discovery_indexer_t *, const clap_preset_discovery_soundpack_t *)
++  {
++    return true;
++  }
++  static const void *indexer_extension(const clap_preset_discovery_indexer_t *, const char *)
++  {
++    return nullptr;
++  }
++  static void on_error(const clap_preset_discovery_metadata_receiver_t *, int32_t os_error, const char *msg)
++  {
++    LOGINFO("[clap-wrapper] auv2: preset discovery error {} {}", os_error, msg ? msg : "");
++  }
++  static bool begin_preset(const clap_preset_discovery_metadata_receiver_t *r, const char *name,
++                           const char *load_key)
++  {
++    auto *c = self(r);
++    Found f;
++    f.kind = c->current.kind;
++    f.location = c->current.location;
++    f.hasLoadKey = load_key != nullptr;
++    if (load_key) f.loadKey = load_key;
++    if (name)
++      f.name = name;
++    else if (load_key)
++      f.name = load_key;
++    else
++      f.name = fs::path(c->current.location).stem().u8string();
++    c->found.push_back(f);
++    return true;
++  }
++  static void add_plugin_id(const clap_preset_discovery_metadata_receiver_t *r, const clap_universal_plugin_id_t *id)
++  {
++    auto *c = self(r);
++    if (!c->found.empty() && id && id->abi && id->id && strcmp(id->abi, "clap") == 0 && c->pluginId == id->id)
++      c->found.back().forThisPlugin = true;
++  }
++  static void set_soundpack_id(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void set_flags(const clap_preset_discovery_metadata_receiver_t *, uint32_t)
++  {
++  }
++  static void add_creator(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void set_description(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void set_timestamps(const clap_preset_discovery_metadata_receiver_t *, clap_timestamp, clap_timestamp)
++  {
++  }
++  static void add_feature(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void add_extra_info(const clap_preset_discovery_metadata_receiver_t *, const char *, const char *)
++  {
++  }
++
++  void query(const clap_preset_discovery_provider_t *provider, const Location &l)
++  {
++    current = l;
++    const size_t before = found.size();
++    clap_preset_discovery_metadata_receiver_t receiver = {
++        this,         on_error,    begin_preset,    add_plugin_id,  set_soundpack_id, set_flags,
++        add_creator,  set_description, set_timestamps, add_feature, add_extra_info};
++    if (!provider->get_metadata(provider, l.kind,
++                                l.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? nullptr : l.location.c_str(),
++                                &receiver))
++    {
++      found.resize(before);  // the provider reported an error for this location
++    }
++  }
++  bool wantedFile(const fs::path &p) const
++  {
++    if (extensions.empty()) return true;
++    auto ext = p.extension().u8string();
++    if (!ext.empty() && ext[0] == '.') ext.erase(0, 1);
++    return std::find(extensions.begin(), extensions.end(), ext) != extensions.end();
++  }
++  void crawl(const clap_preset_discovery_provider_t *provider)
++  {
++    for (const auto &l : locations)
++    {
++      if (l.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
++      {
++        query(provider, l);
++        continue;
++      }
++      std::error_code ec;
++      const fs::path root(l.location);
++      if (!fs::is_directory(root, ec))
++      {
++        if (fs::is_regular_file(root, ec)) query(provider, l);
++        continue;
++      }
++      std::vector<std::string> files;
++      for (fs::recursive_directory_iterator it(root, fs::directory_options::follow_directory_symlink, ec), end;
++           !ec && it != end; it.increment(ec))
++      {
++        if (it->is_regular_file(ec) && wantedFile(it->path())) files.push_back(it->path().u8string());
++      }
++      std::sort(files.begin(), files.end());
++      for (const auto &f : files) query(provider, {CLAP_PRESET_DISCOVERY_LOCATION_FILE, f});
++    }
++  }
++};
++}  // namespace
++
++void WrapAsAUV2::collectFactoryPresets()
++{
++  if (!_plugin || !_desc || !_library._pluginEntry) return;
++  _presetLoad = static_cast<const clap_plugin_preset_load_t *>(
++      _plugin->_plugin->get_extension(_plugin->_plugin, CLAP_EXT_PRESET_LOAD));
++  if (!_presetLoad)
++    _presetLoad = static_cast<const clap_plugin_preset_load_t *>(
++        _plugin->_plugin->get_extension(_plugin->_plugin, CLAP_EXT_PRESET_LOAD_COMPAT));
++  if (!_presetLoad || !_presetLoad->from_location) return;
++
++  auto *factory = static_cast<const clap_preset_discovery_factory_t *>(
++      _library._pluginEntry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
++  if (!factory)
++    factory = static_cast<const clap_preset_discovery_factory_t *>(
++        _library._pluginEntry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT));
++  if (!factory) return;
++
++  using C = FactoryPresetCollector;
++  const uint32_t nProviders = factory->count(factory);
++  for (uint32_t i = 0; i < nProviders; ++i)
++  {
++    const auto *desc = factory->get_descriptor(factory, i);
++    if (!desc || !desc->id) continue;
++    C collector;
++    collector.pluginId = _desc->id;
++    clap_preset_discovery_indexer_t indexer = {CLAP_VERSION_INIT, "clap-wrapper auv2", "free-audio", "", "",
++                                               &collector, C::declare_filetype, C::declare_location,
++                                               C::declare_soundpack, C::indexer_extension};
++    const auto *provider = factory->create(factory, &indexer, desc->id);
++    if (!provider) continue;
++    if (provider->init(provider))
++    {
++      collector.crawl(provider);
++      for (auto &f : collector.found)
++      {
++        if (f.forThisPlugin) _factoryPresets.push_back({f.name, f.location, f.loadKey, f.kind, f.hasLoadKey});
++      }
++    }
++    provider->destroy(provider);
++  }
++
++  for (size_t i = 0; i < _factoryPresets.size(); ++i)
++  {
++    AUPreset p;
++    p.presetNumber = static_cast<SInt32>(i);
++    p.presetName = CFStringCreateWithCString(nullptr, _factoryPresets[i].name.c_str(), kCFStringEncodingUTF8);
++    _factoryPresetArray.push_back(p);
++  }
++  LOGINFO("[clap-wrapper] auv2: {} factory presets", _factoryPresets.size());
++}
++
++OSStatus WrapAsAUV2::GetPresets(CFArrayRef *outData) const
++{
++  if (_factoryPresetArray.empty()) return kAudioUnitErr_InvalidProperty;
++  if (outData == nullptr) return noErr;
++  // an array of AUPreset pointers (no retain callbacks); the host releases the array, the presets live here
++  CFMutableArrayRef array =
++      CFArrayCreateMutable(nullptr, static_cast<CFIndex>(_factoryPresetArray.size()), nullptr);
++  for (const auto &p : _factoryPresetArray) CFArrayAppendValue(array, &p);
++  *outData = array;
++  return noErr;
++}
++
++OSStatus WrapAsAUV2::NewFactoryPresetSet(const AUPreset &inNewFactoryPreset)
++{
++  const SInt32 n = inNewFactoryPreset.presetNumber;
++  if (n < 0 || n >= static_cast<SInt32>(_factoryPresets.size()) || !_presetLoad)
++    return kAudioUnitErr_InvalidPropertyValue;
++
++  auto guarantee_mainthread = _plugin->AlwaysMainThread();
++  const auto &fp = _factoryPresets[n];
++  if (!_presetLoad->from_location(_plugin->_plugin, fp.kind,
++                                  fp.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? nullptr : fp.location.c_str(),
++                                  fp.hasLoadKey ? fp.loadKey.c_str() : nullptr))
++    return kAudioUnitErr_InvalidPropertyValue;
++
++  // the preset replaces what the host set before Initialize (those values would otherwise override it)
++  _paramsBeforeInit.clear();
++  // the plugin asked for a rescan (clap.params), which updated the AU parameter values; tell the listeners
++  for (auto &p : _parametertree)
++  {
++    AudioUnitEvent ev;
++    memset(&ev, 0, sizeof(ev));
++    ev.mEventType = kAudioUnitEvent_ParameterValueChange;
++    ev.mArgument.mParameter.mAudioUnit = GetComponentInstance();
++    ev.mArgument.mParameter.mParameterID = static_cast<AudioUnitParameterID>(p.first);
++    ev.mArgument.mParameter.mScope = kAudioUnitScope_Global;
++    ev.mArgument.mParameter.mElement = 0;
++    AUEventListenerNotify(nullptr, nullptr, &ev);
++  }
++
++  SetAFactoryPresetAsCurrent(_factoryPresetArray[n]);
++  if (_current_program_name) CFRelease(_current_program_name);
++  _current_program_name = CFStringCreateCopy(nullptr, _factoryPresetArray[n].presetName);
++  return noErr;
+ }
+ 
+ UInt32 WrapAsAUV2::GetAudioChannelLayout(AudioUnitScope scope, AudioUnitElement element,

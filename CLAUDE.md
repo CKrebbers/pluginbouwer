@@ -32,6 +32,13 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 8. **clap-validator kleurt zijn uitvoer altijd** (ook met NO_COLOR): haal de ANSI-codes weg vóór je op "0 failed" grept,
    of vertrouw op de exitcode.
 9. **pluginval v2**: `pluginval validate …` (de vlag `--validate` is verouderd); de null-test gebruikt `pluginval test`.
+10. **clap-validator 0.4.1 loopt vast op container-presets**: in `metadata_receiver.rs` houdt `begin_preset` de mutex
+    `result` vast en roept dan `flush_preset()` aan, die dezelfde mutex nog eens pakt. Elke preset met een laadsleutel
+    geeft daardoor na 45 s "Timed out" in `preset-discovery-crawl/-load`. Oplossing: één bestand per preset
+    (locatie FILE, laadsleutel NULL), zie ARCHITECTUUR.md "Presets".
+11. **clap-wrapper v0.16.0 kent geen AU factory presets** (ook geen VST3-programma's).
+    Oplossing: `patches/clap-wrapper-auv2-presets.patch`. Die haalt de presets uit de preset-discovery-factory van de
+    CLAP en laadt ze via preset-load. Hij hoort na `…-auv2-params-voor-init.patch`: hij gebruikt `_paramsBeforeInit`.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:

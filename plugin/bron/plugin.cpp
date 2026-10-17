@@ -8,9 +8,11 @@
 // output-events aan de host (die er automatisering van maakt). Het paneel leest alleen de atomische spiegel.
 // PB_ZONDER_PARAM=<id> bouwt een schil die parameter <id> niet kent (zoals een oudere versie): alleen voor de
 // state-toets (plugin/toets), nooit voor een uitgeleverde plugin.
+// Fase 4: fabriekspresets (presets/*.json, in de bundel gekopieerd) via de preset-discovery-factory en preset-load.
 #include <clap/clap.h>
 
 #include <atomic>
+#include <climits>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -18,6 +20,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <string>
+#include <sys/stat.h>
+#include <utility>
+#include <vector>
 
 #include "entry.h"
 #include "ontwerpen/keten_dub_echo.h"
@@ -424,6 +430,19 @@ bool leesAlles(const clap_istream_t* s, void* p, uint64_t n) {
   }
   return true;
 }
+// nieuwe waarden voor alle parameters (state of preset) [mainthread]: in de spiegel, en in de DSP direct als niets
+// draait, anders via process/flush; daarna de host om een rescan (en een flush) vragen
+void zetAlleWaarden(Plugin* z, const double* nieuw) {
+  for (int i = 0; i < N; ++i) z->waarde[i].store(nieuw[i], std::memory_order_relaxed);
+  if (z->actief) z->stateNieuw.store(true, std::memory_order_release);  // process (of flush) neemt het over
+  else for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, nieuw[i]);  // niets draait: direct
+  // de host moet de nieuwe waarden opnieuw lezen (en, als hij actief is, flush of process aanroepen)
+  auto* hp = z->host ? static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS)) : nullptr;
+  if (hp) {
+    if (hp->rescan) hp->rescan(z->host, CLAP_PARAM_RESCAN_VALUES);
+    if (z->actief && hp->request_flush) hp->request_flush(z->host);
+  }
+}
 bool stateSave(const clap_plugin_t* p, const clap_ostream_t* s) {
   Plugin* z = zelf(p);
   const uint32_t kop[3] = {STATE_MAGIE, STATE_VERSIE, (uint32_t)N_ZICHTBAAR};
@@ -448,18 +467,282 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) {
     const int i = indexVan(id);
     if (i >= 0) nieuw[i] = klem(i, waarde);
   }
-  for (int i = 0; i < N; ++i) z->waarde[i].store(nieuw[i], std::memory_order_relaxed);
-  if (z->actief) z->stateNieuw.store(true, std::memory_order_release);  // process (of flush) neemt het over
-  else for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, nieuw[i]);  // niets draait: direct
-  // de host moet de nieuwe waarden opnieuw lezen (en, als hij actief is, flush of process aanroepen)
-  auto* hp = z->host ? static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS)) : nullptr;
-  if (hp) {
-    if (hp->rescan) hp->rescan(z->host, CLAP_PARAM_RESCAN_VALUES);
-    if (z->actief && hp->request_flush) hp->request_flush(z->host);
-  }
+  zetAlleWaarden(z, nieuw);
   return true;
 }
 const clap_plugin_state_t STATE = {stateSave, stateLoad};
+
+// --- presets: de fabriekspresets, één JSON-bestand per preset naast de plugin -------------------------------------
+// Een preset is `{"naam": ..., "uitleg": ..., "waarden": {"<parameternaam>": getal, ...}}` (presets/*.json). CMake
+// kopieert ze in de bundel: macOS `<bundel>/Contents/Resources/presets`, elders de map `<naam>-presets` naast de .clap.
+// CLAP preset-discovery: één provider, één locatie van het soort FILE (die map, als hij bestaat), bestandstype json;
+// elk bestand is één preset (geen laadsleutel). preset-load leest het bestand en zet de waarden via hetzelfde pad als
+// een state: een onbekende naam wordt overgeslagen, wat de preset niet noemt krijgt zijn standaard. clap-wrapper maakt
+// er AU factory presets van (patches/clap-wrapper-auv2-presets.patch). Alles hier draait op de mainthread.
+std::string presetMap;  // gezet in pb_entry_init
+
+struct PresetBestand {
+  std::string naam, uitleg;
+  std::vector<std::pair<std::string, double>> waarden;
+};
+// een kleine JSON-lezer voor dit ene formaat; getallen zonder locale (een host kan een komma-locale zetten)
+class JsonLezer {
+ public:
+  JsonLezer(const char* p, const char* eind) : p_(p), eind_(eind) {}
+  bool leesPreset(PresetBestand* uit) {
+    if (!teken('{')) return false;
+    if (teken('}')) return eindeTekst();
+    do {
+      std::string sleutel;
+      if (!tekst(&sleutel) || !teken(':')) return false;
+      if (sleutel == "naam") {
+        if (!tekst(&uit->naam)) return false;
+      } else if (sleutel == "uitleg") {
+        if (!tekst(&uit->uitleg)) return false;
+      } else if (sleutel == "waarden") {
+        if (!teken('{')) return false;
+        if (!teken('}')) {
+          do {
+            std::string param;
+            double v;
+            if (!tekst(&param) || !teken(':') || !getal(&v)) return false;
+            uit->waarden.emplace_back(param, v);
+          } while (teken(','));
+          if (!teken('}')) return false;
+        }
+      } else if (!slaOver(0)) {
+        return false;
+      }
+    } while (teken(','));
+    return teken('}') && eindeTekst() && !uit->naam.empty();
+  }
+
+ private:
+  void wit() {
+    while (p_ < eind_ && (*p_ == ' ' || *p_ == '\t' || *p_ == '\n' || *p_ == '\r')) ++p_;
+  }
+  bool eindeTekst() { wit(); return p_ == eind_; }
+  bool teken(char c) {
+    wit();
+    if (p_ < eind_ && *p_ == c) { ++p_; return true; }
+    return false;
+  }
+  static void utf8(std::string* t, uint32_t c) {
+    if (c < 0x80) { *t += (char)c; return; }
+    if (c < 0x800) { *t += (char)(0xc0 | (c >> 6)); }
+    else {
+      if (c < 0x10000) { *t += (char)(0xe0 | (c >> 12)); }
+      else { *t += (char)(0xf0 | (c >> 18)); *t += (char)(0x80 | ((c >> 12) & 0x3f)); }
+      *t += (char)(0x80 | ((c >> 6) & 0x3f));
+    }
+    *t += (char)(0x80 | (c & 0x3f));
+  }
+  bool hex4(uint32_t* c) {
+    if (eind_ - p_ < 4) return false;
+    *c = 0;
+    for (int i = 0; i < 4; ++i, ++p_) {
+      const char h = *p_;
+      *c <<= 4;
+      if (h >= '0' && h <= '9') *c |= (uint32_t)(h - '0');
+      else if (h >= 'a' && h <= 'f') *c |= (uint32_t)(h - 'a' + 10);
+      else if (h >= 'A' && h <= 'F') *c |= (uint32_t)(h - 'A' + 10);
+      else return false;
+    }
+    return true;
+  }
+  bool tekst(std::string* t) {
+    if (!teken('"')) return false;
+    t->clear();
+    while (p_ < eind_ && *p_ != '"') {
+      const unsigned char c = (unsigned char)*p_++;
+      if (c < 0x20) return false;
+      if (c != '\\') { *t += (char)c; continue; }
+      if (p_ >= eind_) return false;
+      switch (*p_++) {
+        case '"': *t += '"'; break;
+        case '\\': *t += '\\'; break;
+        case '/': *t += '/'; break;
+        case 'b': *t += '\b'; break;
+        case 'f': *t += '\f'; break;
+        case 'n': *t += '\n'; break;
+        case 'r': *t += '\r'; break;
+        case 't': *t += '\t'; break;
+        case 'u': {
+          uint32_t u;
+          if (!hex4(&u)) return false;
+          if (u >= 0xd800 && u < 0xdc00) {  // een surrogaatpaar
+            uint32_t laag;
+            if (eind_ - p_ < 2 || p_[0] != '\\' || p_[1] != 'u') return false;
+            p_ += 2;
+            if (!hex4(&laag) || laag < 0xdc00 || laag >= 0xe000) return false;
+            u = 0x10000 + ((u - 0xd800) << 10) + (laag - 0xdc00);
+          } else if (u >= 0xdc00 && u < 0xe000) {
+            return false;
+          }
+          utf8(t, u);
+          break;
+        }
+        default: return false;
+      }
+    }
+    return teken('"');
+  }
+  // -?(0|[1-9][0-9]*)(.[0-9]+)?([eE][+-]?[0-9]+)?, als m · 10^n met één correct afgeronde stap (m < 2^53, |n| ≤ 22)
+  bool getal(double* v) {
+    wit();
+    bool negatief = false;
+    if (p_ < eind_ && *p_ == '-') { negatief = true; ++p_; }
+    double m = 0;
+    int n = 0, cijfers = 0;
+    auto cijfer = [&](bool fractie) {
+      if (m < 1e15) { m = m * 10 + (*p_ - '0'); if (fractie) --n; }
+      else if (!fractie) ++n;
+      ++cijfers; ++p_;
+    };
+    if (p_ < eind_ && *p_ == '0') cijfer(false);
+    else if (p_ < eind_ && *p_ >= '1' && *p_ <= '9') while (p_ < eind_ && *p_ >= '0' && *p_ <= '9') cijfer(false);
+    else return false;
+    if (p_ < eind_ && *p_ == '.') {
+      ++p_;
+      const int voor = cijfers;
+      while (p_ < eind_ && *p_ >= '0' && *p_ <= '9') cijfer(true);
+      if (cijfers == voor) return false;
+    }
+    if (p_ < eind_ && (*p_ == 'e' || *p_ == 'E')) {
+      ++p_;
+      bool min = false;
+      if (p_ < eind_ && (*p_ == '+' || *p_ == '-')) min = *p_++ == '-';
+      if (p_ >= eind_ || *p_ < '0' || *p_ > '9') return false;
+      int e = 0;
+      while (p_ < eind_ && *p_ >= '0' && *p_ <= '9') { if (e < 1000) e = e * 10 + (*p_ - '0'); ++p_; }
+      n += min ? -e : e;
+    }
+    double w = m;
+    if (n > 0) w = m * std::pow(10.0, n);
+    if (n < 0) w = -n <= 22 ? m / std::pow(10.0, -n) : m * std::pow(10.0, n);  // 10^k is exact tot k = 22
+    if (!std::isfinite(w)) return false;
+    *v = negatief ? -w : w;
+    return true;
+  }
+  // een waarde die deze lezer niet nodig heeft
+  bool slaOver(int diepte) {
+    if (diepte > 32) return false;
+    wit();
+    if (p_ >= eind_) return false;
+    if (*p_ == '"') { std::string t; return tekst(&t); }
+    if (*p_ == '{' || *p_ == '[') {
+      const char sluit = *p_ == '{' ? '}' : ']';
+      ++p_;
+      if (teken(sluit)) return true;
+      do {
+        if (sluit == '}') { std::string t; if (!tekst(&t) || !teken(':')) return false; }
+        if (!slaOver(diepte + 1)) return false;
+      } while (teken(','));
+      return teken(sluit);
+    }
+    for (const char* woord : {"true", "false", "null"}) {
+      const size_t n = std::strlen(woord);
+      if ((size_t)(eind_ - p_) >= n && !std::memcmp(p_, woord, n)) { p_ += n; return true; }
+    }
+    double v;
+    return getal(&v);
+  }
+  const char* p_;
+  const char* eind_;
+};
+bool leesPresetBestand(const char* pad, PresetBestand* uit, std::string* fout) {
+  FILE* f = std::fopen(pad, "rb");
+  if (!f) { *fout = std::string("kan de preset niet openen: ") + pad; return false; }
+  std::string inhoud;
+  char buf[4096];
+  size_t r;
+  while ((r = std::fread(buf, 1, sizeof buf, f)) > 0 && inhoud.size() < (1u << 20)) inhoud.append(buf, r);
+  std::fclose(f);
+  JsonLezer lezer(inhoud.data(), inhoud.data() + inhoud.size());
+  if (!lezer.leesPreset(uit)) { *fout = std::string("geen geldige preset (JSON met naam en waarden): ") + pad; return false; }
+  return true;
+}
+// de INDEX in PARAMS bij een parameternaam, of -1 (ook voor een verborgen parameter)
+int indexVanNaam(const std::string& naam) {
+  for (int i = 0; i < N; ++i)
+    if (naam == Ontwerp::PARAMS[i].naam) return verborgen(i) ? -1 : i;
+  return -1;
+}
+
+bool presetLaad(const clap_plugin_t* p, uint32_t soort, const char* plek, const char* sleutel) {
+  Plugin* z = zelf(p);
+  auto* hp = z->host ? static_cast<const clap_host_preset_load_t*>(z->host->get_extension(z->host, CLAP_EXT_PRESET_LOAD)) : nullptr;
+  if (!hp && z->host) hp = static_cast<const clap_host_preset_load_t*>(z->host->get_extension(z->host, CLAP_EXT_PRESET_LOAD_COMPAT));
+  PresetBestand preset;
+  std::string fout = "alleen presets uit een bestand (CLAP_PRESET_DISCOVERY_LOCATION_FILE)";
+  if (soort != CLAP_PRESET_DISCOVERY_LOCATION_FILE || !plek || !leesPresetBestand(plek, &preset, &fout)) {
+    if (hp && hp->on_error) hp->on_error(z->host, soort, plek, sleutel, 0, fout.c_str());
+    return false;
+  }
+  double nieuw[N];
+  for (int i = 0; i < N; ++i) nieuw[i] = Ontwerp::PARAMS[i].standaard;
+  for (const auto& w : preset.waarden) {
+    const int i = indexVanNaam(w.first);
+    if (i >= 0) nieuw[i] = klem(i, w.second);
+  }
+  zetAlleWaarden(z, nieuw);
+  if (hp && hp->loaded) hp->loaded(z->host, soort, plek, sleutel);
+  return true;
+}
+const clap_plugin_preset_load_t PRESET_LOAD = {presetLaad};
+
+const clap_preset_discovery_provider_descriptor_t PROVIDER_DESC = {CLAP_VERSION_INIT, PB_CLAP_ID ".fabriekspresets",
+                                                                   PB_NAAM " fabriekspresets", PB_MAKER};
+struct Provider {
+  clap_preset_discovery_provider_t clap{};
+  const clap_preset_discovery_indexer_t* indexer = nullptr;
+};
+bool providerInit(const clap_preset_discovery_provider_t* p) {
+  const auto* ix = static_cast<const Provider*>(p->provider_data)->indexer;
+  if (!ix || !ix->declare_filetype || !ix->declare_location) return false;
+  const clap_preset_discovery_filetype_t type = {"Dub-echo-preset", "parameterwaarden per naam (JSON)", "json"};
+  if (!ix->declare_filetype(ix, &type)) return false;
+  struct stat st;
+  if (presetMap.empty() || stat(presetMap.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return true;  // geen presets
+  const clap_preset_discovery_location_t plek = {CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "Fabriekspresets",
+                                                 CLAP_PRESET_DISCOVERY_LOCATION_FILE, presetMap.c_str()};
+  return ix->declare_location(ix, &plek);
+}
+void providerWeg(const clap_preset_discovery_provider_t* p) { delete static_cast<Provider*>(p->provider_data); }
+bool providerMetadata(const clap_preset_discovery_provider_t*, uint32_t soort, const char* plek,
+                      const clap_preset_discovery_metadata_receiver_t* ontvanger) {
+  if (soort != CLAP_PRESET_DISCOVERY_LOCATION_FILE || !plek || !ontvanger) return false;
+  PresetBestand preset;
+  std::string fout;
+  if (!leesPresetBestand(plek, &preset, &fout)) {
+    ontvanger->on_error(ontvanger, 0, fout.c_str());
+    return false;
+  }
+  if (!ontvanger->begin_preset(ontvanger, preset.naam.c_str(), nullptr)) return true;
+  const clap_universal_plugin_id_t clapId = {"clap", Ontwerp::META.clapId};
+  ontvanger->add_plugin_id(ontvanger, &clapId);
+  ontvanger->set_flags(ontvanger, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT);
+  ontvanger->add_creator(ontvanger, Ontwerp::META.maker);
+  if (!preset.uitleg.empty()) ontvanger->set_description(ontvanger, preset.uitleg.c_str());
+  return true;
+}
+const void* providerExtensie(const clap_preset_discovery_provider_t*, const char*) { return nullptr; }
+
+uint32_t providerAantal(const clap_preset_discovery_factory_t*) { return 1; }
+const clap_preset_discovery_provider_descriptor_t* providerBeschrijving(const clap_preset_discovery_factory_t*,
+                                                                        uint32_t i) {
+  return i == 0 ? &PROVIDER_DESC : nullptr;
+}
+const clap_preset_discovery_provider_t* maakProvider(const clap_preset_discovery_factory_t*,
+                                                     const clap_preset_discovery_indexer_t* indexer, const char* id) {
+  if (!indexer || !id || std::strcmp(id, PROVIDER_DESC.id)) return nullptr;
+  Provider* pr = new (std::nothrow) Provider();
+  if (!pr) return nullptr;
+  pr->indexer = indexer;
+  pr->clap = {&PROVIDER_DESC, pr, providerInit, providerWeg, providerMetadata, providerExtensie};
+  return &pr->clap;
+}
+const clap_preset_discovery_factory_t PRESET_FACTORY = {providerAantal, providerBeschrijving, maakProvider};
 
 // --- plugin -------------------------------------------------------------------------------------------------
 bool init(const clap_plugin_t* p) {
@@ -704,6 +987,7 @@ const void* getExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD;
   return nullptr;
 }
 void onMainThread(const clap_plugin_t*) {}
@@ -730,8 +1014,25 @@ const clap_plugin_factory_t FACTORY = {aantalPlugins, descriptor, createPlugin};
 
 }  // namespace
 
-bool pb_entry_init(const char*) { return true; }
+// pad: de bundel (macOS) of het bestand van de plugin (Linux, Windows); de presets staan ernaast (zie "presets")
+bool pb_entry_init(const char* pad) {
+  presetMap.clear();
+  if (!pad || !*pad) return true;
+  char echt[PATH_MAX];
+  std::string p = realpath(pad, echt) ? echt : pad;  // een host kan een relatief pad geven; een FILE-locatie is absoluut
+  while (p.size() > 1 && p.back() == '/') p.pop_back();
+#ifdef __APPLE__
+  presetMap = p + "/Contents/Resources/presets";
+#else
+  const size_t schuin = p.find_last_of('/'), punt = p.find_last_of('.');
+  presetMap = (punt != std::string::npos && (schuin == std::string::npos || punt > schuin) ? p.substr(0, punt) : p) + "-presets";
+#endif
+  return true;
+}
 void pb_entry_deinit() {}
 const void* pb_entry_get_factory(const char* id) {
-  return std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) ? nullptr : &FACTORY;
+  if (!std::strcmp(id, CLAP_PLUGIN_FACTORY_ID)) return &FACTORY;
+  if (!std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID) || !std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT))
+    return &PRESET_FACTORY;
+  return nullptr;
 }

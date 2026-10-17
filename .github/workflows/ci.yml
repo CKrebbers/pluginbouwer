@@ -53,6 +53,11 @@ jobs:
           set -o pipefail
           PB_VOOR="xvfb-run -a" sh plugin/toets/toets-fase3.sh build uit/paneel 2>&1 | tee toets-fase3.log
 
+      - name: Fase 4 — fabriekspresets (CLAP preset-discovery en preset-load, ook onder een komma-locale)
+        run: |
+          set -o pipefail
+          PB_EIS_KOMMA=1 sh plugin/toets/toets-fase4.sh build 2>&1 | tee toets-fase4.log
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,6 +84,12 @@ jobs:
           ~/clap-validator/bin/clap-validator validate "build/plugins/PB Dub-echo.clap" 2>&1 | tee clap-validator.log
           # valkuil 8: de uitvoer is altijd gekleurd; ANSI-codes weg vóór het greppen
           sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -E '[0-9]+ tests run, [0-9]+ passed, 0 failed'
+          # fase 4: de preset-toetsen moeten echt draaien (PASSED, niet SKIPPED omdat er geen factory is)
+          for t in preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
+            uitslag="$(sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | awk -v t="─ $t" '$0 ~ t"$" {z=1} z && /└──/ {print; exit}')"
+            echo "$t: $uitslag"
+            echo "$uitslag" | grep -q PASSED || { echo "FOUT: $t is niet PASSED"; exit 1; }
+          done
 
       - name: pluginval ${{ env.PLUGINVAL_VERSIE }}
         run: |
@@ -106,6 +117,8 @@ jobs:
           echo "eigen toetsen fase 2 Linux:"; grep -E '^(state-toets|tekst|automatisering):|^###|^\| (echo|zelf|sweep)|FOUT' toets-fase2.log
           echo "pluginval VST3 Linux, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-vst3.log
           echo "eigen toets fase 3 Linux:"; grep -E '^pb-paneel:|^  ok:|^paneel:|FOUT' toets-fase3.log
+          echo "clap-validator fase 4 (presets):"; sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -A8 -E '─ preset-' | grep -E '─ |PASSED|FAILED|SKIPPED'
+          echo "eigen toets fase 4 Linux:"; grep -E '^presets:|FOUT|\.json: één preset|komma|nl_NL' toets-fase4.log
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -154,6 +167,9 @@ jobs:
           xvfb-run -a ./build/pb-paneel "build/plugins/PB Dub-echo.clap" uit/paneel-rtsan --audio 2>&1 | tee paneel-rtsan.log
           if grep -q RealtimeSanitizer paneel-rtsan.log; then echo "FOUT: RTSan meldt iets"; exit 1; fi
           grep "paneel: geslaagd" paneel-rtsan.log
+
+      - name: Fase 4 met de RTSan-bouw (presets laden, ook terwijl actief, dan process)
+        run: sh plugin/toets/toets-fase4.sh build
 
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
@@ -205,6 +221,11 @@ jobs:
           set -o pipefail
           sh plugin/toets/toets-fase3.sh build uit/paneel 2>&1 | tee toets-fase3.log
 
+      - name: Fase 4 — fabriekspresets (CLAP preset-discovery en preset-load, ook onder een komma-locale)
+        run: |
+          set -o pipefail
+          PB_EIS_KOMMA=1 sh plugin/toets/toets-fase4.sh build 2>&1 | tee toets-fase4.log
+
       - name: Ad-hoc signeren
         run: |
           for b in "build/plugins/PB Dub-echo.clap" "build/plugins/PB Dub-echo.vst3" "build/plugins/PB Dub-echo.component"; do
@@ -221,12 +242,24 @@ jobs:
           cp -R "build/plugins/PB Dub-echo.clap" ~/Library/Audio/Plug-Ins/CLAP/
           killall -9 AudioComponentRegistrar || true
           auval -a | grep -i "Vrve" || true
+          ls -la ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component"/Contents/Resources/presets
 
       - name: auval -strict
         run: |
           set -o pipefail
           auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: auval toont de fabriekspresets (elke naam uit presets/*.json)
+        run: |
+          node -e 'const fs = require("fs"); for (const f of fs.readdirSync("presets").filter((f) => f.endsWith(".json")).sort()) console.log(JSON.parse(fs.readFileSync("presets/" + f, "utf8")).naam)' > presetnamen.txt
+          grep -n -i -E "preset" auval.log || true
+          ontbreekt=0
+          while IFS= read -r naam; do
+            if grep -F -- "$naam" auval.log > /dev/null; then echo "auval toont: $(grep -F -- "$naam" auval.log | head -1)"
+            else echo "FOUT: auval toont de preset '$naam' niet"; ontbreekt=1; fi
+          done < presetnamen.txt
+          [ "$ontbreekt" = 0 ]
 
       - name: pluginval ${{ env.PLUGINVAL_VERSIE }}
         run: |
@@ -270,6 +303,8 @@ jobs:
           echo "pluginval AU, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-au.log
           echo "pluginval VST3 macOS, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-vst3.log
           echo "eigen toets fase 3 macOS:"; grep -E '^pb-paneel:|^  ok:|^  schermafbeelding|^paneel:|FOUT' toets-fase3.log
+          echo "eigen toets fase 4 macOS:"; grep -E '^presets:|FOUT|\.json: één preset|komma|nl_NL' toets-fase4.log
+          echo "auval, fabriekspresets:"; grep -i -E "preset" auval.log
 
       - name: Artefact klaarzetten
         if: always()

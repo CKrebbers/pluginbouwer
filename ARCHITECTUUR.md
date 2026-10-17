@@ -70,8 +70,33 @@ clap-wrapper geeft de gui door aan de VST3 (IPlugView) en de AU (CocoaUI).
   schermafbeeldingen als CI-artefact. pluginval draait zijn editor-toetsen (geen `--skip-gui-tests`).
 
 ## Presets (fase 4)
-Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden
-per naam). Fabriekspresets komen uit de varianten van de tool.
+Een preset is een JSON-bestand naast de plugin (`presets/<naam>.json`: `naam`, `uitleg`, `waarden` per
+parameternaam). Fabriekspresets komen uit de varianten van de tool.
+- **Waar**: CMake kopieert `presets/*.json` bij elke build in de plugin: op macOS in elke bundel (CLAP, VST3, AU) onder
+  `Contents/Resources/presets`, op Linux in de map `PB Dub-echo-presets` naast `PB Dub-echo.clap`. De plugin vindt de
+  map via het pad dat `clap_entry.init` krijgt (absoluut gemaakt met `realpath`). Installeren = de bundel kopiëren.
+- **CLAP preset-discovery** (`clap_entry.get_factory`): één provider met één locatie van het soort FILE (die map,
+  fabrieksinhoud, alleen als hij bestaat) en het bestandstype `json`. Elk bestand is één preset, zonder laadsleutel:
+  naam, plugin-id, maker en uitleg.
+- **preset-load** (`from_location(FILE, pad, NULL)`, mainthread): het bestand lezen (een eigen kleine JSON-lezer,
+  getallen zonder locale), en dan per naam via hetzelfde pad als een state: een onbekende naam wordt overgeslagen,
+  een parameter die de preset niet noemt krijgt zijn standaard, en de plugin vraagt een rescan (plus `request_flush`
+  als hij actief is). Daarna roept hij `host.preset_load.loaded` aan, of bij een fout `on_error` (de waarden blijven
+  dan staan).
+- **AU factory presets**: `patches/clap-wrapper-auv2-presets.patch` laat clap-wrapper in `PostConstructor` de
+  preset-discovery-factory van de CLAP doorzoeken, zoals een host dat doet: een FILE-map recursief, gefilterd op de
+  bestandstypes en gesorteerd op pad. `kAudioUnitProperty_FactoryPresets` krijgt die lijst; `PresentPreset` laadt
+  een preset via preset-load en meldt de nieuwe waarden aan de luisteraars. De AU begint niet op een preset, maar
+  op zijn standaardwaarden (`standaard.json` is daaraan gelijk; de toets controleert dat).
+- **Waarom geen container met laadsleutels** (alles in één locatie van het soort PLUGIN, in de plugin gebakken):
+  clap-validator 0.4.1 loopt daarop vast (zie CLAUDE.md, valkuil 10).
+- Getoetst met `plugin/toets/toets-fase4.sh` (`pb-toets presets`). De verwachting komt uit `presets/*.json`, niet
+  uit de plugin. Gecontroleerd worden:
+  - de factory, de locatie en elke preset met naam en plugin-id;
+  - elke waarde na het laden exact, de rest op zijn standaard;
+  - bit voor bit hetzelfde geluid als dezelfde waarden via flush, ook als de preset geladen wordt terwijl de plugin
+    actief is, en ook onder een komma-locale;
+  - de foutgevallen.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
