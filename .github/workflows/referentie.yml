@@ -11,6 +11,7 @@ on:
 jobs:
   referentie:
     runs-on: ubuntu-24.04
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - name: Catalogus van de dataset (bestanden, groottes, nieuwste versie)
@@ -29,11 +30,20 @@ jobs:
             latest=$(python3 -c "import json;print(json.load(open('rec.json'))['links'].get('latest',''))")
             [ -n "$latest" ] && curl -fsSL --retry 3 "$latest" | python3 -c "import json,sys; d=json.load(sys.stdin); print('NIEUWSTE-ID', d.get('id'), d['metadata'].get('version')); [print('NIEUW-BESTAND', f['key'], round(f['size']/1e6,1), 'MB', f['links']['self']) for f in d.get('files',[])]" || true
           done
-      - name: Inhoud van het Akai-archief (gestreamd, niets opgeslagen; per map samengevat)
-        if: inputs.stap == 'catalogus'
+      - name: Akai-archief downloaden naar /mnt (hervat bij een verbroken verbinding; Zenodo knipt na ~30 min)
         run: |
-          curl -fsSL --retry 3 "https://zenodo.org/api/records/8085482/files/neural-tape-audio_AKAI.tar/content" \
-            | tar -tzvf - > lijst.txt
+          df -h / /mnt | tail -2
+          sudo mkdir -p /mnt/ref && sudo chown "$USER" /mnt/ref
+          URL="https://zenodo.org/api/records/8085482/files/neural-tape-audio_AKAI.tar/content"
+          for poging in 1 2 3 4 5 6 7 8; do
+            curl -fsSL -C - --retry 3 -o /mnt/ref/akai.tar.gz "$URL" && break
+            echo "poging $poging afgebroken bij $(du -h /mnt/ref/akai.tar.gz | cut -f1), hervatten"; sleep 5
+          done
+          ls -l /mnt/ref/akai.tar.gz
+          gzip -t /mnt/ref/akai.tar.gz && echo "archief compleet"
+      - name: Inhoud van het Akai-archief (per map samengevat)
+        run: |
+          tar -tzvf /mnt/ref/akai.tar.gz > lijst.txt
           python3 - <<'PY'
           import collections
           per = collections.defaultdict(lambda: [0, 0, []])
@@ -50,6 +60,7 @@ jobs:
           PY
       - name: Meten tegen de echte band
         if: inputs.stap == 'meet'
+        env: { ARCHIEF: /mnt/ref/akai.tar.gz }
         run: sh ref/referentie/meet.sh
       - uses: actions/upload-artifact@v4
         if: inputs.stap == 'meet'
