@@ -30,18 +30,19 @@ UIT="$PAKKET/uit/clap-glij"; mkdir -p "$UIT"
 params="$(node -e "console.log(require('$T/gevallen.json').find(g => g.naam === 'echo-standaard').pbRender.map(p => '--p ' + p).join(' '))")"
 { echo "### Glijdende automatisering: blokgrootte verandert niets ($(uname -m))"; echo; } | tee /dev/stderr | som
 for glij in "1=200:800" "3=500:8000"; do
+  g="id$(echo "$glij" | tr '=:' '_-')"  # bestandsnaam zonder : en = (upload-artifact weigert die)
   for blok in 512 3,128,1,4096,77 1; do
     # shellcheck disable=SC2086
-    "$RENDER" "$CLAPPAD" "$T/echo-standaard.in.wav" "$UIT/glij-$glij-$blok.wav" --blok "$blok" --automatie 64 --glij "$glij" $params
+    "$RENDER" "$CLAPPAD" "$T/echo-standaard.in.wav" "$UIT/glij-$g-$blok.wav" --blok "$blok" --automatie 64 --glij "$glij" $params
   done
   for blok in 3,128,1,4096,77 1; do
-    if cmp -s "$UIT/glij-$glij-512.wav" "$UIT/glij-$glij-$blok.wav"; then
+    if cmp -s "$UIT/glij-$g-512.wav" "$UIT/glij-$g-$blok.wav"; then
       echo "- glij $glij: blok $blok = blok 512, bit voor bit" | tee /dev/stderr | som
     else
       echo "- glij $glij: blok $blok VERSCHILT van blok 512" | tee /dev/stderr | som; exit 1
     fi
   done
-  if cmp -s "$UIT/glij-$glij-512.wav" "$PAKKET/uit/clap-automatie-blok512/echo-standaard.wav"; then
+  if cmp -s "$UIT/glij-$g-512.wav" "$PAKKET/uit/clap-automatie-blok512/echo-standaard.wav"; then
     echo "- glij $glij: de automatisering deed niets (toets zegt niets)" | tee /dev/stderr | som; exit 1
   fi
 done
