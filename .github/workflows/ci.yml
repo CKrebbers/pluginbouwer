@@ -86,7 +86,7 @@ jobs:
           sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -E '[0-9]+ tests run, [0-9]+ passed, 0 failed'
           # fase 4: de preset-toetsen moeten echt draaien (PASSED, niet SKIPPED omdat er geen factory is)
           for t in preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
-            uitslag="$(sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | awk -v t="─ $t" '$0 ~ t"$" {z=1} z && /└──/ {print; exit}')"
+            uitslag="$(sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | awk -v t="─ $t" '$0 ~ t"$" {z=1} z && !k && /└──/ {print; k=1}')"
             echo "$t: $uitslag"
             echo "$uitslag" | grep -q PASSED || { echo "FOUT: $t is niet PASSED"; exit 1; }
           done
