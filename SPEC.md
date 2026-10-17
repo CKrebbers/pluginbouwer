@@ -82,3 +82,6 @@ kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginva
 Eigen toetsen (fase 2, `plugin/toets/toets-fase2.sh`): tekst ↔ waarde, state van een build zonder parameter N in de
 echte build (en omgekeerd), automatisering op zijn sample los van de blokindeling, en de null-test met de waarden
 als automatisering (events midden in wisselende blokken).
+Fase 3 (`plugin/toets/toets-fase3.sh`, pb-paneel): het frontpaneel in een echt venster (Cocoa/X11) bedienen; de
+plugin meldt gebaar en waarde aan de host, Shift = fijn, dubbelklik = standaard, host-waarden verschijnen op het
+paneel; ook met process op een audiothread onder RTSan. Schermafbeeldingen als CI-artefact.
