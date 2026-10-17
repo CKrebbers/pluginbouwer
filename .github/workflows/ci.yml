@@ -304,7 +304,7 @@ jobs:
           echo "pluginval VST3 macOS, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-vst3.log
           echo "eigen toets fase 3 macOS:"; grep -E '^pb-paneel:|^  ok:|^  schermafbeelding|^paneel:|FOUT' toets-fase3.log
           echo "eigen toets fase 4 macOS:"; grep -E '^presets:|FOUT|\.json: één preset|komma|nl_NL' toets-fase4.log
-          echo "auval, fabriekspresets:"; grep -i -E "preset" auval.log
+          echo "auval, fabriekspresets:"; grep -A8 "HAS FACTORY PRESETS" auval.log | grep -E "FACTORY|ID:"
 
       - name: Artefact klaarzetten
         if: always()
