@@ -1,6 +1,6 @@
 # referentie.yml — vergelijking met echte bandopnames (Aalto Magnetic Tape Recorder Dataset, CC-BY-4.0,
 # Mikkonen e.a., DAFx 2023; Zenodo 8026272). Handmatig: de dataset is groot en verandert niet.
-# Stap "catalogus" zet de bestandenlijst in het log; "meet" haalt alleen de subsets die ref/referentie/ nodig heeft.
+# Stap "catalogus" zet lijst + steekproef op tak referentie/steekproef; "meet" draait ref/referentie/meet.sh.
 name: referentie
 on:
   workflow_dispatch:
@@ -8,6 +8,8 @@ on:
       stap:
         description: 'catalogus of meet'
         default: catalogus
+permissions:
+  contents: write
 jobs:
   referentie:
     runs-on: ubuntu-24.04
@@ -41,23 +43,26 @@ jobs:
           done
           ls -l /mnt/ref/akai.tar.gz
           gzip -t /mnt/ref/akai.tar.gz && echo "archief compleet"
-      - name: Inhoud van het Akai-archief (per map samengevat)
+      - name: Lijst en steekproef (één keer door het archief, gestreamd)
         run: |
-          tar -tzvf /mnt/ref/akai.tar.gz > lijst.txt
-          python3 - <<'PY'
-          import collections
-          per = collections.defaultdict(lambda: [0, 0, []])
-          for r in open('lijst.txt'):
-              d = r.split(None, 5)
-              if len(d) < 6 or r.startswith('d'):
-                  continue
-              naam = d[5].strip(); grootte = int(d[2])
-              map_ = naam.rsplit('/', 1)[0] if '/' in naam else '.'
-              p = per[map_]; p[0] += 1; p[1] += grootte
-              if len(p[2]) < 4: p[2].append(naam.rsplit('/', 1)[-1])
-          for m, (n, g, vb) in sorted(per.items()):
-              print(f'MAP {m}  {n} bestanden  {g/1e6:.0f} MB  bv. {", ".join(vb)}')
-          PY
+          python3 -I ref/referentie/steekproef.py /mnt/ref/akai.tar.gz /mnt/ref/steekproef
+          du -sh /mnt/ref/steekproef
+      - name: Steekproef naar tak referentie/steekproef (CC-BY-4.0, met bronvermelding)
+        if: inputs.stap == 'catalogus'
+        run: |
+          cd /mnt/ref/steekproef
+          cat > LEESMIJ.md <<'EOF'
+          # Steekproef uit het Akai-archief
+          Aalto Magnetic Tape Recorder Dataset (Mikkonen, Wright, Välimäki, DAFx 2023), Zenodo 8085482, CC-BY-4.0.
+          Gemaakt door .github/workflows/referentie.yml (ref/referentie/steekproef.py): lijst van alle bestanden,
+          kleine bestanden heel, hooguit 2 WAV's per map ingekort tot 10 s. Alleen om de meting op te bouwen.
+          EOF
+          sed -i 's/^          //' LEESMIJ.md
+          git init -q -b referentie/steekproef
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Steekproef Akai-archief (run ${{ github.run_id }})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" referentie/steekproef
       - name: Meten tegen de echte band
         if: inputs.stap == 'meet'
         env: { ARCHIEF: /mnt/ref/akai.tar.gz }
