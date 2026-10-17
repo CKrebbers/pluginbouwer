@@ -1,11 +1,11 @@
-# Twee fouten in clap-wrapper v0.16.0, klaar om te melden
+# Drie punten in clap-wrapper v0.16.0, klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
-klaar om te plakken. Beide patches gaan schoon op v0.16.0 (= hun `main` op 17 okt 2026, commit 1cca996); in de
+klaar om te plakken. De twee patches gaan schoon op v0.16.0 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1, daarna van issue 2. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
+issue 1, 2 en 3 (3 heeft geen patch). Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
 
 ---
