@@ -68,3 +68,22 @@ Tested on macOS 15 arm64: pluginval 10 with `--rtcheck enabled` passes for AU an
 
 Found by: the Pluginbouwer project (https://github.com/CKrebbers/pluginbouwer), via independent build sessions that
 each hit the same violation.
+
+---
+
+## Issue 3 — AUv2: `clap_host_params.request_flush()` is a no-op
+
+**What happens.** In `src/detail/auv2/auv2_base_classes.h`, `WrapAsAUV2::param_request_flush()` has an empty body. A
+CLAP plugin whose GUI changes a parameter while the host is not rendering (transport stopped, track not live) calls
+`request_flush()` and expects the host to call `params.flush()` on the main thread. Under AUv2 nothing happens: the
+value reaches the plugin and the host (`AUEventListenerNotify` / parameter change) only at the next `Render`.
+
+**Why it matters.** With the transport stopped, knob moves in the plugin's own UI are not reported to the host (no
+automation write, no undo entry) until audio runs again.
+
+**Suggested fix.** When not processing, call the plugin's `params.flush()` on the main thread (e.g. from the same
+idle timer that runs `on_main_thread`) and forward its output events as parameter changes, as `Render` already does.
+No patch included; found by an independent build session (frontpanel phase) and confirmed in the v0.16.0 source.
+
+(Checked and *not* an issue: `_gesturedParameters.push_back` in `Render` cannot allocate in practice, the vector is
+reserved for 8192 entries in `process.cpp`.)
