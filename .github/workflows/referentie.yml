@@ -29,6 +29,25 @@ jobs:
             latest=$(python3 -c "import json;print(json.load(open('rec.json'))['links'].get('latest',''))")
             [ -n "$latest" ] && curl -fsSL --retry 3 "$latest" | python3 -c "import json,sys; d=json.load(sys.stdin); print('NIEUWSTE-ID', d.get('id'), d['metadata'].get('version')); [print('NIEUW-BESTAND', f['key'], round(f['size']/1e6,1), 'MB', f['links']['self']) for f in d.get('files',[])]" || true
           done
+      - name: Inhoud van het Akai-archief (gestreamd, niets opgeslagen; per map samengevat)
+        if: inputs.stap == 'catalogus'
+        run: |
+          curl -fsSL --retry 3 "https://zenodo.org/api/records/8085482/files/neural-tape-audio_AKAI.tar/content" \
+            | tar -tvf - > lijst.txt
+          python3 - <<'PY'
+          import collections
+          per = collections.defaultdict(lambda: [0, 0, []])
+          for r in open('lijst.txt'):
+              d = r.split(None, 5)
+              if len(d) < 6 or r.startswith('d'):
+                  continue
+              naam = d[5].strip(); grootte = int(d[2])
+              map_ = naam.rsplit('/', 1)[0] if '/' in naam else '.'
+              p = per[map_]; p[0] += 1; p[1] += grootte
+              if len(p[2]) < 4: p[2].append(naam.rsplit('/', 1)[-1])
+          for m, (n, g, vb) in sorted(per.items()):
+              print(f'MAP {m}  {n} bestanden  {g/1e6:.0f} MB  bv. {", ".join(vb)}')
+          PY
       - name: Meten tegen de echte band
         if: inputs.stap == 'meet'
         run: sh ref/referentie/meet.sh
