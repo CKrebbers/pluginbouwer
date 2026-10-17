@@ -28,6 +28,20 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
 Binair, klein en vooruit-compatibel: `"PBST"`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
 standaard. Parameter-id's veranderen nooit.
+- Na `state.load` roept de schil `host_params->rescan(CLAP_PARAM_RESCAN_VALUES)` aan (clap-validator
+  state-reproducibility eist het). Kapotte state (leeg, andere kop, te kort) geeft false en verandert niets.
+- `state.load` komt op de mainthread. Is de plugin niet actief, dan krijgt het Ontwerp de waarden meteen; is hij actief,
+  dan zet hij een atomische vlag en neemt de eerstvolgende plek die het Ontwerp bezit (process, `params.flush`, of
+  `activate` na een deactivate) de waarden over.
+- Getoetst door `gereedschap/pb-state-toets` met een bouw zonder parameter N (`build/toets/zonder-N.clap`, gebouwd met
+  `-DPB_ZONDER_PARAM=N`): oud → nieuw, nieuw → oud, laden terwijl actief, versie 2 met onbekend id, kapotte state.
+
+## Parameters als tekst
+`params.value_to_text`/`text_to_value` (plugin/src/param_tekst.h) tonen gewone eenheden: "375 ms", "3.00 kHz",
+"265 Hz", "6.0 dB", "0.71 Q", en 0..1-knoppen als procent ("37.5 %"). Alleen de tekst rondt af, de waarde niet.
+Lezen kent ook "1.2 s", "3k", een komma en een kaal getal (in de getoonde eenheid; "50" bij Mix = 50 %).
+Tekst → waarde → tekst geeft dezelfde tekst; de tekst hangt niet af van de locale van de host. Geen enkele parameter
+heeft stappen (`STAPPEN`); zou er een komen, dan toont en leest hij hele getallen.
 
 ## Presets (fase 4)
 Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden

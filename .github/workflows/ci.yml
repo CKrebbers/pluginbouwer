@@ -40,7 +40,17 @@ jobs:
           ~/clap-validator/bin/clap-validator --version
           # valkuil 8: hij kleurt altijd; de exitcode is de poort, de regel zonder ANSI is het bewijs in het log
           ~/clap-validator/bin/clap-validator validate "build/plugins/PB Dub-echo.clap" 2>&1 | tee cv.log
-          sed 's/\x1b\[[0-9;]*m//g' cv.log | grep -E "tests run, .* 0 failed"
+          sed 's/\x1b\[[0-9;]*m//g' cv.log > cv-kaal.log
+          grep -E "tests run, .* 0 failed" cv-kaal.log
+          # fase 2: deze toetsen moeten echt gedraaid en geslaagd zijn (niet overgeslagen)
+          for t in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
+                   state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate \
+                   param-conversions param-set-events param-default-values; do
+            uitslag="$(awk -v t="┌─ $t" '$0 ~ t"$" {gevonden=1} gevonden && /└──/ {print; exit}' cv-kaal.log)"
+            echo "$t: $uitslag"
+            echo "$uitslag" | grep -q PASSED || { echo "FOUT: $t niet PASSED"; exit 1; }
+          done
+          grep -A6 "┌─ param-conversions$" cv-kaal.log | grep -q "does not support" && { echo "FOUT: geen tekstconversie"; exit 1; } || true
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -55,6 +65,13 @@ jobs:
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test, xvfb)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "build/plugins/PB Dub-echo.vst3" "$PWD/pluginval/pluginval" vst3-linux
+      - name: Null-test met automatisering (events in process; glijden, blokgrootte verandert niets)
+        run: sh gereedschap/ci-automatie.sh build
+      - name: State-toets (bouw zonder parameter N → bouw mét, en terug)
+        run: |
+          for n in 1 2 3 4 5 6 7 8; do
+            ./build/pb-state-toets "build/toets/zonder-$n.clap" "build/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
+          done
       - name: Renders (null-test)
         if: always()
         uses: actions/upload-artifact@v4
@@ -79,7 +96,7 @@ jobs:
           for b in rtsan:OFF kanarie:ON; do
             CC=clang-20 CXX=clang++-20 cmake -S plugin -B "build-${b%%:*}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DPB_RTSAN=ON -DPB_KANARIE="${b#*:}"
-            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap
+            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap pb-state-toets
           done
       - name: RTSan draait schoon (elk testsignaal, blok 512 en wisselend, state-rondje)
         run: |
@@ -87,13 +104,20 @@ jobs:
           mkdir -p uit/rtsan
           for f in testsignalen/*.in.wav; do
             n="$(basename "$f" .in.wav)"
-            for opt in "--blok 512" "--blok 3,128,1,4096,77" "--blok 512 --state-rondje"; do
+            for opt in "--blok 512" "--blok 3,128,1,4096,77" "--blok 512 --state-rondje" "--blok 3,128,1,4096,77 --automatie 100"; do
               echo "== $n $opt"
               # shellcheck disable=SC2086
               ./build-rtsan/pb-render "build-rtsan/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n.wav" $opt
             done
           done
           echo "RTSan: schoon"
+      - name: RTSan met de state-toets (state laden terwijl actief, flush tussen blokken)
+        run: |
+          set -e
+          for n in 1 2 3 4 5 6 7 8; do
+            ./build-rtsan/pb-state-toets "build-rtsan/toets/zonder-$n.clap" "build-rtsan/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
+          done
+          echo "RTSan (state-toets): schoon"
       - name: Kanarie MOET falen (malloc in process)
         run: |
           set +e
@@ -156,6 +180,13 @@ jobs:
           node-version: 22
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
         run: sh gereedschap/ci-null.sh clap build
+      - name: Null-test met automatisering (events in process; glijden, blokgrootte verandert niets)
+        run: sh gereedschap/ci-automatie.sh build
+      - name: State-toets (bouw zonder parameter N → bouw mét, en terug)
+        run: |
+          for n in 1 2 3 4 5 6 7 8; do
+            ./build/pb-state-toets "build/toets/zonder-$n.clap" "build/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
+          done
       - name: Null-test VST3 (pluginval test)
         run: |
           sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3" \

@@ -3,6 +3,10 @@
 //
 //   pb-render <plugin.clap> <in.wav> <uit.wav> [--sr 48000] [--blok 512 | --blok 3,128,1,4096] [--p id=waarde ...]
 //             [--state-rondje]    (state opslaan, nieuwe instantie, state laden, dan pas renderen)
+//             [--automatie K]     (zoals een DAW met automatisering: de --p-waarden niet via flush vóór activate, maar
+//                                  als events in process, op sample 0 en daarna elke K samples opnieuw, op hun sample)
+//             [--glij id=van:naar] (met --automatie: deze parameter loopt in stappen van K samples van `van` naar
+//                                  `naar` over de hele render; toetst dat de uitvoer niet van de blokgrootte afhangt)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -103,6 +107,7 @@ int main(int argc, char** argv) {
   std::string pad = argv[1];
   double sr = 0; std::vector<uint32_t> blokken = {512}; bool rondje = false;
   std::vector<std::pair<clap_id, double>> params;
+  uint32_t automatie = 0; clap_id glijId = 0; double glijVan = 0, glijNaar = 0;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
     if (a == "--sr" && i + 1 < argc) sr = std::atof(argv[++i]);
@@ -114,6 +119,13 @@ int main(int argc, char** argv) {
       if (k == std::string::npos) fout("--p id=waarde");
       params.push_back({(clap_id)std::atoi(s.substr(0, k).c_str()), std::atof(s.substr(k + 1).c_str())});
     } else if (a == "--state-rondje") rondje = true;
+    else if (a == "--automatie" && i + 1 < argc) { automatie = (uint32_t)std::atoi(argv[++i]); if (!automatie) fout("--automatie K, K > 0"); }
+    else if (a == "--glij" && i + 1 < argc) {
+      std::string s = argv[++i]; size_t k = s.find('='), d = s.find(':');
+      if (k == std::string::npos || d == std::string::npos || d < k) fout("--glij id=van:naar");
+      glijId = (clap_id)std::atoi(s.substr(0, k).c_str());
+      glijVan = std::atof(s.substr(k + 1, d - k - 1).c_str()); glijNaar = std::atof(s.substr(d + 1).c_str());
+    }
     else fout("onbekende optie " + a);
   }
 
@@ -155,7 +167,7 @@ int main(int argc, char** argv) {
   }
   clap_input_events_t inEv = {&ev, evSize, evGet};
   clap_output_events_t uitEv = {nullptr, evPush};
-  if (pp && !ev.ev.empty()) pp->flush(pl, &inEv, &uitEv);
+  if (pp && !ev.ev.empty() && !automatie) pp->flush(pl, &inEv, &uitEv);
 
   if (rondje) {
     auto* st = static_cast<const clap_plugin_state_t*>(pl->get_extension(pl, CLAP_EXT_STATE));
@@ -178,16 +190,35 @@ int main(int argc, char** argv) {
   std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
   std::vector<float*> pi(kan), pu(kan);
   for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
-  Events leeg;
-  clap_input_events_t geenEv = {&leeg, evSize, evGet};
+  if (glijId && !automatie) fout("--glij kan alleen met --automatie");
+  // automatisering: alle events vooraf, op hun absolute sample (geen allocatie in de lus van process)
+  std::vector<clap_event_param_value_t> auto_;
+  if (automatie) {
+    for (size_t t = 0; t < n; t += automatie)
+      for (auto& [pid, v] : params) {
+        clap_event_param_value_t e{};
+        e.header = {sizeof(e), (uint32_t)t, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+        e.param_id = pid; e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1;
+        e.value = (pid == glijId && n > 1) ? glijVan + (glijNaar - glijVan) * ((double)t / (double)(n - 1)) : v;
+        auto_.push_back(e);
+      }
+  }
+  Events blokEv; blokEv.ev.reserve(auto_.size());
+  clap_input_events_t blokIn = {&blokEv, evSize, evGet};
+  size_t volgende = 0;
 
   size_t pos = 0, bnr = 0; int64_t steady = 0;
   while (pos < n) {
     uint32_t m = blokken[bnr++ % blokken.size()];
     if (pos + m > n) m = (uint32_t)(n - pos);
+    blokEv.ev.clear();
+    for (; volgende < auto_.size() && auto_[volgende].header.time < pos + m; ++volgende) {
+      blokEv.ev.push_back(auto_[volgende]);
+      blokEv.ev.back().header.time -= (uint32_t)pos;  // tijd binnen dit blok
+    }
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
     clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
-    clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &geenEv, &uitEv};
+    clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;

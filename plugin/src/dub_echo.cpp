@@ -13,12 +13,34 @@
 #include <vector>
 
 #include "ontwerpen/keten_dub_echo.h"
+#include "param_tekst.h"
 
 namespace {
 
 using pb::Ontwerp;
 constexpr int N = Ontwerp::N_PARAMS;
 constexpr uint32_t STATE_VERSIE = 1;
+
+#ifdef PB_ZONDER_PARAM
+// alleen voor de state-toets (gereedschap/pb-state-toets.cpp): een bouw die parameter-id PB_ZONDER_PARAM niet kent,
+// zoals een oudere versie van de plugin. Het Ontwerp houdt die parameter op zijn standaard.
+constexpr clap_id ZONDER = PB_ZONDER_PARAM;
+#else
+constexpr clap_id ZONDER = 0;  // id's beginnen bij 1: niets weggelaten
+#endif
+bool zichtbaar(int i) { return Ontwerp::PARAMS[i].id != ZONDER; }
+constexpr int telZichtbaar() {
+  int n = 0;
+  for (int i = 0; i < N; ++i) n += Ontwerp::PARAMS[i].id != ZONDER;
+  return n;
+}
+constexpr int NZ = telZichtbaar();
+// de k-de parameter die de host ziet → index in PARAMS
+int zichtbareIndex(uint32_t k) {
+  for (int i = 0; i < N; ++i)
+    if (zichtbaar(i) && k-- == 0) return i;
+  return -1;
+}
 
 #ifdef PB_KANARIE
 // alleen in de RTSan-kanariebouw: een malloc in process, bewaard in een globale variabele zodat de compiler hem
@@ -28,7 +50,7 @@ void* volatile g_kanarie = nullptr;
 
 int indexVan(clap_id id) {
   for (int i = 0; i < N; ++i)
-    if (Ontwerp::PARAMS[i].id == id) return i;
+    if (Ontwerp::PARAMS[i].id == id && zichtbaar(i)) return i;
   return -1;
 }
 
@@ -72,6 +94,13 @@ void bewaarStaart(Plugin* pl) {
   pl->staart.store(t < 0 || s >= (double)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)(s + 0.5), std::memory_order_relaxed);
 }
 
+// state die geladen is terwijl de plugin actief was: het Ontwerp krijgt hem op de eerstvolgende plek die het Ontwerp
+// bezit (process, flush, of activate na een deactivate)
+void neemStateOver(Plugin* pl) {
+  if (pl->stateNieuw.exchange(false, std::memory_order_acquire))
+    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
+}
+
 void pasEventsToe(Plugin* pl, const clap_input_events_t* in) {
   if (!in) return;
   const uint32_t n = in->size(in);
@@ -94,9 +123,10 @@ bool poortInfo(const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_po
 const clap_plugin_audio_ports_t AUDIO_PORTS = {poortenAantal, poortInfo};
 
 // --- params --------------------------------------------------------------------------------------------------
-uint32_t paramsAantal(const clap_plugin_t*) { return N; }
-bool paramInfo(const clap_plugin_t*, uint32_t i, clap_param_info_t* info) {
-  if (i >= (uint32_t)N) return false;
+uint32_t paramsAantal(const clap_plugin_t*) { return NZ; }
+bool paramInfo(const clap_plugin_t*, uint32_t k, clap_param_info_t* info) {
+  const int i = zichtbareIndex(k);
+  if (i < 0) return false;
   const auto& p = Ontwerp::PARAMS[i];
   std::memset(info, 0, sizeof(*info));
   info->id = p.id;
@@ -116,22 +146,20 @@ bool paramWaarde(const clap_plugin_t* p, clap_id id, double* v) {
 }
 bool paramNaarTekst(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t n) {
   int i = indexVan(id);
-  if (i < 0 || n == 0) return false;
-  const char* e = Ontwerp::PARAMS[i].eenheid;
-  std::snprintf(uit, n, *e ? "%.17g %s" : "%.17g", v, e);
-  return true;
+  if (i < 0 || n == 0 || !(v == v)) return false;
+  return tekst::schrijf(Ontwerp::PARAMS[i], begrens(i, v), uit, n);
 }
-bool tekstNaarParam(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
+bool tekstNaarParam(const clap_plugin_t*, clap_id id, const char* t, double* v) {
   int i = indexVan(id);
-  if (i < 0 || !tekst) return false;
-  char* eind = nullptr;
-  double w = std::strtod(tekst, &eind);
-  if (eind == tekst) return false;
-  *v = begrens(i, w);
+  if (i < 0 || !t || !tekst::lees(Ontwerp::PARAMS[i], t, v)) return false;
+  *v = begrens(i, *v);
   return true;
 }
-// [actief ? audiothread : mainthread]: nooit tegelijk met process, dus het Ontwerp mag hier gezet worden
+// [actief ? audiothread : mainthread]: nooit tegelijk met process, dus het Ontwerp mag hier gezet worden. Een host
+// roept flush aan als hij parameters wil zetten zonder process (gestopt transport, of de plugin niet actief).
+// Uitgaande events zijn er niet: alleen de host verandert parameters (geen GUI tot fase 3).
 void paramsFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
+  neemStateOver(zelf(p));
   pasEventsToe(zelf(p), in);
   bewaarStaart(zelf(p));
 }
@@ -150,9 +178,10 @@ bool schrijf(const clap_ostream_t* s, const void* d, size_t n) {
 bool stateSave(const clap_plugin_t* p, const clap_ostream_t* s) {
   std::vector<unsigned char> b;
   auto zet = [&](const void* d, size_t n) { auto* c = static_cast<const unsigned char*>(d); b.insert(b.end(), c, c + n); };
-  uint32_t versie = STATE_VERSIE, aantal = N;
+  uint32_t versie = STATE_VERSIE, aantal = NZ;
   zet("PBST", 4); zet(&versie, 4); zet(&aantal, 4);
   for (int i = 0; i < N; ++i) {
+    if (!zichtbaar(i)) continue;
     uint32_t id = Ontwerp::PARAMS[i].id;
     double v = zelf(p)->waarde[i].load(std::memory_order_relaxed);
     zet(&id, 4); zet(&v, 8);
@@ -222,7 +251,7 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
   g.over = (unsigned long)pl->geheugen.size();
   pl->ontwerp->activeer(sr, maxFrames, g);
   pl->sr = sr;
-  pl->stateNieuw.store(false, std::memory_order_relaxed);
+  neemStateOver(pl);  // state geladen vlak voor een deactivate: anders zou hij verloren gaan
   bewaarStaart(pl);
   pl->actief = true;
   return true;
@@ -237,8 +266,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
 #ifdef PB_KANARIE
   g_kanarie = std::malloc(16);
 #endif
-  if (pl->stateNieuw.exchange(false, std::memory_order_acquire))
-    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
+  neemStateOver(pl);
 
   const uint32_t n = pr->frames_count;
   const clap_input_events_t* ev = pr->in_events;

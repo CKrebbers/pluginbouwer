@@ -74,3 +74,26 @@ if (PB_RTSAN)
   target_compile_options(pb-render PRIVATE -fsanitize=realtime)
   target_link_options(pb-render PRIVATE -fsanitize=realtime)
 endif()
+
+# --- state-toets (fase 2): bouwen zonder één parameter, zoals een oudere versie ----------------------------------
+# build/toets/zonder-<id>.clap kent parameter <id> niet; gereedschap/pb-state-toets laadt zijn state in de volledige
+# bouw (vooruit-compatibel) en omgekeerd. Alleen voor de toets; niet installeren.
+option(PB_TOETSEN "bouw de state-toets en de plugins zonder één parameter" ON)
+if (PB_TOETSEN)
+  foreach(n RANGE 1 8)
+    add_library(dub_echo_zonder_${n} MODULE src/dub_echo.cpp src/entry.cpp)
+    target_link_libraries(dub_echo_zonder_${n} PRIVATE clap pb-dsp)
+    target_compile_definitions(dub_echo_zonder_${n} PRIVATE PB_ZONDER_PARAM=${n})
+    set_target_properties(dub_echo_zonder_${n} PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "zonder-${n}"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/toets" CXX_VISIBILITY_PRESET hidden)
+    list(APPEND PB_ZONDER_DOELEN dub_echo_zonder_${n})
+  endforeach()
+  add_executable(pb-state-toets "${PAKKET}/gereedschap/pb-state-toets.cpp")
+  target_link_libraries(pb-state-toets PRIVATE clap ${CMAKE_DL_LIBS})
+  set_target_properties(pb-state-toets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  add_dependencies(pb-state-toets ${PB_ZONDER_DOELEN})
+  if (PB_RTSAN)
+    target_compile_options(pb-state-toets PRIVATE -fsanitize=realtime)
+    target_link_options(pb-state-toets PRIVATE -fsanitize=realtime)
+  endif()
+endif()
