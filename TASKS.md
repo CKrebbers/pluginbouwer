@@ -49,6 +49,16 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] de AU van zo'n run haalt auval en pluginval 10 in CI; null-test binnen tolerantie (alle drie: bit voor bit)
 - [ ] Clay laadt hem in Logic (checklist fase 7) — **wacht op Clay**
 
+## F. Pakket v2 door alle fasen (verse sessies, tak proef/f1–f3)
+- [x] fase 0 3/3, fase 1 3/3, fase 2 3/3, fase 3 3/3 (tussenstand 17 okt; uitslagen in tools/pakket/uitslagen.json zodra fase 6 klaar is)
+- [ ] fase 4–6 (lopen)
+- [x] vondsten terug in main: subnormale uitvoer (pb::uitvoer), vierde clap-wrapper-patch (AU SetParameter tegen Render,
+  pluginval AU met --repeat 3), pakket v3 (tekst ↔ waarde, stateversie, frontpaneel.svg, valkuilen 13–14)
+- [x] upstream klaargezet: upstream/clap-wrapper/LEESMIJ.md (zes punten clap-wrapper, één clap-validator) — **plakken: Clay**
+- [ ] PR 1 (geluid-maken) samengevoegd met main op tak integratie/geluid-maken (toetsen 105/105, tool in Chrome klinkt);
+  het artifact draait die versie — **samenvoegen in main: Clay beslist**
+- [ ] Referentie: echte band (Aalto-dataset, Akai) tegen onze tanh en Jiles-Atherton (.github/workflows/referentie.yml)
+
 ## Bibliotheek later (niet bouwen vóór de dub-echo de hele keten gehaald heeft)
 Oscillatoren (polyBLEP), sampler, granulair, ruis, fysische modellen (Karplus-Strong, waveguide), filters (ladder, comb,
 formant), dynamiek (compressor, limiter, gate, expander), saturatie (diode, buis, transformator), delay (ping-pong,
