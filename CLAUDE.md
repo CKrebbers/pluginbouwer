@@ -46,6 +46,11 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
     `patches/clap-wrapper-auv2-stereo-en-mono.patch` (na `…-auv2-presets.patch`) laat de AU de indelingen uit
     audio-ports-config melden en in Initialize kiezen.
 
+13. **pkgbuild maakt bundels "relocatable"**: staat ergens een bundel met dezelfde CFBundleIdentifier (bouwmap, oude
+    kopie), dan installeert Installer daar in plaats van in `/Library/Audio/Plug-Ins`. Oplossing in
+    `gereedschap/maak-pkg.sh`: `pkgbuild --analyze`, dan per entry `BundleIsRelocatable` *toevoegen* als false (de sleutel
+    ontbreekt soms, dan faalt `Set`). Een tweede `installer`-run meldt "The upgrade was successful", niet "install".
+
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in `VERSLAG.md`; zet een toets nooit uit om groen te worden.
