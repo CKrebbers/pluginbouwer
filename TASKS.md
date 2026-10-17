@@ -49,6 +49,26 @@ Status: [ ] open · [~] bezig · [x] gehaald (met bewijs: CI-run of toets)
 - [x] de AU van zo'n run haalt auval en pluginval 10 in CI; null-test binnen tolerantie (alle drie: bit voor bit)
 - [ ] Clay laadt hem in Logic (checklist fase 7) — **wacht op Clay**
 
+## F. Geluid maken (15 okt 2026, na "het lukt me nog niet om geluid te maken")
+Stopcriterium: in de tool een voorbeeld kiezen = meteen geluid, ook zonder eigen audio; minstens 10 instrumenten en
+10 effecten; elk nieuw blok tegen de theorie getoetst; native = WASM voor elk voorbeeld; CI groen.
+- [x] Oorzaak gevonden: de motor kwam nooit aan in de AudioWorklet (WebAssembly.Module via postMessage → messageerror).
+  Alles liep droog door. Opgelost (bytes, compileren in de worklet, melding `motor`, terugval na 2 s).
+- [x] 15 blokken in `dsp/pb_bronnen.h` + de motor: oscillator (polyBLEP), ruis, sequencer (12 patronen), toetsen,
+  omhulling (ADSR), snaar (Karplus–Strong), trommel, vermenigvuldig (VCA/ring), galm (FDN-8), chorus/flanger,
+  compressor (met zijketen), vergruizer, vouwer, panner, willekeur
+- [x] motor: ontwerpen zonder ingang (instrumenten), exponentiële modulatie, één parameter op meer knoppen (schaal),
+  beveiliging op de uitgang
+- [x] 17 nieuwe voorbeelden (10 instrumenten, 7 effecten) + de groove als bron voor effecten; veergalm-schets gerepareerd
+- [x] Horen: voorbeelden met één klik (laden + spelen), toetsen (a s d f … en knoppen), readout en meten voor instrumenten,
+  vaste eigenschappen (golfvorm, patroon, …) in de inspector, iOS speelt ook met de stilteschakelaar aan
+- [x] tests/bronnen.test.mjs (43), tests/native.test.mjs (21: native x86-64 = WASM, bit voor bit), headless: elk voorbeeld
+  klinkt na één klik en de motor draait echt
+- [ ] Instrument als plugin: nu een effect (aufx) zonder MIDI; Noot en Poort zijn parameters. Volgende stap: CLAP note
+  ports + AU-type `aumu`, MIDI naar de toetsen-knoop
+- [ ] Sequencer aan het tempo van de host koppelen
+- [ ] Pass@3 (fase E) opnieuw met een instrument-ontwerp
+
 ## Bibliotheek later (niet bouwen vóór de dub-echo de hele keten gehaald heeft)
 Oscillatoren (polyBLEP), sampler, granulair, ruis, fysische modellen (Karplus-Strong, waveguide), filters (ladder, comb,
 formant), dynamiek (compressor, limiter, gate, expander), saturatie (diode, buis, transformator), delay (ping-pong,

@@ -13,8 +13,10 @@ export function laadKeten(e, rij, sr) {
   if (!e.pg_laad(h, rij.length)) { e.pg_weg(h); throw new Error('de motor weigerde de keten (te groot of ongeldig)'); }
   return h;
 }
-// events: [[sample, index, waarde], …] gesorteerd op sample; elk event geldt vanaf zijn sample (zoals een CLAP-event).
-export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128, events = [] } = {}) {
+// events: [[sample, index, waarde], …]; elk event geldt vanaf zijn sample (zoals een CLAP-event). gebeurtenissen is
+// dezelfde lijst onder de naam van de instrumentkant (een toets indrukken en loslaten: Noot en Poort).
+export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128, events = [], gebeurtenissen = [] } = {}) {
+  events = [...events, ...gebeurtenissen].sort((a, b) => a[0] - b[0]);
   const h = laadKeten(e, rij, sr);
   try {
     for (const [i, v] of Object.entries(waarden)) e.pg_zet(h, Number(i), v);
@@ -112,6 +114,37 @@ function sinusNaInloop(k0, amp, inloop, sr) {
   const n0 = Math.round(inloop * sr), x = new Float32Array(n0 + N_AL + 2 * EXTRA), f0 = sr * k0 / N_AL;
   for (let i = 0; i < x.length; i++) x[i] = amp * Math.sin(2 * Math.PI * f0 * (i - n0) / sr);   // fase 0 op het meetvenster
   return { x, n0 };
+}
+// Een instrument (geen ingang): wat hij zelf maakt in de eerste 2 s — effectieve waarde, piek en staart.
+export function instrumentReadout(e, rij, { sr = 48000, waarden = {}, gebeurtenissen = [] } = {}) {
+  const nu = () => (typeof performance !== 'undefined' ? performance : Date).now();
+  const n = 2 * sr, t0 = nu();
+  const uit = renderKeten(e, rij, [new Float32Array(n), new Float32Array(n)], { sr, waarden, gebeurtenissen }).uit;
+  const t1 = nu();
+  let piek = 0, som = 0, slecht = false;
+  for (const k of uit) for (const v of k) { if (!Number.isFinite(v)) slecht = true; piek = Math.max(piek, Math.abs(v)); som += v * v; }
+  return { instrument: true, bespeeld: gebeurtenissen.length > 0, rmsDb: 10 * Math.log10(som / (2 * n) + 1e-30), piekDb: 20 * Math.log10(piek + 1e-30),
+    staart: inloopSec(e, rij, sr, waarden), aliasingDb: null, thdDb: slecht ? NaN : null,
+    reden: 'instrument: geen ingang, dus geen vervorming of aliasing van een testtoon; gemeten is wat hij zelf maakt',
+    cpuProcent: ((t1 - t0) / 1000) / 2 * 100 };
+}
+// gemiddeld vermogensspectrum (Welch: blokken van 4096 met Hann, half overlappend), op log-frequenties, in dB
+export function gemiddeldSpectrum(y, sr, { punten = 120 } = {}) {
+  const L = 4096, som = new Float64Array(L / 2 + 1), w = Float64Array.from({ length: L }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (L - 1)));
+  let blokken = 0;
+  for (let p = 0; p + L <= y.length; p += L / 2) {
+    const re = new Float64Array(L), im = new Float64Array(L);
+    for (let i = 0; i < L; i++) re[i] = y[p + i] * w[i];
+    fft(re, im);
+    for (let b = 0; b <= L / 2; b++) som[b] += re[b] * re[b] + im[b] * im[b];
+    blokken++;
+  }
+  const lijst = [];
+  for (let i = 0; i < punten; i++) {
+    const f = 20 * Math.pow((0.45 * sr) / 20, i / (punten - 1)), b = Math.max(1, Math.round(f / sr * L));
+    lijst.push({ f, db: 10 * Math.log10(som[b] / Math.max(1, blokken) + 1e-30) });
+  }
+  return lijst;
 }
 export function readout(e, rij, { sr = 48000, waarden = {} } = {}) {
   const nu = () => (typeof performance !== 'undefined' ? performance : Date).now();

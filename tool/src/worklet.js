@@ -6,10 +6,20 @@ class PbMotor extends AudioWorkletProcessor {
     super();
     this.e = null; this.h = { A: -1, B: -1 }; this.actief = 'A'; this.vorige = null; this.fade = 0;
     this.droog = false; this.meter = 0; this.tel = 0;
-    this.port.onmessage = (m) => this.bericht(m.data);
+    // een fout hier (bv. de WASM die niet instantieert) zou de worklet stil laten doorlopen met alleen de droge ingang;
+    // daarom altijd terugmelden, dan zegt de tool het
+    this.port.onmessage = (m) => { try { this.bericht(m.data); } catch (f) { this.port.postMessage({ type: 'fout', tekst: String(f && f.message || f) }); } };
+    this.port.onmessageerror = () => this.port.postMessage({ type: 'fout', tekst: 'bericht kwam niet aan (messageerror)' });
   }
   bericht(d) {
-    if (d.type === 'module') { this.e = new WebAssembly.Instance(d.module, {}).exports; return; }
+    if (d.type === 'module') {
+      // de motor komt als BYTES en wordt hier gecompileerd: een WebAssembly.Module zelf komt in Chrome niet aan in een
+      // AudioWorklet (messageerror, gevonden 15 okt 2026), en dan liep alles droog door. In een worklet mag
+      // synchroon compileren (de grens van 4 kB geldt alleen op de hoofdthread).
+      this.e = new WebAssembly.Instance(d.bytes ? new WebAssembly.Module(d.bytes) : d.module, {}).exports;
+      this.port.postMessage({ type: 'motor' });
+      return;
+    }
     if (!this.e) return;
     const e = this.e;
     if (d.type === 'keten') {

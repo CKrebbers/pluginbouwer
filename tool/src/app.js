@@ -2,8 +2,8 @@
 // (stack, formaten, kosten, het bouwpakket). Alles wat klinkt en gemeten wordt draait op de ketenmotor (WASM): dezelfde
 // code als de plugin en als de CI-toetsen.
 import { BIB, BIB_LATER, compileer, volgorde, latentie } from './keten.js';
-import { ARCHETYPEN, DUB_ECHO } from './archetypen.js';
-import { motorInstantie, renderKeten, respons, readout as meetReadout, harmonischen, sinusBin, midden } from './meten.js';
+import { ARCHETYPEN, DUB_ECHO, INSTRUMENTEN, EFFECTEN, GROOVE } from './archetypen.js';
+import { motorInstantie, renderKeten, respons, readout as meetReadout, instrumentReadout, harmonischen, sinusBin, midden, gemiddeldSpectrum } from './meten.js';
 import { Speler } from './audio.js';
 import { varianten } from './verken.js';
 import { bouwpakket, cpuSchatting, spec } from './bouwpakket.js';
@@ -28,10 +28,10 @@ const S = {
   schetsboek: opslag.lees('schetsboek', []), vergelijk: [],
   filter: { groep: 'alle', soort: 'alle', zoek: '' },
   wildheid: 'subtiel', zaad: 1, varianten: [],
-  abx: null, taak: opslag.lees('taak', null), bron: 'stukjes',
+  abx: null, taak: opslag.lees('taak', null), bron: 'groove',
 };
 let C = compileer(S.ontwerp);
-const speler = new Speler(MOTOR);
+const speler = new Speler(MOTOR, MOTOR_BYTES);
 
 // ---------------------------------------------------------------------------------------------------- hulp
 const $ = (s, r = document) => r.querySelector(s);
@@ -62,20 +62,33 @@ const dbTekst = (x) => (x === null || x === undefined ? 'n.v.t.' : nl(x, 0) + ' 
 const knoopVan = (id) => S.ontwerp.knopen.find((k) => k.id === id);
 const knopDef = (type, id) => BIB[type].knoppen.find((k) => k.id === id);
 const paramVan = (knoopId, knop) => S.ontwerp.parameters.findIndex((p) => p.knoop === knoopId && p.knop === knop);
+// een knop die meeloopt met de parameter van een andere knop ("ook": [[knoop, knop, schaal]]), bv. een octaaf hoger
+function ookVan(knoopId, knop) {
+  const pi = S.ontwerp.parameters.findIndex((p) => (p.ook || []).some(([k, kn2]) => k === knoopId && kn2 === knop));
+  if (pi < 0) return null;
+  return { pi, schaal: S.ontwerp.parameters[pi].ook.find(([k, kn2]) => k === knoopId && kn2 === knop)[2] ?? 1 };
+}
 function knopWaarde(kn, def) {
   const pi = paramVan(kn.id, def.id);
   if (pi >= 0) return S.ontwerp.parameters[pi].standaard;
+  const o = ookVan(kn.id, def.id);
+  if (o) return S.ontwerp.parameters[o.pi].standaard * o.schaal;
   return kn.waarden?.[def.id] ?? def.std;
 }
 function knopBereik(kn, def) {
   const pi = paramVan(kn.id, def.id);
-  return pi >= 0 ? { min: S.ontwerp.parameters[pi].min, max: S.ontwerp.parameters[pi].max } : { min: def.min, max: def.max };
+  if (pi >= 0) return { min: S.ontwerp.parameters[pi].min, max: S.ontwerp.parameters[pi].max };
+  const o = ookVan(kn.id, def.id);
+  if (o) { const p = S.ontwerp.parameters[o.pi]; return { min: p.min * o.schaal, max: p.max * o.schaal }; }
+  return { min: def.min, max: def.max };
 }
+const heeftIngang = (o = S.ontwerp) => o.knopen.some((k) => k.type === 'in');
+const standaardWaarden = () => C.params.map((p) => p.standaard);
 const exactF32 = (v) => (Math.fround(v) === v ? v : Math.round(v * 64) / 64);
 
 // ---------------------------------------------------------------------------------------------------- wijzigen
 let wachtCompile = 0, wachtMeten = 0;
-function gewijzigd(wat, { live = null } = {}) {
+function gewijzigd(wat, { live = null, alGeladen = false } = {}) {
   S.laatsteWijziging = wat;
   opslag.schrijf('ontwerp', S.ontwerp);
   taakLog('wijziging', wat);
@@ -83,7 +96,7 @@ function gewijzigd(wat, { live = null } = {}) {
   clearTimeout(wachtCompile);
   wachtCompile = setTimeout(() => {
     C = compileer(S.ontwerp);
-    if (!live && !C.fouten.length) speler.laad(C.rij, C.params.map((p) => p.standaard));
+    if (!live && !alGeladen && !C.fouten.length) speler.laad(C.rij, standaardWaarden());
     teken();
     clearTimeout(wachtMeten);
     wachtMeten = setTimeout(meetNu, 250);
@@ -101,9 +114,18 @@ function stilOntwerp(o) {
   return v;
 }
 function meetOntwerp(o) {
-  const c = compileer(stilOntwerp(o));
+  const c = compileer(heeftIngang(o) ? stilOntwerp(o) : o);
   if (c.fouten.length) throw new Error(c.fouten.join('; '));
-  return meetReadout(E, c.rij, { waarden: Object.fromEntries(c.params.map((p, i) => [i, p.standaard])) });
+  const waarden = Object.fromEntries(c.params.map((p, i) => [i, p.standaard]));
+  if (!heeftIngang(o)) return instrumentReadout(E, c.rij, { waarden, gebeurtenissen: speelProef(o, c) });
+  return meetReadout(E, c.rij, { waarden });
+}
+// Een instrument met toetsen meet je terwijl het speelt: vier noten van een halve seconde (Noot en Poort).
+function speelProef(o, c) {
+  const t = o.knopen.find((k) => k.type === 'toetsen'); if (!t) return [];
+  const pn = c.params.findIndex((p) => p.knoop === t.id && p.knop === 'toon'), pp = c.params.findIndex((p) => p.knoop === t.id && p.knop === 'poort');
+  if (pn < 0 || pp < 0) return [];
+  return [0, 7, 12, 3].flatMap((st, i) => [[i * 24000, pn, 2 ** (st / 12)], [i * 24000, pp, 1], [i * 24000 + 16000, pp, 0]]);
 }
 function meetNu() {
   if (C.fouten.length) { S.readout = null; tekenReadout(); return; }
@@ -136,7 +158,10 @@ function bouw() {
     if (ev.target.closest('input,textarea,select')) return;
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selectie) { verwijderSelectie(); ev.preventDefault(); }
     if (ev.key === 'Escape') { S.selectie = null; teken(); }
+    const t = TOETSEN.find(([c]) => c === ev.code);
+    if (t && !ev.repeat && !ev.metaKey && !ev.ctrlKey && S.stand === 'ontwerpen' && S.ontwerp.knopen.some((k) => k.type === 'toetsen')) { noot(t[0], t[1], true); ev.preventDefault(); }
   });
+  document.addEventListener('keyup', (ev) => { const t = TOETSEN.find(([c]) => c === ev.code); if (t) noot(t[0], t[1], false); });
   speler.opMeter = (p) => { const m = $('#meter'); if (m) m.style.width = Math.min(100, p * 100) + '%'; if (p > 1e-4) taakLog('geluid'); };
   speler.opFout = (t) => melding(t);
 }
@@ -167,6 +192,15 @@ function tekenReadout() {
     return;
   }
   const staart = r.staart < 0 ? '∞' : nl(r.staart, 1) + ' s';
+  if (r.instrument) {
+    box.append(
+      vak('cpu', nl(r.cpuSchatting, 2) + ' %', pijl(r.cpuSchatting, v?.cpuSchatting, true), 'geschat uit de gemeten blokken (één kern, WASM)'),
+      vak('niveau', nl(r.rmsDb, 0) + ' dB', pijl(r.rmsDb, v?.rmsDb, false), 'effectieve waarde van wat het instrument zelf maakt (dBFS, de eerste 2 s' + (r.bespeeld ? ', bespeeld met vier noten' : '') + ')'),
+      vak('piek', nl(r.piekDb, 1) + ' dB', pijl(r.piekDb, v?.piekDb, true), 'hoogste sample (dBFS); boven 0 = vervorming in de host'),
+      vak('staart', staart, pijl(r.staart, v?.staart, true), 'hoe lang er na de laatste noot nog geluid komt'),
+      toetsen);
+    return;
+  }
   box.append(
     vak('cpu', nl(r.cpuSchatting, 2) + ' %', pijl(r.cpuSchatting, v?.cpuSchatting, true), 'geschat uit de gemeten blokken (één kern, WASM)' + (r.cpuProcent !== null ? '; live meting van deze render: ' + nl(r.cpuProcent, 1) + ' %' : '')),
     vak('latency', latentie(S.ontwerp) + ' smp', null, 'wat de plugin aan de host meldt'),
@@ -180,8 +214,9 @@ function toetsBlokjes() {
     ['keten compileert', C.fouten.length === 0],
     ['grenzen exact in float32', !C.fouten.some((f) => f.includes('float32'))],
     ['terugkoppeling heeft een vertraging', !C.fouten.some((f) => f.includes('geen vertraging'))],
-    ['ingang en uitgang aanwezig', !C.fouten.some((f) => f.includes('geen ingang') || f.includes('geen uitgang'))],
+    ['ingang (of een bron) en uitgang aanwezig', !C.fouten.some((f) => f.includes('geen ingang') || f.includes('geen uitgang'))],
     ['geen NaN in de meting', !!S.readout && !S.readout.fout && (!!S.readout.reden || Number.isFinite(S.readout.thdDb))],
+    ...(S.readout?.instrument ? [['niet stil en niet boven 0 dBFS', S.readout.rmsDb > -60 && S.readout.piekDb <= 0]] : []),
   ];
   return lijst.map(([t, ok]) => el('i', { class: 'blokje ' + (ok ? 'ok' : 'bad'), title: t + (ok ? ': gehaald' : ': niet gehaald') }));
 }
@@ -225,6 +260,9 @@ function voegToe(type, x, y) {
   const kn = { id, type, x: x ?? 200 + Math.random() * 400, y: y ?? 80 + Math.random() * 260, waarden: {} };
   if (type === 'vertraging') kn.vast = { max: 1200 };
   S.ontwerp.knopen.push(kn);
+  if (type === 'toetsen') S.ontwerp.parameters.push(
+    { naam: 'Noot', knoop: id, knop: 'toon', min: 0.25, max: 4, standaard: 1, glijMs: 5, uitleg: 'welke toets (verhouding t.o.v. de grondtoon)' },
+    { naam: 'Poort', knoop: id, knop: 'poort', min: 0, max: 1, standaard: 0, glijMs: 0, uitleg: 'toets ingedrukt (1) of los (0)' });
   S.selectie = { soort: 'knoop', id };
   gewijzigd(`${BIB[type].naam} erbij`);
 }
@@ -327,7 +365,7 @@ function boog(r, a0, a1) {
 }
 function tekenKnop(kn, def, cx, cy) {
   const { min, max } = knopBereik(kn, def), v = knopWaarde(kn, def), a = hoekVan(v, min, max, def.exp);
-  const plugin = paramVan(kn.id, def.id) >= 0;
+  const plugin = paramVan(kn.id, def.id) >= 0 || !!ookVan(kn.id, def.id);
   const mod = (S.ontwerp.modulaties || []).find((m) => m.doel[0] === kn.id && m.doel[1] === def.id);
   const g = svg('g', { class: 'knop' + (plugin ? ' plugin' : ''), transform: `translate(${cx},${cy})`, 'data-knoop': kn.id, 'data-knop': def.id });
   g.append(svg('circle', { r: 17, class: 'knopvlak' }), svg('path', { d: boog(15, -135, 135), class: 'boogbak' }),
@@ -347,9 +385,11 @@ function tekenKnop(kn, def, cx, cy) {
 function zetKnop(kn, def, v, klaar) {
   const { min, max } = knopBereik(kn, def);
   v = exactF32(Math.min(max, Math.max(min, v)));
-  const pi = paramVan(kn.id, def.id);
+  let pi = paramVan(kn.id, def.id);
+  const o = pi < 0 ? ookVan(kn.id, def.id) : null;
+  if (o) { pi = o.pi; v = exactF32(v / o.schaal); }   // de knop loopt mee: zet de parameter waar hij aan hangt
   if (pi >= 0) S.ontwerp.parameters[pi].standaard = v;
-  kn.waarden = { ...(kn.waarden || {}), [def.id]: v };
+  if (!o) kn.waarden = { ...(kn.waarden || {}), [def.id]: v };
   if (pi >= 0 && !klaar) { gewijzigd(`${BIB[kn.type].naam}: ${def.naam}`, { live: { i: pi, v } }); tekenCanvasLicht(kn); }
   else gewijzigd(`${BIB[kn.type].naam}: ${def.naam} ${waardeTekst(v, def.eenheid)}`);
 }
@@ -439,6 +479,14 @@ function tekenInspector() {
       el('input', { type: 'range', min: 0, max: 100, value: Math.round(mod.diepte * 100), onchange: (ev) => { mod.diepte = ev.target.value / 100; gewijzigd('modulatiediepte'); } }),
       el('button', { class: 'seg', onclick: () => { S.ontwerp.modulaties = S.ontwerp.modulaties.filter((m) => m !== mod); gewijzigd('modulatie weg'); } }, 'weg')));
   }
+  for (const eig of b.vasteEig || []) {
+    const huidig = kn.vast?.[eig.id] ?? eig.std;
+    const zet = (w) => { kn.vast = { ...(kn.vast || {}), [eig.id]: w }; gewijzigd(`${b.naam}: ${eig.naam}${eig.keuzes ? ' ' + eig.keuzes[w] : ' ' + w}`); };
+    box.append(el('div', { class: 'knoprij' }, el('label', {}, eig.naam + (eig.eenheid ? ` (${eig.eenheid})` : ''),
+      eig.keuzes
+        ? el('select', { onchange: (ev) => zet(+ev.target.value) }, ...eig.keuzes.map((t, j) => el('option', { value: j, selected: j === huidig }, t)))
+        : el('input', { type: 'number', value: huidig, step: 1, min: 1, onchange: (ev) => zet(Math.max(1, Math.round(+ev.target.value) || eig.std)) }))));
+  }
   if (!b.vast) box.append(el('button', { class: 'knopgroot', onclick: verwijderSelectie }, 'blok weg (Delete)'));
 }
 
@@ -452,16 +500,57 @@ function tekenOnder() {
   ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
 }
 function tabHoren(box) {
+  const instrument = !heeftIngang(), toetsen = S.ontwerp.knopen.find((k) => k.type === 'toetsen');
   box.append(
     el('div', { class: 'rij' },
-      el('button', { class: 'knopgroot', onclick: async () => { if (speler.speelt()) { speler.stopBron(); } else { await speler.speel(S.bron); speler.laad(C.rij, C.params.map((p) => p.standaard)); taakLog('afspelen'); } tekenOnder(); } },
+      el('button', { class: 'knopgroot', onclick: async () => { if (speler.speelt()) speler.stopBron(); else await speelNu(); tekenOnder(); } },
         speler.speelt() ? '■ stop' : '▶ speel'),
-      el('select', { onchange: async (ev) => { S.bron = ev.target.value; if (speler.speelt()) await speler.speel(S.bron); } },
-        ...[['stukjes', 'stukjes (korte tonen)'], ['ruis', 'ruisstoten'], ['sweep', 'sweep'], ['sinus', 'sinus 1 kHz'], ['eigen', speler.buffer ? speler.bronNaam : 'eigen audio…']].map(([w, t]) => el('option', { value: w, selected: S.bron === w }, t))),
-      el('label', { class: 'bestand' }, 'eigen audio', el('input', { type: 'file', accept: 'audio/*', onchange: async (ev) => { const f = ev.target.files[0]; if (!f) return; await speler.eigenBestand(f); S.bron = 'eigen'; await speler.speel('eigen'); speler.laad(C.rij, C.params.map((p) => p.standaard)); tekenOnder(); } })),
-      el('button', { class: 'seg', onmousedown: () => speler.droog(true), onmouseup: () => speler.droog(false), onmouseleave: () => speler.droog(false), title: 'vasthouden = zonder plugin' }, 'droog (vasthouden)')),
+      ...(instrument
+        ? [el('span', { class: 'zacht' }, toetsen ? 'Speel met a s d f g h j k l ; \' (of de toetsen hieronder).' : 'Dit ontwerp maakt zelf geluid: geen ingang nodig.')]
+        : [el('select', { onchange: async (ev) => { S.bron = ev.target.value; if (speler.speelt()) await speler.speel(S.bron); } },
+          ...[['groove', 'groove (drums en bas)'], ['stukjes', 'stukjes (korte tonen)'], ['ruis', 'ruisstoten'], ['sweep', 'sweep'], ['sinus', 'sinus 1 kHz'], ['eigen', speler.buffer ? speler.bronNaam : 'eigen audio…']].map(([w, t]) => el('option', { value: w, selected: S.bron === w }, t))),
+        el('label', { class: 'bestand' }, 'eigen audio', el('input', { type: 'file', accept: 'audio/*', onchange: async (ev) => { const f = ev.target.files[0]; if (!f) return; await speler.eigenBestand(f); S.bron = 'eigen'; await speler.speel('eigen'); speler.laad(C.rij, standaardWaarden()); tekenOnder(); } })),
+        el('button', { class: 'seg', onmousedown: () => speler.droog(true), onmouseup: () => speler.droog(false), onmouseleave: () => speler.droog(false), title: 'vasthouden = zonder plugin' }, 'droog (vasthouden)')])),
     el('div', { class: 'meterbak' }, el('div', { id: 'meter', class: 'meterbalk' })),
-    el('p', { class: 'zacht' }, `Motor: ${speler.modus}. Dezelfde WASM als de plugin; knoppen die "in plugin" staan veranderen zonder herladen, andere keuzes laden de keten opnieuw (20 ms overvloeien).`));
+    ...(toetsen ? [el('div', { class: 'pad', role: 'group', 'aria-label': 'toetsen' }, ...TOETSEN.map(([code, st, label]) => el('button', { class: 'seg', 'data-code': code,
+      onpointerdown: (ev) => { ev.preventDefault(); noot(code, st, true); }, onpointerup: () => noot(code, st, false), onpointerleave: () => noot(code, st, false) }, label)))] : []),
+    el('div', { class: 'sub' }, 'voorbeelden — klik = laden en meteen horen'),
+    el('div', { class: 'voorbeelden' }, el('span', { class: 'zacht' }, 'instrumenten'), ...INSTRUMENTEN.map(voorbeeldKnop)),
+    el('div', { class: 'voorbeelden' }, el('span', { class: 'zacht' }, 'effecten'), ...EFFECTEN.map(voorbeeldKnop)),
+    el('p', { class: 'zacht' }, `Motor: ${speler.modus}${speler.motorDraait ? '' : speler.ctx ? ' — draait niet' : ''}. Dezelfde WASM als de plugin; knoppen die "in plugin" staan veranderen zonder herladen, andere keuzes laden de keten opnieuw (20 ms overvloeien). Beweegt de meter maar hoor je niets? Zet het volume op en de stille modus van je telefoon uit.`));
+}
+const voorbeeldKnop = (a) => el('button', { class: 'seg' + (S.ontwerp.id === a.id ? ' aan' : ''), title: a.uitleg, onclick: () => kiesVoorbeeld(a) }, a.naam);
+async function speelNu() {
+  if (!speler.grooveData) speler.grooveData = renderKeten(E, compileer(GROOVE).rij, [new Float32Array(48000 * 8), new Float32Array(48000 * 8)]).uit;
+  await speler.speel(heeftIngang() ? S.bron : 'geen');
+  if (!C.fouten.length) speler.laad(C.rij, standaardWaarden());
+  taakLog('afspelen');
+}
+async function kiesVoorbeeld(a) {
+  S.ontwerp = kloon(a); S.selectie = null;
+  C = compileer(S.ontwerp);
+  await speelNu();   // de klik is het gebaar dat de browser nodig heeft om geluid te mogen maken
+  gewijzigd('voorbeeld ' + a.naam, { alGeladen: true });
+}
+// Toetsen: de middelste rij van het toetsenbord (via e.code, dus voor elke indeling), mineur-pentatonisch over twee octaven.
+const TOETSEN = [['KeyA', 0, 'a'], ['KeyS', 3, 's'], ['KeyD', 5, 'd'], ['KeyF', 7, 'f'], ['KeyG', 10, 'g'], ['KeyH', 12, 'h'], ['KeyJ', 15, 'j'], ['KeyK', 17, 'k'], ['KeyL', 19, 'l'], ['Semicolon', 22, ';'], ['Quote', 24, "'"]];
+const ingedrukt = [];
+async function noot(code, st, aan) {
+  const t = S.ontwerp.knopen.find((k) => k.type === 'toetsen'); if (!t) return;
+  const pn = C.params.findIndex((p) => p.knoop === t.id && p.knop === 'toon'), pp = C.params.findIndex((p) => p.knoop === t.id && p.knop === 'poort');
+  if (pn < 0 || pp < 0) { melding('Zet "toon" en "poort" van Toetsen op "in plugin" om te spelen.'); return; }
+  const i = ingedrukt.findIndex((x) => x[0] === code);
+  if (aan) {
+    if (i >= 0) return;
+    ingedrukt.push([code, st]);
+    if (!speler.speelt()) { await speelNu(); tekenOnder(); }
+    speler.zet(pn, 2 ** (st / 12)); speler.zet(pp, 1);
+  } else {
+    if (i < 0) return;
+    ingedrukt.splice(i, 1);
+    if (ingedrukt.length) speler.zet(pn, 2 ** (ingedrukt[ingedrukt.length - 1][1] / 12)); else speler.zet(pp, 0);   // legato: terug naar de vorige toets
+  }
+  for (const b of document.querySelectorAll('.pad [data-code]')) b.classList.toggle('aan', ingedrukt.some((x) => x[0] === b.dataset.code));
 }
 function tabPaneel(box) {
   const paneel = el('div', { class: 'frontpaneel' }, el('div', { class: 'fpnaam' }, 'PB ' + S.ontwerp.naam.toUpperCase()));
@@ -478,6 +567,7 @@ function tabPaneel(box) {
 }
 function tabMeten(box) {
   if (C.fouten.length) { box.append(el('p', {}, 'Eerst de fouten in de keten oplossen.')); return; }
+  if (!heeftIngang()) { tabMetenInstrument(box); return; }
   const waarden = Object.fromEntries(C.params.map((p, i) => [i, p.standaard]));
   const r = respons(E, C.rij, { waarden });
   const W = 520, H = 160, fx = (f) => 40 + (Math.log(f / 20) / Math.log(21600 / 20)) * (W - 50), fy = (d) => 10 + (12 - Math.max(-60, Math.min(12, d))) / 72 * (H - 30);
@@ -495,10 +585,28 @@ function tabMeten(box) {
     el('div', {}, el('div', { class: 'sub' }, 'cpu per blok (gemeten)'), tabel)),
     el('p', { class: 'zacht' }, 'Dezelfde meetcode als de CI-toetsen (tool/src/meten.js). Aliasing in de readout: sinus van 5 kHz, coherent op een bin; alles buiten de harmonischen telt als aliasing.'));
 }
+// Een instrument heeft geen ingang: geen respons of vervorming, wel wat hij zelf maakt (gemiddeld spectrum, 2 s).
+function tabMetenInstrument(box) {
+  const waarden = Object.fromEntries(C.params.map((p, i) => [i, p.standaard]));
+  const y = renderKeten(E, C.rij, [new Float32Array(96000), new Float32Array(96000)], { waarden, gebeurtenissen: speelProef(S.ontwerp, C) }).uit[0];
+  const lijst = gemiddeldSpectrum(y, 48000);
+  const top = Math.max(...lijst.map((p) => p.db));
+  const W = 520, H = 160, fx = (f) => 40 + (Math.log(f / 20) / Math.log(21600 / 20)) * (W - 50), fy = (d) => 10 + (Math.min(0, Math.max(-72, d - top)) / -72) * (H - 30);
+  const g = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'grafiek', role: 'img', 'aria-label': 'spectrum van het instrument' });
+  for (const f of [100, 1000, 10000]) g.append(svg('line', { x1: fx(f), y1: 10, x2: fx(f), y2: H - 20, class: 'as' }), svg('text', { x: fx(f), y: H - 6, class: 'astekst' }, f >= 1000 ? f / 1000 + 'k' : f));
+  for (const d of [0, -24, -48]) g.append(svg('line', { x1: 40, y1: fy(top + d), x2: W - 10, y2: fy(top + d), class: 'as' }), svg('text', { x: 4, y: fy(top + d) + 4, class: 'astekst' }, d + ' dB'));
+  g.append(svg('path', { class: 'reeks1', d: lijst.map((p, i) => (i ? 'L' : 'M') + fx(p.f).toFixed(1) + ',' + fy(p.db).toFixed(1)).join('') }));
+  const tabel = el('table', { class: 'kv' }, ...S.ontwerp.knopen.filter((k) => !BIB[k.type].vast).map((k) => el('tr', {}, el('td', {}, BIB[k.type].naam), el('td', {}, nl(DATA.metingBlokken?.blokken?.[k.type]?.cpuProcent ?? 0, 2) + ' %'))));
+  box.append(el('div', { class: 'rij' },
+    el('div', {}, el('div', { class: 'sub' }, 'spectrum van wat hij maakt (eerste 2 s, t.o.v. de piek)'), g),
+    el('div', {}, el('div', { class: 'sub' }, 'cpu per blok (gemeten)'), tabel)),
+    el('p', { class: 'zacht' }, 'Dit ontwerp heeft geen ingang: respons en vervorming zeggen dan niets. De readout bovenin toont niveau en piek.'));
+}
 function tabVerken(box) {
   box.append(el('div', { class: 'rij' },
-    el('div', { class: 'sub' }, 'archetypen'), ...ARCHETYPEN.map((a) => el('button', { class: 'seg', title: a.uitleg, onclick: () => { S.ontwerp = kloon(a); S.selectie = null; gewijzigd('archetype ' + a.naam); } }, a.naam)),
-    el('button', { class: 'seg', onclick: () => { S.ontwerp = { naam: 'Leeg', id: 'mijn_ontwerp', uitleg: '', knopen: [{ id: 'in', type: 'in', x: 40, y: 200 }, { id: 'uit', type: 'uit', x: 960, y: 200 }], kabels: [], parameters: [], modulaties: [] }; gewijzigd('leeg begin'); } }, 'leeg')),
+    el('div', { class: 'sub' }, 'voorbeelden'), ...ARCHETYPEN.map(voorbeeldKnop),
+    el('button', { class: 'seg', onclick: () => { S.ontwerp = { naam: 'Leeg effect', id: 'mijn_effect', uitleg: '', knopen: [{ id: 'in', type: 'in', x: 40, y: 200 }, { id: 'uit', type: 'uit', x: 960, y: 200 }], kabels: [], parameters: [], modulaties: [] }; gewijzigd('leeg effect'); } }, 'leeg effect'),
+    el('button', { class: 'seg', onclick: () => { S.ontwerp = { naam: 'Leeg instrument', id: 'mijn_instrument', uitleg: '', knopen: [{ id: 'uit', type: 'uit', x: 960, y: 200 }], kabels: [], parameters: [], modulaties: [] }; gewijzigd('leeg instrument'); } }, 'leeg instrument')),
   el('div', { class: 'rij' }, el('div', { class: 'sub' }, 'varianten'),
     ...['subtiel', 'flink', 'wild'].map((w) => el('button', { class: 'seg' + (S.wildheid === w ? ' aan' : ''), onclick: () => { S.wildheid = w; tekenOnder(); } }, w)),
     el('button', { class: 'knopgroot', onclick: () => { S.zaad++; S.varianten = varianten(S.ontwerp, { zaad: S.zaad, wildheid: S.wildheid }); tekenOnder(); } }, 'maak 6 varianten')));

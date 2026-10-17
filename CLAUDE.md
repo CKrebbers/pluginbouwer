@@ -42,12 +42,14 @@ voor bit gelijk, ook op macOS arm64 en ook bij zelfoscillatie.
 ## Structuur
 ```
 PROMPT.md  BRONNEN.md  KEUZE-STACK.md  LEERPAD.md  TASKS.md  design.md
-dsp/            de ENE DSP-bron (header-only, vrijstaand). pb_math.h, pb_biquad.h, …, pb_wasm.cpp (C-ABI voor WASM)
+dsp/            de ENE DSP-bron (header-only, vrijstaand). pb_math.h, pb_biquad.h, …, pb_bronnen.h (bronnen en effecten
+                van 15 okt), pb_graaf.h (de ketenmotor), pb_wasm.cpp (C-ABI voor WASM)
 plugin/         CLAP-first plugin + CMake met clap-wrapper → .clap, .vst3, .component
 host/           pb-render: kleine CLAP-host die een WAV door een .clap stuurt (Linux en macOS);
                 au-proef: AudioToolbox-host die de AU gebruikt zoals een DAW (macOS, CI; tools/au-proef.mjs toetst)
 ref/            onafhankelijke float64-referentie in Python/NumPy (andere code dan dsp/)
-tests/          Node-toetsen (node --test): formules, blokgrootte, null-test, statistisch
+tests/          Node-toetsen (node --test): formules, blokgrootte, null-test, statistisch; bronnen.test (elk blok tegen de
+                theorie, elk voorbeeld klinkt), native.test (motor native = WASM, bit voor bit, per voorbeeld)
 testsignalen/   gegenereerde WAV's + verwachte uitvoer (CSV/WAV), met het script dat ze maakt
 tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.html (claude.ai), via bouw.mjs; WASM ingebakken
 tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
@@ -89,6 +91,21 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   geen aliasing (−16,5 dB met beweging, −122,6 dB zonder, op de dub-echo). Zelfoscillatie = geen getal, wel een reden.
 - **AudioWorklet uit een blob-URL** weigert Chrome op `file://`; `audio.js` valt terug op een data-URL, daarna op
   ScriptProcessor (zelfde WASM op de hoofdthread). De tool zegt welke draait.
+- **Een WebAssembly.Module komt in Chrome niet aan in een AudioWorklet** (port.postMessage → `messageerror`). Tot
+  15 okt 2026 liep de worklet daardoor ongemerkt droog door: effecten klonken als hun ingang, instrumenten zwegen, en
+  de toets "meter > 0" zag het niet. Nu: de motor gaat als bytes en wordt in de worklet gecompileerd; de worklet meldt
+  `motor` en de speler valt na 2 s zonder melding terug op de hoofdthread. De headless toets eist `motorDraait` en
+  dat elk instrument klinkt.
+- **Een SVF-banddoorlaat versterkt Q keer** (de `band`-uitgang): in een terugkoppeling met Q 2 en terugkoppeling 0,81
+  ontplofte de veergalm-schets (NaN). Gebruik in een lus de biquad-banddoorlaat (0 dB piek). De uitgang van de motor
+  geeft nu stilte bij NaN, oneindig of meer dan ±8 (tests/bronnen.test.mjs).
+- **Uitbreidingen van de rij zijn terugwaarts gelijk** (pb_graaf.h, bovenin): `param ≥ 1000` = parameter met schaal
+  ("ook" in een ontwerp: één parameter op meer knoppen), `modPoort ≥ 8` = exponentiële modulatie (in octaven) voor
+  knoppen met `exp`. Oude rijen klinken bit voor bit hetzelfde (graaf.test en de verwachte uitvoer in git).
+- **Modulatiediepte 1 = het hele bereik van de knop**, ook voor een knop die geen plugin-parameter is (de compiler geeft
+  het BIB-bereik mee); daarvóór was de diepte op een vaste knop maar ±1 in eigen eenheid, dus onhoorbaar.
+- **Elk BIB-bereik exact in float32**, ook voor knoppen die (nog) geen parameter zijn: anders weigert de compiler zodra
+  je "in plugin" aanzet.
 - **Als artifact op claude.ai** doet een downloadlink niets: bewaren gaat via de `downloads`-capability
   (`claude.use('downloads')`), de losse pagina gebruikt een gewone link. `tool/bouw.mjs` maakt beide versies.
 
