@@ -1,11 +1,12 @@
-# Vier punten in clap-wrapper v0.16.0, klaar om te melden
+# Zes punten in clap-wrapper v0.16.0 (en één in clap-validator), klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
-klaar om te plakken. De drie patches gaan schoon op v0.16.0 (= hun `main` op 17 okt 2026, commit 1cca996); in de
+klaar om te plakken. De patches 0001–0004 gaan elk los schoon op v0.16.0, 0005 na 0004 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1 tot en met 4 (3 heeft geen patch). Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
+issue 1 tot en met 6 (3 heeft geen patch). Het punt voor clap-validator staat onderaan en gaat
+naar https://github.com/free-audio/clap-validator/issues/new. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
 
 ---
@@ -115,3 +116,64 @@ does not allocate.
 Tested on macOS 15 arm64: pluginval 10 (AU, `--rtcheck enabled`) green on four consecutive runs with the patch.
 
 Found by: an independent build session of the Pluginbouwer project (https://github.com/CKrebbers/pluginbouwer).
+
+---
+
+## Issue 5 — AUv2: parameters set before `Initialize()` never reach the CLAP
+
+**What happens.** A host that sets parameters on an uninitialized AU (`AudioUnitSetParameter` before
+`AudioUnitInitialize`, which Logic and AudioToolbox-based hosts do when restoring a project or when the user tweaks a
+plugin on a track that has not rendered yet) only changes the value in the `AUBase` element. There is no
+`ProcessAdapter` yet, so `WrapAsAUV2::SetParameter` cannot queue a CLAP event; after `Initialize` the CLAP still has
+its own defaults while the host shows the new values. A null test between CLAP and AU (same input, same parameter
+values, set before activation) differs.
+
+**Fix** (`0004-auv2-parameters-set-before-initialize.patch`): remember `(clap_id, value)` pairs set before
+`Initialize` in `_paramsBeforeInit` and send them to the CLAP through `params.flush()` in `activateCLAP()`, before the
+first render.
+
+Tested on macOS 15 arm64: CLAP and AU renders of the same input with the same parameters (set before `Initialize`) are
+bit-identical with the patch; without it they differ.
+
+---
+
+## Issue 6 — AUv2: factory presets from the CLAP preset-discovery factory (feature)
+
+**What happens.** A CLAP that ships presets through `clap.preset-discovery-factory` (location kind
+`CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN`, one load key per preset) and implements `clap.preset-load` shows no factory
+presets when wrapped as AUv2: `GetPresets` is not overridden, so Logic's preset menu stays empty.
+
+**Proposal** (`0005-auv2-factory-presets-from-preset-discovery.patch`, applies after 0004): after the instance is
+created, walk the CLAP's preset-discovery factory (all providers, locations of kind `PLUGIN`, presets for this plugin
+id) and expose them through `GetPresets`; `NewFactoryPresetSet` loads the chosen one via `preset-load` on the main
+thread, sets it as the current preset and keeps its name for `SaveState`/ClassInfo. A preset overrides values the host
+set before `Initialize` (from 0004). Nothing in the patch is plugin-specific.
+
+Tested on macOS 15 arm64: `auval -strict` lists the presets ("HAS FACTORY PRESETS"); an AudioToolbox host reads
+`kAudioUnitProperty_FactoryPresets`, sets `kAudioUnitProperty_PresentPreset` before and after `Initialize`, and every
+parameter and the ClassInfo match the preset; an unknown preset number returns an error. Not tested in Logic itself.
+Known gap: VST3 gets no program list from the same presets.
+
+Found by: an independent build session of the Pluginbouwer project (preset phase).
+
+---
+
+## clap-validator 0.4.1 — `begin_preset()` deadlocks on the second preset of a container
+
+Paste at https://github.com/free-audio/clap-validator/issues/new (patch: `../clap-validator-0001-begin-preset-deadlock.patch`).
+
+**What happens.** `preset-discovery-crawl` and `preset-discovery-load` time out ("Timed out after 45 seconds") for any
+plugin whose preset provider declares a container with more than one preset (`begin_preset` with a load key, called
+twice for the same location).
+
+In `src/plugin/preset_discovery/metadata_receiver.rs`, `MetadataReceiver::begin_preset` takes
+`let result = this.result.lock().unwrap();` for its checks and keeps the guard alive. For a container preset it then
+calls `this.flush_preset()`, which does `self.result.lock()` again. `std::sync::Mutex` is not reentrant, so from the
+second preset on the thread waits on itself (stack: `lock_contended ← flush_preset ← begin_preset ←
+providerMetadata`). On the first preset `flush_preset` returns early (nothing to flush), which is why single-preset
+containers pass. Same code on master (b2f1d9b).
+
+**Fix**: drop the guard after the checks (`drop(result);`), before `flush_preset()`. The patch compiles (`cargo check`,
+rustc 1.97); it has not yet been run against a plugin with a multi-preset container.
+
+Workaround used meanwhile: one provider per preset, each a container of one (valid CLAP, but unusual for hosts).

@@ -60,8 +60,10 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 4 — presets
 **Prompt**
-> Fabriekspresets uit `presets/` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets.
-**Stopcriterium**: clap-validator preset-tests groen; auval toont de presets.
+> Fabriekspresets uit `presets/` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
+> (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
+> (SKIPPED telt niet) en dat elke presetnaam in de uitvoer van `auval -strict -v` staat.
+**Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
 **Uitslag**: nog niet getoetst
 
 ---
