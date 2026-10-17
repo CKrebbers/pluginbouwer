@@ -4,6 +4,7 @@
 // plugin actief is), of op de mainthread zolang hij niet actief is. `waarde` is de spiegel voor de host (params.get).
 // Het frontpaneel (gui-extensie, fase 3) leest alleen die spiegel en zet zijn veranderingen in een lock-vrije wachtrij;
 // process en flush maken er uitvoerevents voor de host van en passen ze toe zoals een event van de host.
+// Fabriekspresets (fase 4, fabriekspresets.h) laden via preset-load zoals een state: alle waarden in één keer.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -14,6 +15,7 @@
 #include <cstring>
 #include <vector>
 
+#include "fabriekspresets.h"
 #include "ontwerpen/keten_dub_echo.h"
 #include "param_tekst.h"
 #include "ui_wachtrij.h"
@@ -75,6 +77,7 @@ struct Plugin {
   clap_plugin_t clap;
   const clap_host_t* host;
   const clap_host_params_t* hostParams = nullptr;
+  const clap_host_preset_load_t* hostPresetLoad = nullptr;
   Ontwerp* ontwerp = nullptr;
   std::vector<unsigned char> geheugen;
   std::atomic<double> waarde[N];
@@ -230,6 +233,18 @@ bool schrijf(const clap_ostream_t* s, const void* d, size_t n) {
   }
   return true;
 }
+// na het vullen van `waarde` door state.load of preset-load (mainthread): het Ontwerp krijgt de waarden en de host
+// leest ze opnieuw
+void waardenGeladen(Plugin* pl) {
+  if (pl->actief) {
+    pl->stateNieuw.store(true, std::memory_order_release);  // process neemt de waarden over
+  } else {
+    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
+    bewaarStaart(pl);
+  }
+  if (pl->hostParams) pl->hostParams->rescan(pl->host, CLAP_PARAM_RESCAN_VALUES);  // de host moet opnieuw lezen
+}
+
 bool stateSave(const clap_plugin_t* p, const clap_ostream_t* s) {
   std::vector<unsigned char> b;
   auto zet = [&](const void* d, size_t n) { auto* c = static_cast<const unsigned char*>(d); b.insert(b.end(), c, c + n); };
@@ -266,16 +281,32 @@ bool stateLoad(const clap_plugin_t* p, const clap_istream_t* s) {
     int i = indexVan(id);
     if (i >= 0) pl->waarde[i].store(begrens(i, v), std::memory_order_relaxed);  // onbekend id: overslaan
   }
-  if (pl->actief) {
-    pl->stateNieuw.store(true, std::memory_order_release);  // process neemt de waarden over
-  } else {
-    for (int i = 0; i < N; ++i) pl->ontwerp->zetParam(i, pl->waarde[i].load(std::memory_order_relaxed));
-    bewaarStaart(pl);
-  }
-  if (pl->hostParams) pl->hostParams->rescan(pl->host, CLAP_PARAM_RESCAN_VALUES);  // de host moet opnieuw lezen
+  waardenGeladen(pl);
   return true;
 }
 const clap_plugin_state_t STATE = {stateSave, stateLoad};
+
+// --- preset-load: een fabriekspreset (locatie in de plugin, load_key = sleutel), op de mainthread ------------------
+// Parameters die de preset niet noemt gaan naar hun standaard, zoals bij een state zonder die parameter.
+bool presetLaad(const clap_plugin_t* p, uint32_t soort, const char* plek, const char* sleutel) {
+  Plugin* pl = zelf(p);
+  const fabriek::Preset* f =
+      soort == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !plek ? fabriek::zoek(sleutel) : nullptr;
+  if (!f) {
+    if (pl->hostPresetLoad)
+      pl->hostPresetLoad->on_error(pl->host, soort, plek, sleutel, 0, "onbekende fabriekspreset");
+    return false;
+  }
+  for (int i = 0; i < N; ++i) pl->waarde[i].store(Ontwerp::PARAMS[i].standaard, std::memory_order_relaxed);
+  for (int k = 0; k < f->n; ++k) {
+    const int i = indexVan(Ontwerp::PARAMS[fabriek::paramIndex(f->w[k].param)].id);  // verborgen (toetsbouw): overslaan
+    if (i >= 0) pl->waarde[i].store(begrens(i, f->w[k].v), std::memory_order_relaxed);
+  }
+  waardenGeladen(pl);
+  if (pl->hostPresetLoad) pl->hostPresetLoad->loaded(pl->host, soort, plek, sleutel);
+  return true;
+}
+const clap_plugin_preset_load_t PRESET_LOAD = {presetLaad};
 
 // --- latency ---------------------------------------------------------------------------------------------------
 uint32_t latentie(const clap_plugin_t* p) { return zelf(p)->ontwerp->latentie(); }
@@ -293,6 +324,11 @@ bool init(const clap_plugin_t* p) {
   Plugin* pl = zelf(p);
   pl->ontwerp = new Ontwerp();
   pl->hostParams = static_cast<const clap_host_params_t*>(pl->host->get_extension(pl->host, CLAP_EXT_PARAMS));
+  pl->hostPresetLoad =
+      static_cast<const clap_host_preset_load_t*>(pl->host->get_extension(pl->host, CLAP_EXT_PRESET_LOAD));
+  if (!pl->hostPresetLoad)
+    pl->hostPresetLoad =
+        static_cast<const clap_host_preset_load_t*>(pl->host->get_extension(pl->host, CLAP_EXT_PRESET_LOAD_COMPAT));
   for (int i = 0; i < N; ++i) pl->waarde[i].store(Ontwerp::PARAMS[i].standaard, std::memory_order_relaxed);
   return true;
 }
@@ -480,6 +516,7 @@ const void* extensie(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD;
 #ifndef PB_GEEN_GUI
   if (paneel::Venster::api() && !std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
   if (!std::strcmp(id, CLAP_EXT_TIMER_SUPPORT)) return &TIMER;
@@ -527,5 +564,8 @@ const clap_plugin_factory_t FACTORY = {fabAantal, fabDescriptor, fabMaak};
 bool dub_echo_entry_init(const char*) { return true; }
 void dub_echo_entry_deinit() {}
 const void* dub_echo_entry_get_factory(const char* id) {
-  return std::strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &FACTORY : nullptr;
+  if (!std::strcmp(id, CLAP_PLUGIN_FACTORY_ID)) return &FACTORY;
+  if (!std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID) || !std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT))
+    return &fabriek::FACTORY;
+  return nullptr;
 }

@@ -1,0 +1,258 @@
+Herkomst: proef F1 (tak proef/f1, fase 4, 17 okt 2026), door een vers Claude Code-gesprek gemaakt.
+clap-wrapper v0.16.0 (AUv2) kent geen factory presets: kAudioUnitProperty_FactoryPresets gaat naar AUBase::GetPresets,
+dat kAudioUnitErr_InvalidProperty geeft, en een CLAP-plugin kan zijn presets op geen enkele manier aan de AU doorgeven.
+Hier: de wrapper doorzoekt bij het maken van de instantie één keer de preset-discovery-factory van de CLAP
+(CLAP_PRESET_DISCOVERY_FACTORY_ID, of de _COMPAT-id), alleen de locaties van soort CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
+(presets in de plugin zelf; geen bestanden). Elke preset die de CLAP-id van deze plugin noemt wordt een AU factory
+preset, genummerd in de volgorde van de provider (GetPresets). Een host die kAudioUnitProperty_PresentPreset zet
+(NewFactoryPresetSet) laadt hem met de preset-load-extensie (from_location met de load_key), op de mainthread zoals
+de rest van de wrapper; de plugin meldt de nieuwe waarden zelf met params.rescan. De naam gaat ook in de ClassInfo
+(_current_program_name). Waarden die de host vóór Initialize zette (patch auv2-params-voor-init) vervallen: de preset
+vervangt alles. Deze patch moet na clap-wrapper-auv2-params-voor-init.patch komen (naamvolgorde).
+
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+index b3a85a8..fd3f803 100644
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -563,6 +563,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
+   OSStatus SaveState(CFPropertyListRef *ptPList) override;
+   OSStatus RestoreState(CFPropertyListRef plist) override;
+ 
++  // factory presets: the presets the CLAP declares through its preset-discovery factory at a location of kind
++  // CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN (stored inside the plugin), loaded with the preset-load extension.
++  OSStatus GetPresets(CFArrayRef *outData) const override;
++  OSStatus NewFactoryPresetSet(const AUPreset &inNewFactoryPreset) override;
++
+   // render
+   OSStatus Render(AudioUnitRenderActionFlags &inFlags, const AudioTimeStamp &inTimeStamp,
+                   UInt32 inFrames) override;
+@@ -810,6 +815,11 @@ class WrapAsAUV2 : public ausdk::AUBase,
+ 
+   CFStringRef _current_program_name = 0;
+ 
++  // filled once in the constructor (scanFactoryPresets), read-only afterwards
++  void scanFactoryPresets();
++  std::vector<AUPreset> _factoryPresets;  // presetName retained, released in the destructor
++  std::vector<std::string> _factoryPresetLoadKeys;
++
+   // ------------- for the MIDI output
+   AUMIDIOutputCallbackStruct _midioutput_hostcallback = {nullptr, nullptr};
+ #if AUSDK_MIDI2_AVAILABLE
+diff --git a/src/wrapasauv2.cpp b/src/wrapasauv2.cpp
+index 8ee03fd..b07e826 100644
+--- a/src/wrapasauv2.cpp
++++ b/src/wrapasauv2.cpp
+@@ -141,6 +141,7 @@ WrapAsAUV2::WrapAsAUV2(AUV2_Type type, const std::string &clapname, const std::s
+       {
+         _plugin->initialize();
+         _os_attached.on();
++        scanFactoryPresets();
+       }
+       else
+       {
+@@ -181,6 +182,7 @@ WrapAsAUV2::~WrapAsAUV2()
+   {
+     CFRelease(_current_program_name);
+   }
++  for (auto &p : _factoryPresets) CFRelease(p.presetName);
+ }
+ 
+ // the very very reduced state machine
+@@ -1556,6 +1558,197 @@ OSStatus WrapAsAUV2::RestoreState(CFPropertyListRef plist)
+   return noErr;
+ }
+ 
++// --- factory presets ------------------------------------------------------------------------------------------
++// The CLAP preset-discovery factory is crawled once, for the locations of kind CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
++// (presets stored inside the plugin, so no file system access is needed). Every preset that names this plugin's
++// CLAP id becomes an AU factory preset, numbered in the order the provider reports them.
++namespace
++{
++struct FactoryPresetScan
++{
++  std::string pluginId;
++  bool pluginLocation = false;  // the provider declared a location of kind PLUGIN
++  // the preset being declared (between begin_preset calls)
++  bool open = false, forUs = false;
++  std::string name, loadKey;
++  std::vector<std::pair<std::string, std::string>> found;  // name, load key
++
++  void close()
++  {
++    if (open && forUs) found.emplace_back(name, loadKey);
++    open = forUs = false;
++  }
++
++  static FactoryPresetScan *self(const clap_preset_discovery_indexer_t *i)
++  {
++    return static_cast<FactoryPresetScan *>(i->indexer_data);
++  }
++  static FactoryPresetScan *self(const clap_preset_discovery_metadata_receiver_t *r)
++  {
++    return static_cast<FactoryPresetScan *>(r->receiver_data);
++  }
++  static bool declareFiletype(const clap_preset_discovery_indexer_t *, const clap_preset_discovery_filetype_t *)
++  {
++    return true;
++  }
++  static bool declareLocation(const clap_preset_discovery_indexer_t *i,
++                              const clap_preset_discovery_location_t *l)
++  {
++    if (l && l->kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) self(i)->pluginLocation = true;
++    return true;
++  }
++  static bool declareSoundpack(const clap_preset_discovery_indexer_t *, const clap_preset_discovery_soundpack_t *)
++  {
++    return true;
++  }
++  static const void *indexerExtension(const clap_preset_discovery_indexer_t *, const char *)
++  {
++    return nullptr;
++  }
++  static void onError(const clap_preset_discovery_metadata_receiver_t *r, int32_t, const char *msg)
++  {
++    LOGINFO("[clap-wrapper] auv2: preset discovery error: {}", msg ? msg : "");
++    self(r)->open = false;
++  }
++  static bool beginPreset(const clap_preset_discovery_metadata_receiver_t *r, const char *name,
++                          const char *loadKey)
++  {
++    auto *s = self(r);
++    s->close();
++    if (!name || !loadKey) return false;  // a location of kind PLUGIN holds a container: name and key required
++    s->open = true;
++    s->name = name;
++    s->loadKey = loadKey;
++    return true;
++  }
++  static void addPluginId(const clap_preset_discovery_metadata_receiver_t *r, const clap_universal_plugin_id_t *id)
++  {
++    auto *s = self(r);
++    if (s->open && id && id->abi && id->id && !strcmp(id->abi, "clap") && s->pluginId == id->id) s->forUs = true;
++  }
++  static void setSoundpackId(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void setFlags(const clap_preset_discovery_metadata_receiver_t *, uint32_t)
++  {
++  }
++  static void addCreator(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void setDescription(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void setTimestamps(const clap_preset_discovery_metadata_receiver_t *, clap_timestamp, clap_timestamp)
++  {
++  }
++  static void addFeature(const clap_preset_discovery_metadata_receiver_t *, const char *)
++  {
++  }
++  static void addExtraInfo(const clap_preset_discovery_metadata_receiver_t *, const char *, const char *)
++  {
++  }
++};
++}  // namespace
++
++void WrapAsAUV2::scanFactoryPresets()
++{
++  if (!_library._pluginEntry || !_desc) return;
++  auto *factory = static_cast<const clap_preset_discovery_factory_t *>(
++      _library._pluginEntry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
++  if (!factory)
++    factory = static_cast<const clap_preset_discovery_factory_t *>(
++        _library._pluginEntry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT));
++  if (!factory) return;
++
++  FactoryPresetScan scan;
++  scan.pluginId = _desc->id;
++  const clap_preset_discovery_indexer_t indexer = {CLAP_VERSION_INIT,
++                                                   "clap-wrapper auv2",
++                                                   "free-audio",
++                                                   nullptr,
++                                                   nullptr,
++                                                   &scan,
++                                                   FactoryPresetScan::declareFiletype,
++                                                   FactoryPresetScan::declareLocation,
++                                                   FactoryPresetScan::declareSoundpack,
++                                                   FactoryPresetScan::indexerExtension};
++  const clap_preset_discovery_metadata_receiver_t receiver = {
++      &scan,
++      FactoryPresetScan::onError,
++      FactoryPresetScan::beginPreset,
++      FactoryPresetScan::addPluginId,
++      FactoryPresetScan::setSoundpackId,
++      FactoryPresetScan::setFlags,
++      FactoryPresetScan::addCreator,
++      FactoryPresetScan::setDescription,
++      FactoryPresetScan::setTimestamps,
++      FactoryPresetScan::addFeature,
++      FactoryPresetScan::addExtraInfo};
++
++  const uint32_t n = factory->count(factory);
++  for (uint32_t k = 0; k < n; ++k)
++  {
++    auto *d = factory->get_descriptor(factory, k);
++    if (!d || !d->id) continue;
++    scan.pluginLocation = false;
++    auto *provider = factory->create(factory, &indexer, d->id);
++    if (!provider) continue;
++    if (provider->init(provider) && scan.pluginLocation)
++    {
++      provider->get_metadata(provider, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr, &receiver);
++      scan.close();
++    }
++    provider->destroy(provider);
++  }
++
++  for (auto &f : scan.found)
++  {
++    AUPreset p;
++    p.presetNumber = static_cast<SInt32>(_factoryPresets.size());
++    p.presetName = CFStringCreateWithCString(nullptr, f.first.c_str(), kCFStringEncodingUTF8);
++    if (!p.presetName) continue;
++    _factoryPresets.push_back(p);
++    _factoryPresetLoadKeys.push_back(f.second);
++  }
++}
++
++OSStatus WrapAsAUV2::GetPresets(CFArrayRef *outData) const
++{
++  if (_factoryPresets.empty()) return kAudioUnitErr_InvalidProperty;
++  if (!outData) return noErr;
++  // an array of AUPreset pointers (no CF callbacks), as AUBase documents it; they stay valid while we live
++  auto *a = CFArrayCreateMutable(nullptr, static_cast<CFIndex>(_factoryPresets.size()), nullptr);
++  for (auto &p : _factoryPresets) CFArrayAppendValue(a, &p);
++  *outData = a;
++  return noErr;
++}
++
++OSStatus WrapAsAUV2::NewFactoryPresetSet(const AUPreset &inNewFactoryPreset)
++{
++  const auto n = inNewFactoryPreset.presetNumber;
++  if (n < 0 || static_cast<size_t>(n) >= _factoryPresets.size() || !_plugin)
++    return kAudioUnitErr_InvalidPropertyValue;
++
++  auto guarantee_mainthread = _plugin->AlwaysMainThread();
++  auto *plugin = _plugin->_plugin;
++  auto *presetLoad =
++      static_cast<const clap_plugin_preset_load_t *>(plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD));
++  if (!presetLoad)
++    presetLoad = static_cast<const clap_plugin_preset_load_t *>(
++        plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD_COMPAT));
++  if (!presetLoad || !presetLoad->from_location(plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr,
++                                                _factoryPresetLoadKeys[n].c_str()))
++    return kAudioUnitErr_InvalidPropertyValue;
++
++  // the preset replaces every value: values the host set before Initialize must not overwrite it later
++  _paramsBeforeInit.clear();
++
++  SetAFactoryPresetAsCurrent(_factoryPresets[n]);
++  if (_current_program_name) CFRelease(_current_program_name);
++  _current_program_name = CFStringCreateCopy(nullptr, _factoryPresets[n].presetName);
++  return noErr;
++}
++
+ bool WrapAsAUV2::isEffectFacade()
+ {
+   // Both scopes are placeholder-only (no CLAP audio ports behind them, yet an AU

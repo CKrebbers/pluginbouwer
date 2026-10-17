@@ -74,6 +74,32 @@ fonts/            IBM Plex Mono en Silkscreen (SIL OFL 1.1), door CMake als byte
 ## Presets (fase 4)
 Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden
 per naam). Fabriekspresets komen uit de varianten van de tool.
+- **In de plugin gebakken.** CMake leest bij configure elk `presets/*.json` (`string(JSON)`) en schrijft per bestand
+  één `PB_FABRIEKSPRESET(sleutel, naam, uitleg, aantal, {param, waarde}…)` in `build/gemaakt/fabriekspresets.inc`.
+  Sleutel = bestandsnaam zonder `.json`, volgorde = bestandsnaam. `plugin/src/fabriekspresets.h` controleert bij het
+  compileren (`static_assert`) dat elke parameternaam in `PARAMS` staat, elke waarde binnen het bereik ligt en geen
+  naam of sleutel dubbel is. Een nieuw JSON-bestand in `presets/` is na een nieuwe configure een nieuwe preset.
+- **CLAP preset-discovery.** `clap_entry.get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID)` (ook de `_COMPAT`-id) geeft
+  per preset een provider (`<clap-id>.fabriekspreset.<sleutel>`) met één locatie van soort
+  `CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN` (location NULL, vlag fabrieksinhoud) en één preset met naam, load_key =
+  sleutel, de CLAP-id van de plugin, maker en uitleg. Eén provider met alle presets in één container zou netter zijn,
+  maar daarop blijft clap-validator 0.4.1 hangen (VERSLAG.md); voor een host zijn beide geldig.
+- **Laden: preset-load** (`from_location(PLUGIN, NULL, sleutel)`, mainthread). Hetzelfde pad als `state.load`: alle
+  waarden eerst op hun standaard, dan die uit de preset, in `waarde[]`; niet actief → meteen naar het Ontwerp, actief
+  → `stateNieuw` en process neemt ze over. Daarna `params.rescan(VALUES)` en `host_preset_load.loaded`. Een onbekende
+  sleutel of een bestandslocatie: false en `on_error`, er verandert niets.
+- **AU factory presets.** clap-wrapper v0.16.0 kent ze niet; `patches/clap-wrapper-auv2-presets-uit-preset-discovery.patch`
+  laat de AUv2-wrapper bij het maken van de instantie de preset-discovery van de CLAP doorlopen (alleen locaties van
+  soort PLUGIN). Elke preset voor deze CLAP-id wordt een AU factory preset (`kAudioUnitProperty_FactoryPresets`),
+  genummerd zoals de providers. `kAudioUnitProperty_PresentPreset` zetten laadt hem met preset-load; de naam gaat ook
+  in de ClassInfo (wat Logic in het project bewaart). VST3 krijgt (nog) geen presets: clap-wrapper geeft ze daar niet
+  door, en de opdracht vraagt alleen CLAP en AU.
+- **Getoetst** door clap-validator (`preset-discovery-crawl`, `-descriptor-consistency`, `-load`), door
+  `gereedschap/pb-preset-toets` (CLAP-host: discovery zoals een DAW, elke preset laden, en de preset klinkt bit voor
+  bit als dezelfde waarden via `params.flush`, vóór activate en terwijl actief; ook onder RTSan), door
+  `gereedschap/pb-au-presets` (macOS: elke AU factory preset zetten, PresentPreset en ClassInfo lezen) en door auval,
+  dat de presets bij naam toont. `gereedschap/vergelijk-presets.mjs` legt de waarden uit beide toetsen naast
+  `presets/*.json` (CLAP bit voor bit, AU als float32).
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

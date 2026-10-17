@@ -42,10 +42,11 @@ jobs:
           ~/clap-validator/bin/clap-validator validate "build/plugins/PB Dub-echo.clap" 2>&1 | tee cv.log
           sed 's/\x1b\[[0-9;]*m//g' cv.log > cv-kaal.log
           grep -E "tests run, .* 0 failed" cv-kaal.log
-          # fase 2: deze toetsen moeten echt gedraaid en geslaagd zijn (niet overgeslagen)
+          # fase 2 en 4: deze toetsen moeten echt gedraaid en geslaagd zijn (niet overgeslagen)
           for t in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
                    state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate \
-                   param-conversions param-set-events param-default-values; do
+                   param-conversions param-set-events param-default-values \
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
             uitslag="$(awk -v t="┌─ $t" '$0 ~ t"$" {gevonden=1} gevonden && /└──/ {print; exit}' cv-kaal.log)"
             echo "$t: $uitslag"
             echo "$uitslag" | grep -q PASSED || { echo "FOUT: $t niet PASSED"; exit 1; }
@@ -87,6 +88,11 @@ jobs:
           for n in 1 2 3 4 5 6 7 8; do
             ./build/pb-state-toets "build/toets/zonder-$n.clap" "build/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
           done
+      - name: Fabriekspresets CLAP (pb-preset-toets; discovery, laden, DSP, tegen presets/*.json)
+        run: |
+          mkdir -p uit
+          ./build/pb-preset-toets "build/plugins/PB Dub-echo.clap" uit/presets-clap-linux.tsv testsignalen/echo-standaard.in.wav
+          node gereedschap/vergelijk-presets.mjs uit/presets-clap-linux.tsv | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Renders (null-test)
         if: always()
         uses: actions/upload-artifact@v4
@@ -111,7 +117,7 @@ jobs:
           for b in rtsan:OFF kanarie:ON; do
             CC=clang-20 CXX=clang++-20 cmake -S plugin -B "build-${b%%:*}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
               -DPB_RTSAN=ON -DPB_KANARIE="${b#*:}"
-            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap pb-state-toets pb-paneel-toets
+            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap pb-state-toets pb-paneel-toets pb-preset-toets
           done
       - name: RTSan draait schoon (elk testsignaal, blok 512 en wisselend, state-rondje)
         run: |
@@ -133,6 +139,10 @@ jobs:
             ./build-rtsan/pb-state-toets "build-rtsan/toets/zonder-$n.clap" "build-rtsan/plugins/PB Dub-echo.clap" "$n" testsignalen/echo-standaard.in.wav
           done
           echo "RTSan (state-toets): schoon"
+      - name: RTSan met de fabriekspresets (preset laden terwijl actief, dan process)
+        run: |
+          ./build-rtsan/pb-preset-toets "build-rtsan/plugins/PB Dub-echo.clap" uit/presets-rtsan.tsv testsignalen/echo-standaard.in.wav
+          echo "RTSan (presets): schoon"
       - name: RTSan met het frontpaneel (gebaren van het paneel door process op een real-time audiothread)
         run: |
           mkdir -p uit/rtsan-paneel
@@ -197,6 +207,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Pakketten
         run: brew list ninja >/dev/null 2>&1 || brew install ninja
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Bouwen
         run: |
           uname -m
@@ -223,6 +236,23 @@ jobs:
           auval -a | grep -i "Vrve" || true
           auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
+          # fase 4: auval toont de factory presets, elk bij naam
+          node -e "for (const f of require('fs').readdirSync('presets').sort()) console.log(require('./presets/' + f).naam)" > preset-namen.txt
+          grep -A12 -i "factory preset" auval.log || true  # alleen voor het log; de poort is de lus hieronder
+          while read -r naam; do
+            grep -q "$naam" auval.log || { echo "FOUT: auval toont preset '$naam' niet"; exit 1; }
+            echo "auval toont preset: $naam"
+          done < preset-namen.txt
+      - name: Fabriekspresets AU (pb-au-presets; zetten, PresentPreset, ClassInfo, tegen presets/*.json)
+        run: |
+          mkdir -p uit
+          ./build/pb-au-presets uit/presets-au-macos.tsv
+          node gereedschap/vergelijk-presets.mjs --au uit/presets-au-macos.tsv | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Fabriekspresets CLAP (pb-preset-toets; discovery, laden, DSP, tegen presets/*.json)
+        run: |
+          mkdir -p uit
+          ./build/pb-preset-toets "build/plugins/PB Dub-echo.clap" uit/presets-clap-macos.tsv testsignalen/echo-standaard.in.wav
+          node gereedschap/vergelijk-presets.mjs uit/presets-clap-macos.tsv | tee -a "$GITHUB_STEP_SUMMARY"
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -249,9 +279,6 @@ jobs:
         with:
           name: schermafbeelding-macos
           path: schermafbeelding/macos/
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test met automatisering (events in process; glijden, blokgrootte verandert niets)
