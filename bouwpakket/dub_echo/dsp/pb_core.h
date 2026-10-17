@@ -9,6 +9,10 @@ namespace pb {
 // de staart van een echo tussen browser en plugin zodra hij onder ~1e-308 komt, en kost hij op x86 veel CPU.
 inline double flush(double x) { return (x > -1e-30 && x < 1e-30) ? 0.0 : x; }
 
+// Uitvoer naar de host: onder FLT_MIN (2^-126) zou de omzetting naar float een subnormale float geven, bv. zachte
+// invoer maal de mix. Die wordt 0 (gevonden door clap-validator fuzz in een verse sessie, fase 2 van proef F2).
+inline float uitvoer(double y) { return (y > -1.1754943508222875e-38 && y < 1.1754943508222875e-38) ? 0.0f : (float)y; }
+
 // Invoer van de host: een denormale float wordt 0 zonder dat er met hem gerekend wordt (alleen de exponent-bits
 // bekeken). Al het omzetten van een denormale float naar double kost op x86 een microcode-omweg (clap-validator
 // "process-audio-denormals" mat tot 5,8× trager).

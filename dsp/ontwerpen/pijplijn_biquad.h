@@ -74,7 +74,7 @@ struct Ontwerp {
       if (vers) { for (auto& g : glij) g.spring(); vers = false; anders = true; }
       for (auto& g : glij) anders |= g.stap();
       if (anders) herbereken();
-      for (int c = 0; c < kanalen; ++c) uit[c][s] = (float)bq[c].stap(invoer(in[c][s]));
+      for (int c = 0; c < kanalen; ++c) uit[c][s] = uitvoer(bq[c].stap(invoer(in[c][s])));
     }
   }
 };

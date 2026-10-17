@@ -63,7 +63,7 @@ struct Ontwerp {
       for (int c = 0; c < kanalen; ++c) {
         double y = bq[c].stap(invoer(in[c][s]));
         vt[c].schrijf(y);
-        uit[c][s] = (float)((1.0 - mix) * y + mix * vt[c].leesLagrange(d));
+        uit[c][s] = uitvoer((1.0 - mix) * y + mix * vt[c].leesLagrange(d));
       }
     }
   }

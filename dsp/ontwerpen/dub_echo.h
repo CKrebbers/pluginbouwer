@@ -128,7 +128,7 @@ struct Ontwerp {
         toon[c].stap(laag[c].hoog(r));
         double nat = toon[c].lp;
         terug[c] = flush(fb * nat);
-        uit[c][s] = (float)((1.0 - mix) * x + mix * nat);
+        uit[c][s] = uitvoer((1.0 - mix) * x + mix * nat);
       }
     }
   }

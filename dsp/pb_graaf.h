@@ -197,7 +197,7 @@ struct Graaf {
           double* u = uitw[k][c];
           switch (kn.soort) {
             case Blok::in: u[0] = invoer(in[c][s]); break;
-            case Blok::uit: uit[c][s] = (float)ingang(k, 0, c); break;
+            case Blok::uit: uit[c][s] = uitvoer(ingang(k, 0, c)); break;
             case Blok::som: u[0] = ingang(k, 0, c) + ingang(k, 1, c); break;
             case Blok::versterker: u[0] = flush(waardeMod(k, 0, c) * ingang(k, 0, c)); break;
             case Blok::tape: u[0] = sat[k][c].stap(ingang(k, 0, c) * drive[k]) * invDrive[k]; break;
