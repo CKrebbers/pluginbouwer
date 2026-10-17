@@ -1,0 +1,145 @@
+# CI — Dub-echo. Het log is het bewijs (SPEC.md "Validators"); een toets wordt nooit uitgezet om groen te worden.
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PLUGINVAL_VERSIE: v2.0.0-beta3
+  CLAP_VALIDATOR_VERSIE: "0.4.1"
+
+jobs:
+  linux:
+    name: Linux (clang, clap-validator, pluginval)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakketten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build cmake xvfb libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev
+      - name: Bouwen (clang)
+        run: |
+          CC=clang CXX=clang++ cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ls -la build/plugins build/pb-render
+      - name: clap-validator ophalen (cache)
+        id: cv-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/clap-validator
+          key: clap-validator-${{ env.CLAP_VALIDATOR_VERSIE }}-${{ runner.os }}-${{ runner.arch }}
+      - name: clap-validator bouwen uit de bron (cargo)
+        if: steps.cv-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" --locked --root ~/clap-validator
+      - name: clap-validator
+        run: |
+          set -o pipefail
+          ~/clap-validator/bin/clap-validator --version
+          # valkuil 8: hij kleurt altijd; de exitcode is de poort, de regel zonder ANSI is het bewijs in het log
+          ~/clap-validator/bin/clap-validator validate "build/plugins/PB Dub-echo.clap" 2>&1 | tee cv.log
+          sed 's/\x1b\[[0-9;]*m//g' cv.log | grep -E "tests run, .* 0 failed"
+      - name: pluginval ophalen
+        run: |
+          curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
+          unzip -q pluginval.zip -d pluginval
+          chmod +x pluginval/pluginval
+      - name: pluginval strictness 10 (VST3, xvfb)
+        run: xvfb-run -a ./pluginval/pluginval validate --strictness-level 10 --verbose "build/plugins/PB Dub-echo.vst3"
+
+  rtsan:
+    name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang 20 via apt.llvm.org
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake lsb-release wget software-properties-common gnupg
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          clang-20 --version
+      - name: Bouwen met RTSan (en een kanariebouw)
+        run: |
+          for b in rtsan:OFF kanarie:ON; do
+            CC=clang-20 CXX=clang++-20 cmake -S plugin -B "build-${b%%:*}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DPB_RTSAN=ON -DPB_KANARIE="${b#*:}"
+            cmake --build "build-${b%%:*}" --target pb-render keten_dub_echo_clap
+          done
+      - name: RTSan draait schoon (elk testsignaal, blok 512 en wisselend, state-rondje)
+        run: |
+          set -e
+          mkdir -p uit/rtsan
+          for f in testsignalen/*.in.wav; do
+            n="$(basename "$f" .in.wav)"
+            for opt in "--blok 512" "--blok 3,128,1,4096,77" "--blok 512 --state-rondje"; do
+              echo "== $n $opt"
+              # shellcheck disable=SC2086
+              ./build-rtsan/pb-render "build-rtsan/plugins/PB Dub-echo.clap" "$f" "uit/rtsan/$n.wav" $opt
+            done
+          done
+          echo "RTSan: schoon"
+      - name: Kanarie MOET falen (malloc in process)
+        run: |
+          set +e
+          ./build-kanarie/pb-render "build-kanarie/plugins/PB Dub-echo.clap" testsignalen/echo-standaard.in.wav uit/kanarie.wav --blok 512 > kanarie.log 2>&1
+          code=$?
+          set -e
+          cat kanarie.log
+          if [ "$code" -eq 0 ]; then echo "FOUT: de kanarie liep schoon; RTSan bewaakt niets"; exit 1; fi
+          grep -q "RealtimeSanitizer" kanarie.log || { echo "FOUT: faalde, maar niet door RTSan"; exit 1; }
+          grep -q "malloc" kanarie.log || { echo "FOUT: RTSan ving iets anders dan de malloc"; exit 1; }
+          echo "Kanarie gevangen door RTSan (exitcode $code), zoals bedoeld"
+
+  macos:
+    name: macOS arm64 (auval, pluginval --rtcheck)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pakketten
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+      - name: Bouwen
+        run: |
+          uname -m
+          cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build build
+          ls -la build/plugins
+      - name: Ad-hoc signeren
+        run: |
+          for p in build/plugins/*.clap build/plugins/*.vst3 build/plugins/*.component; do
+            codesign --force --deep --sign - "$p"
+            codesign --verify --verbose "$p"
+          done
+      - name: Installeren
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3 ~/Library/Audio/Plug-Ins/CLAP
+          cp -R "build/plugins/PB Dub-echo.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "build/plugins/PB Dub-echo.vst3" ~/Library/Audio/Plug-Ins/VST3/
+          cp -R "build/plugins/PB Dub-echo.clap" ~/Library/Audio/Plug-Ins/CLAP/
+          killall -9 AudioComponentRegistrar || true
+          sleep 2
+      - name: auval -strict
+        run: |
+          set -o pipefail
+          auval -a | grep -i "Vrve" || true
+          auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+      - name: pluginval ophalen
+        run: |
+          curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
+          unzip -q pluginval.zip -d pluginval
+      - name: pluginval strictness 10 --rtcheck enabled (AU)
+        run: |
+          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
+            ~/Library/Audio/Plug-Ins/Components/"PB Dub-echo.component"
+      - name: pluginval strictness 10 --rtcheck enabled (VST3)
+        run: |
+          ./pluginval/pluginval.app/Contents/MacOS/pluginval validate --strictness-level 10 --rtcheck enabled --verbose \
+            ~/Library/Audio/Plug-Ins/VST3/"PB Dub-echo.vst3"
+      - name: Artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-keten_dub_echo
+          path: build/plugins/
