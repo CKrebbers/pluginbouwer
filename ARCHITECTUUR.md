@@ -118,6 +118,24 @@ parameternaam). Fabriekspresets komen uit de varianten van de tool.
 - **Samplerates en blokken**: de DSP rekent op elke samplerate (geheugen in activate); getoetst 44,1–192 kHz, blok
   1..4096 en wisselend.
 
+## Installatiepakket (fase 6)
+- `gereedschap/maak-pkg.sh <bundelmap> <versie> <uit.pkg>` (macOS) maakt met `pkgbuild` één component-pakket
+  (id `nl.varve.pluginbouwer.dub-echo.pkg`, versie uit `project()` in `plugin/CMakeLists.txt`). De wortel is
+  `Library/Audio/Plug-Ins/{Components,VST3,CLAP}`, installatieplek `/`: dus voor alle gebruikers, met beheerdersrechten.
+- **Signeren**: de bundels zijn al ad-hoc gesigneerd (`codesign --force --deep --sign -`) vóór ze in het pakket gaan;
+  het script controleert dat (`codesign --verify --strict`). Een .pkg kan niet ad-hoc gesigneerd worden
+  (`pkgbuild --sign`/`productsign` eisen een Developer ID Installer-certificaat); het pakket zelf is dus ongesigneerd.
+  Notariseren staat als optie in LEERPAD.md.
+- **Valkuil: relocatable bundels.** pkgbuild markeert bundels standaard als verplaatsbaar. Vindt Installer op de schijf
+  al een bundel met dezelfde CFBundleIdentifier (bv. in een bouwmap of een oude kopie), dan werkt hij die bij in plaats
+  van in `/Library/Audio/Plug-Ins` te installeren. Het script maakt daarom met `pkgbuild --analyze` een component-plist
+  en zet `BundleIsRelocatable` overal op `false`.
+- `preinstall` haalt een oude versie van de drie bundels weg (geen verouderde presets); `postinstall` doet
+  `killall -9 AudioComponentRegistrar` (valkuil 5).
+- CI: de macOS-job maakt het pakket na het signeren (artefact `macos-pkg`). De job "macOS arm64, schone runner" bouwt
+  niets: hij controleert dat er nog geen PB Dub-echo is, installeert het pakket twee keer met `sudo installer` (de
+  tweede keer als upgrade), controleert plek en ad-hoc handtekening van alle drie, en draait `auval -strict`.
+
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
 - Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.
