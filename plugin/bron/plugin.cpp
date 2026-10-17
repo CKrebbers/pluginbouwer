@@ -479,7 +479,13 @@ const clap_plugin_state_t STATE = {stateSave, stateLoad};
 // elk bestand is één preset (geen laadsleutel). preset-load leest het bestand en zet de waarden via hetzelfde pad als
 // een state: een onbekende naam wordt overgeslagen, wat de preset niet noemt krijgt zijn standaard. clap-wrapper maakt
 // er AU factory presets van (patches/clap-wrapper-auv2-presets.patch). Alles hier draait op de mainthread.
-std::string presetMap;  // gezet in pb_entry_init
+// gezet in pb_entry_init. Een functie-static, geen globale: de AU van clap-wrapper roept clap_entry.init al aan
+// tijdens de statische initialisatie (zijn globale Clap::Library), mogelijk vóór de constructor van een globale
+// std::string in dit bestand, die het pad dan weer leeg zou maken.
+std::string& presetMap() {
+  static std::string map;
+  return map;
+}
 
 struct PresetBestand {
   std::string naam, uitleg;
@@ -703,9 +709,9 @@ bool providerInit(const clap_preset_discovery_provider_t* p) {
   const clap_preset_discovery_filetype_t type = {"Dub-echo-preset", "parameterwaarden per naam (JSON)", "json"};
   if (!ix->declare_filetype(ix, &type)) return false;
   struct stat st;
-  if (presetMap.empty() || stat(presetMap.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return true;  // geen presets
+  if (presetMap().empty() || stat(presetMap().c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return true;  // geen presets
   const clap_preset_discovery_location_t plek = {CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "Fabriekspresets",
-                                                 CLAP_PRESET_DISCOVERY_LOCATION_FILE, presetMap.c_str()};
+                                                 CLAP_PRESET_DISCOVERY_LOCATION_FILE, presetMap().c_str()};
   return ix->declare_location(ix, &plek);
 }
 void providerWeg(const clap_preset_discovery_provider_t* p) { delete static_cast<Provider*>(p->provider_data); }
@@ -1016,16 +1022,16 @@ const clap_plugin_factory_t FACTORY = {aantalPlugins, descriptor, createPlugin};
 
 // pad: de bundel (macOS) of het bestand van de plugin (Linux, Windows); de presets staan ernaast (zie "presets")
 bool pb_entry_init(const char* pad) {
-  presetMap.clear();
+  presetMap().clear();
   if (!pad || !*pad) return true;
   char echt[PATH_MAX];
   std::string p = realpath(pad, echt) ? echt : pad;  // een host kan een relatief pad geven; een FILE-locatie is absoluut
   while (p.size() > 1 && p.back() == '/') p.pop_back();
 #ifdef __APPLE__
-  presetMap = p + "/Contents/Resources/presets";
+  presetMap() = p + "/Contents/Resources/presets";
 #else
   const size_t schuin = p.find_last_of('/'), punt = p.find_last_of('.');
-  presetMap = (punt != std::string::npos && (schuin == std::string::npos || punt > schuin) ? p.substr(0, punt) : p) + "-presets";
+  presetMap() = (punt != std::string::npos && (schuin == std::string::npos || punt > schuin) ? p.substr(0, punt) : p) + "-presets";
 #endif
   return true;
 }
