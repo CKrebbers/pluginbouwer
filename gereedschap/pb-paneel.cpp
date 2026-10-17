@@ -433,11 +433,14 @@ int main(int argc, char** argv) {
   ok(g_gui->set_scale(pl, 1.0), "gui.set_scale(1)");
 #endif
   uint32_t b = 0, h = 0;
-  ok(g_gui->get_size(pl, &b, &h) && b >= 560 && h >= 220, "gui.get_size " + std::to_string(b) + " × " +
+  // eerst aanroepen, dan de tekst maken: de volgorde van functie-argumenten ligt in C++ niet vast
+  bool gelukt = g_gui->get_size(pl, &b, &h);
+  ok(gelukt && b >= 560 && h >= 220, "gui.get_size " + std::to_string(b) + " × " +
      std::to_string(h) + " (minimaal 560 × 220)");
   ok(g_gui->can_resize(pl), "gui.can_resize");
   uint32_t kb = 100, kh = 100;
-  ok(g_gui->adjust_size(pl, &kb, &kh) && kb == 560 && kh == 220, "gui.adjust_size(100, 100) → " +
+  gelukt = g_gui->adjust_size(pl, &kb, &kh);
+  ok(gelukt && kb == 560 && kh == 220, "gui.adjust_size(100, 100) → " +
      std::to_string(kb) + " × " + std::to_string(kh));
   schermOpen(b, h);
   clap_window_t ouder = schermOuder();
@@ -527,7 +530,8 @@ int main(int argc, char** argv) {
   ok(g_gui->adjust_size(pl, &gb, &gh) && gb == 900 && gh == 330, "gui.adjust_size(900, 330) laat het zo");
   schermMaat(gb, gh);
   ok(g_gui->set_size(pl, gb, gh), "gui.set_size(900, 330)");
-  ok(g_gui->get_size(pl, &b, &h) && b == 900 && h == 330, "gui.get_size → " + std::to_string(b) + " × " + std::to_string(h));
+  gelukt = g_gui->get_size(pl, &b, &h);
+  ok(gelukt && b == 900 && h == 330, "gui.get_size → " + std::to_string(b) + " × " + std::to_string(h));
   pomp(0.2);
   const Foto f5 = foto();
   bewaar(f5, map, "paneel-groot.png");
