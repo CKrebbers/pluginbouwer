@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       stap:
-        description: 'catalogus of meet'
+        description: 'catalogus, subset of meet'
         default: catalogus
 permissions:
   contents: write
@@ -44,6 +44,7 @@ jobs:
           ls -l /mnt/ref/akai.tar.gz
           gzip -t /mnt/ref/akai.tar.gz && echo "archief compleet"
       - name: Lijst en steekproef (één keer door het archief, gestreamd)
+        if: inputs.stap == 'catalogus'
         run: |
           python3 -I ref/referentie/steekproef.py /mnt/ref/akai.tar.gz /mnt/ref/steekproef
           du -sh /mnt/ref/steekproef
@@ -63,6 +64,21 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -qm "Steekproef Akai-archief (run ${{ github.run_id }})"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" referentie/steekproef
+      - name: Subset als release-assets (referentie-data; CC-BY-4.0, niet in git)
+        if: inputs.stap == 'subset'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          python3 -I ref/referentie/subset.py /mnt/ref/akai.tar.gz /mnt/ref/subset
+          ls -l /mnt/ref/subset
+          cat > /mnt/ref/notities.md <<'EOF'
+          Deel van de Aalto Magnetic Tape Recorder Dataset (Mikkonen, Wright, Välimäki, "Neural Modeling of Magnetic Tape
+          Recorders", DAFx 2023), Zenodo 8085482, CC-BY-4.0. Akai GX-4000D, 7,5 IPS Maxell en 3,75 IPS Scotch: gefade
+          sinussen, log-sweeps, stilte, met vertragingstrajecten. 44,1 kHz float32, L = audio, R = pulsen. Alleen voor
+          ref/referentie/ (vergelijking met de dub-echo van de Pluginbouwer).
+          EOF
+          gh release delete referentie-data --yes --cleanup-tag 2>/dev/null || true
+          gh release create referentie-data --prerelease --target main --title "Referentiedata (Aalto, CC-BY-4.0)" \
+            --notes-file /mnt/ref/notities.md /mnt/ref/subset/*
       - name: Meten tegen de echte band
         if: inputs.stap == 'meet'
         env: { ARCHIEF: /mnt/ref/akai.tar.gz }
