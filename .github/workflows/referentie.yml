@@ -1,0 +1,39 @@
+# referentie.yml — vergelijking met echte bandopnames (Aalto Magnetic Tape Recorder Dataset, CC-BY-4.0,
+# Mikkonen e.a., DAFx 2023; Zenodo 8026272). Handmatig: de dataset is groot en verandert niet.
+# Stap "catalogus" zet de bestandenlijst in het log; "meet" haalt alleen de subsets die ref/referentie/ nodig heeft.
+name: referentie
+on:
+  workflow_dispatch:
+    inputs:
+      stap:
+        description: 'catalogus of meet'
+        default: catalogus
+jobs:
+  referentie:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Catalogus van de dataset (bestanden, groottes, nieuwste versie)
+        run: |
+          for id in 8026272; do
+            curl -fsSL --retry 3 "https://zenodo.org/api/records/$id" -o rec.json
+            python3 - <<'PY'
+          import json
+          d = json.load(open('rec.json'))
+          m = d.get('metadata', {})
+          print('TITEL', m.get('title'), '| VERSIE', m.get('version'), '| LICENTIE', m.get('license'))
+          print('NIEUWSTE', d.get('links', {}).get('latest'))
+          for f in d.get('files', []):
+              print('BESTAND', f['key'], round(f['size'] / 1e6, 1), 'MB', f['links']['self'])
+          PY
+            latest=$(python3 -c "import json;print(json.load(open('rec.json'))['links'].get('latest',''))")
+            [ -n "$latest" ] && curl -fsSL --retry 3 "$latest" | python3 -c "import json,sys; d=json.load(sys.stdin); print('NIEUWSTE-ID', d.get('id'), d['metadata'].get('version')); [print('NIEUW-BESTAND', f['key'], round(f['size']/1e6,1), 'MB', f['links']['self']) for f in d.get('files',[])]" || true
+          done
+      - name: Meten tegen de echte band
+        if: inputs.stap == 'meet'
+        run: sh ref/referentie/meet.sh
+      - uses: actions/upload-artifact@v4
+        if: inputs.stap == 'meet'
+        with:
+          name: referentie
+          path: ref/referentie/uit/
