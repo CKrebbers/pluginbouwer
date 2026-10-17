@@ -32,11 +32,13 @@ xattr -cr "$root"
 # Valkuil: pkgbuild maakt bundels standaard "relocatable". Vindt de installer dezelfde bundel-id ergens anders
 # (bv. een uitgepakte zip in Downloads), dan schrijft hij dáár over in plaats van in /Library. Dus uitzetten.
 pkgbuild --analyze --root "$root" "$werk/component.plist"
+plutil -p "$werk/component.plist"
 i=0
 while /usr/libexec/PlistBuddy -c "Print :$i:RootRelativeBundlePath" "$werk/component.plist" >/dev/null 2>&1; do
-  /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$werk/component.plist"
-  /usr/libexec/PlistBuddy -c "Set :$i:BundleIsVersionChecked false" "$werk/component.plist" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Set :$i:BundleOverwriteAction upgrade" "$werk/component.plist" 2>/dev/null || true
+  # plutil -replace zet de sleutel ook als pkgbuild --analyze hem weglaat (macOS 15 laat BundleIsRelocatable weg)
+  plutil -replace "$i.BundleIsRelocatable" -bool NO "$werk/component.plist"
+  plutil -replace "$i.BundleIsVersionChecked" -bool NO "$werk/component.plist"
+  plutil -replace "$i.BundleOverwriteAction" -string upgrade "$werk/component.plist"
   i=$((i + 1))
 done
 echo "bundels in het pakket: $i (alle niet-relocatable)"
