@@ -260,6 +260,18 @@ jobs:
             codesign --verify --verbose "$b"
           done
 
+      - name: Fase 6 — installatiepakket (pkgbuild, met de ad-hoc gesigneerde bundels)
+        run: |
+          versie="$(sed -n 's/^project(keten_dub_echo VERSION \([0-9.]*\).*/\1/p' plugin/CMakeLists.txt)"
+          test -n "$versie"
+          sh gereedschap/maak-pkg.sh build/plugins "$versie" "pkg/PB-Dub-echo-$versie.pkg"
+          ls -la pkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: pkg/
+
       - name: Installeren in ~/Library/Audio/Plug-Ins
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components ~/Library/Audio/Plug-Ins/VST3 ~/Library/Audio/Plug-Ins/CLAP
@@ -370,3 +382,69 @@ jobs:
         with:
           name: macos-paneel-schermafbeelding
           path: uit/paneel/
+
+  macos-pkg:
+    name: macOS arm64, schone runner (.pkg installeren, auval)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: pkg
+
+      - name: De runner is schoon (geen PB Dub-echo, geen AU Vrve)
+        run: |
+          ls -la pkg
+          for d in /Library/Audio/Plug-Ins ~/Library/Audio/Plug-Ins; do
+            if ls -d "$d"/*/"PB Dub-echo".* 2> /dev/null; then echo "FOUT: $d is niet schoon"; exit 1; fi
+          done
+          if auval -a | grep -i Vrve; then echo "FOUT: de AU is er al"; exit 1; fi
+          echo "schoon: geen PB Dub-echo in /Library of ~/Library, auval -a kent Vrve niet"
+
+      - name: Pakket bekijken (inhoud, versie, handtekening)
+        run: |
+          pkgutil --payload-files pkg/*.pkg | grep -E '\.(component|vst3|clap)$'
+          pkgutil --check-signature pkg/*.pkg || echo "(het .pkg zelf is niet gesigneerd; de bundels erin ad-hoc)"
+
+      - name: Installeren met installer (twee keer; de tweede keer is een upgrade)
+        run: |
+          set -o pipefail
+          sudo installer -verboseR -pkg pkg/*.pkg -target / 2>&1 | tee installer.log
+          grep -q "The install was successful" installer.log
+          sudo installer -pkg pkg/*.pkg -target / 2>&1 | tee installer-2.log
+          grep -q "The install was successful" installer-2.log
+          pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg
+
+      - name: Alles staat op de juiste plek en is ad-hoc gesigneerd
+        run: |
+          set -e
+          for b in "/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" \
+                   "/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" \
+                   "/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap"; do
+            test -d "$b" || { echo "FOUT: $b ontbreekt"; exit 1; }
+            codesign --verify --strict --verbose=1 "$b"
+            codesign -dv "$b" 2>&1 | grep -E '^Signature=adhoc' > /dev/null || { echo "FOUT: $b is niet ad-hoc gesigneerd"; exit 1; }
+            echo "geïnstalleerd en ad-hoc gesigneerd: $b ($(ls "$b/Contents/Resources/presets" | wc -l | tr -d ' ') presets)"
+          done
+          pkgutil --files nl.varve.pluginbouwer.dub-echo.pkg | grep -E '\.(component|vst3|clap)$'
+          if ls -d ~/Library/Audio/Plug-Ins/*/"PB Dub-echo".* 2> /dev/null; then echo "FOUT: iets in ~/Library"; exit 1; fi
+
+      - name: auval -strict (na installatie uit het pakket)
+        run: |
+          set -o pipefail
+          killall -9 AudioComponentRegistrar || true
+          auval -a | grep -i Vrve
+          auval -strict -v aufx PDca Vrve 2>&1 | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: Bewijs (kernregels)
+        run: |
+          echo "installer: $(grep -E 'The install was successful' installer.log)"
+          echo "installer (upgrade): $(grep -E 'The install was successful' installer-2.log)"
+          echo "pakket: $(pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg | tr '\n' ' ')"
+          echo "auval: $(grep 'AU VALIDATION SUCCEEDED' auval.log)"
+          echo "auval, kanaalindelingen:"; grep -A1 "Reported Channel Capabilities" auval.log
+          echo "auval, fabriekspresets:"; grep -A8 "HAS FACTORY PRESETS" auval.log | grep -E "FACTORY|ID:"
