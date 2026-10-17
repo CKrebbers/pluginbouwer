@@ -5,6 +5,6 @@
 - [x] Fase 2 — parameters, automatisering, state (§2)
 - [x] Fase 3 — UI: het frontpaneel uit design.md (§3)
 - [x] Fase 4 — presets: CLAP preset-discovery en AU factory presets (§4)
-- [ ] Fase 5 — formaten AU/VST3/CLAP compleet, mono en stereo (§5)
+- [x] Fase 5 — formaten AU/VST3/CLAP compleet: mono en stereo, bypass, 44,1–192 kHz, blok 1..4096 (§5)
 - [ ] Fase 6 — ad-hoc signeren en installeren (§6)
 - [ ] Fase 7 — test in Logic (checklist voor Clay, §7)
