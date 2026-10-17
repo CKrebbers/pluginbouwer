@@ -132,6 +132,24 @@ per naam). Fabriekspresets komen uit de varianten van de tool.
   blokgroottes; `ci-formaten.sh` eist Mono en Stereo in de busindeling en de AU-indelingen in auval. RTSan rekent in
   elke indeling, in-place en met de bypass.
 
+## Installatiepakket (fase 6)
+- `gereedschap/maak-pkg.sh <plugins-map> <uit.pkg>` (macOS) maakt met `pkgbuild` een component-pakket, identifier
+  `nl.varve.pluginbouwer.dub-echo.pkg`, versie uit de Info.plist van de AU. Payload: de AU in
+  `/Library/Audio/Plug-Ins/Components`, de VST3 in `/Library/Audio/Plug-Ins/VST3`, de CLAP in
+  `/Library/Audio/Plug-Ins/CLAP` (systeembreed; een .pkg installeert als root).
+- De bundels zijn al ad-hoc gesigneerd (CI-stap "Ad-hoc signeren"); het script controleert dat (`codesign --verify
+  --strict`) en kopieert met `ditto`. Het .pkg zelf is niet gesigneerd: een pakket kent geen ad-hoc-handtekening
+  (`productsign`/`pkgbuild --sign` vragen een Developer ID Installer-certificaat). Zie LEERPAD.md, "Notariseren".
+- `BundleIsRelocatable` staat uit (via `pkgbuild --analyze` en een component-plist). Anders installeert de installer
+  over een kopie met dezelfde bundel-id die hij elders vindt (een uitgepakte zip in Downloads) in plaats van in
+  /Library.
+- `gereedschap/pkg-scripts/postinstall`: `killall -9 AudioComponentRegistrar`, zodat de AU meteen te zien is.
+- **Getoetst** (CI-job `pakket`, een verse macos-15-runner die alleen het artefact `macos-pkg` krijgt): eerst bewijzen
+  dat er niets geïnstalleerd is en auval de AU niet kent; een lokvogel (dezelfde bundels in ~/Downloads); `sudo
+  installer -pkg`; de drie bundels staan op hun plek, ad-hoc gesigneerd, zonder quarantaine; de lokvogel is
+  onaangeroerd; `auval -strict` slaagt (met de kanaalindelingen uit fase 5); pluginval (strictness 5) op de
+  geïnstalleerde VST3 en AU.
+
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
 - Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.
