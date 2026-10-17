@@ -56,3 +56,5 @@ multitap), reverb (Dattorro-plaat, FDN, veer, convolutie), modulatie (chorus, fl
 (pitchshift, freeze), spectraal (STFT, vocoder), ruimtelijk (mid/side, breedte, panner); besturing (LFO, envelopes,
 MSEG, macro's, sidechain, MIDI/MPE, tempo-sync, randomisatie); techniek (oversampling, latency melden, presets, undo);
 UI (XY-vlak, meters, scopes, presetbrowser).
+Bandhysterese (Jiles-Atherton zoals CHOWTape; zie TWEEDE-MENING.md: vervorming bij zachte niveaus en niveau-afhankelijke fase die
+onze tanh mist; eerst een ABX-toets of het in de dub-echo hoorbaar is).
