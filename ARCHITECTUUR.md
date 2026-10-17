@@ -22,12 +22,22 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
   event gesplitst; de DSP rekent per sample, dus de uitvoer is gelijk aan die zonder splitsen.
 - **Mainthread**: `init`, `activate` (hier wordt geheugen gereserveerd), state, parameters lezen en tekst.
 - Geen locks, geen allocatie, geen syscalls in `process` (RTSan bewaakt het in CI).
-- Parameteroverdracht: alleen via CLAP-events (`process` en `params.flush`). Geen gedeelde variabelen tussen threads.
+- Parameteroverdracht: alleen via CLAP-events (`process` en `params.flush`). Geen gedeelde variabelen tussen threads,
+  behalve per parameter een atomische kopie van de hostwaarde (voor `get_value` en state save) en een atomische vlag
+  voor een state load terwijl de plugin draait.
+- `params.flush` buiten process: niet actief → main thread, waarden direct naar het Ontwerp; actief → audiothread
+  tussen twee process-aanroepen (nooit tegelijk). Een event via flush vóór sample t geeft bit voor bit hetzelfde als
+  datzelfde event op sample t in process (`plugin/toetsen/param-toets automatisering`).
+- Uitvoer: de schil maakt een subnormale uitvoersample 0 (alleen bits, ná de DSP). De DSP poetst zijn invoer en
+  toestand, maar zeer zachte normale invoer (~1e-38) komt via het droge pad subnormaal uit `Blok::uit`.
 
 ## State
 Binair, klein en vooruit-compatibel: `"PBST"`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
 standaard. Parameter-id's veranderen nooit.
+Getoetst in CI: voor elk id N een build zonder parameter N (`-DPB_ZONDER_PARAM=N`, alsof hij nog niet bestond); zijn
+state laadt in de volledige build (bewaarde waarden exact, N op zijn standaard, geluid bit voor bit gelijk, ook als
+hij laadt terwijl de plugin draait), en de state van de volledige build laadt andersom in de oude.
 
 ## Presets (fase 4)
 Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden

@@ -83,3 +83,25 @@ if (PB_KANARIE)
   set_target_properties(dub_echo_kanarie PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "PB-Dub-echo-kanarie"
                         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/kanarie)
 endif()
+
+# fase 2: de eigen toetsen (plugin/toetsen/param-toets.cpp) en "oudere" builds zonder één parameter, voor de toets
+# "state van een build zonder parameter N laadt in een build mét". Elke id uit SPEC.md krijgt zijn eigen build.
+option(PB_TOETSEN "param-toets en de builds zonder parameter N bouwen" ON)
+if (PB_TOETSEN)
+  add_executable(param-toets toetsen/param-toets.cpp)
+  target_link_libraries(param-toets PRIVATE clap ${CMAKE_DL_LIBS})
+  set_target_properties(param-toets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  if (PB_RTSAN)
+    target_compile_options(param-toets PRIVATE -fsanitize=realtime)
+    target_link_options(param-toets PRIVATE -fsanitize=realtime)
+  endif()
+  foreach(PB_ID RANGE 1 8)
+    add_library(dub_echo_zonder_${PB_ID} MODULE dub_echo.cpp entry.cpp)
+    target_include_directories(dub_echo_zonder_${PB_ID} PRIVATE ${PB_PAKKET}/dsp)
+    target_link_libraries(dub_echo_zonder_${PB_ID} PRIVATE clap)
+    target_compile_options(dub_echo_zonder_${PB_ID} PRIVATE ${PB_DSP_VLAGGEN})
+    target_compile_definitions(dub_echo_zonder_${PB_ID} PRIVATE PB_ZONDER_PARAM=${PB_ID})
+    set_target_properties(dub_echo_zonder_${PB_ID} PROPERTIES PREFIX "" SUFFIX ".clap"
+                          OUTPUT_NAME "PB-Dub-echo-zonder-${PB_ID}" LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/toetsen)
+  endforeach()
+endif()

@@ -48,6 +48,13 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
+- Tekst (wat de host toont en wat je intypt): Tijd `20.5 ms` / `375 ms`; Toon en Laag weg `450 Hz` / `3.00 kHz` /
+  `12.0 kHz`; Verzadiging `6.0 dB`; Resonantie `0.71` (Q); Terugkoppeling, Haperen en Mix als percentage (`37.5 %`).
+  Intypen mag met punt of komma en met of zonder eenheid (`0,4 s`, `3k`, `110%`); een kaal getal is in de eenheid die
+  je ziet. Buiten het bereik wordt geklemd; een verkeerde eenheid wordt geweigerd. Elke getoonde tekst komt na één
+  rondje tekst → waarde → tekst ongewijzigd terug (clap-validator param-conversions en fuzz).
+- Stapjes: geen van deze parameters is getrapt (alle acht zijn continu). Een parameter met de vlag `STAPPEN` in
+  `PARAMS` zou `CLAP_PARAM_IS_STEPPED` krijgen, op hele getallen worden afgerond, en als geheel getal worden getoond.
 
 ## Budgetten
 | wat | budget | geschat/gemeten |

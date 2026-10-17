@@ -55,6 +55,42 @@ jobs:
           grep -E "tests run, .* 0 failed" cv-kaal.log
           exit $status
 
+      - name: clap-validator state-reproducibility en param-fuzz (moeten draaien en slagen, niet overgeslagen)
+        run: |
+          ~/clap-validator/bin/clap-validator validate --json -t 'state-reproducibility|param-fuzz|param-conversions|param-default' \
+            build/plugins/PB-Dub-echo.clap > cv-fase2.json || true
+          node -e '
+            const r = require("./cv-fase2.json").results;
+            const moet = ["state-reproducibility-basic", "state-reproducibility-binary", "state-reproducibility-buffered",
+                          "param-fuzz-basic", "param-fuzz-bounds", "param-fuzz-sample-accurate", "param-fuzz-modulation",
+                          "param-conversions", "param-default-values"];
+            let goed = true;
+            for (const t of moet) {
+              const x = r.find(y => y.test["plugin-instance"] && y.test["plugin-instance"].test === t);
+              const code = x ? x.status.code : "ontbreekt";
+              console.log(t.padEnd(32), code, x && x.status.details ? x.status.details : "");
+              if (code !== "success") goed = false;
+            }
+            if (!goed) { console.log("FOUT: niet alle fase-2-toetsen van clap-validator geslaagd"); process.exit(1); }
+            console.log("alle " + moet.length + " geslaagd");'
+
+      - name: clap-validator fuzz (120 s; params, tekst-rondjes, audio)
+        run: |
+          set +e
+          ~/clap-validator/bin/clap-validator fuzz --duration 120s build/plugins/PB-Dub-echo.clap 2>&1 | tee fuzz.log
+          status=${PIPESTATUS[0]}
+          set -e
+          sed 's/\x1b\[[0-9;]*m//g' fuzz.log | grep -q "fuzzing finished successfully"
+          exit $status
+
+      - name: Eigen toetsen fase 2 (tekst, automatisering, state zonder parameter N -> met)
+        run: |
+          build/param-toets tekst build/plugins/PB-Dub-echo.clap
+          build/param-toets automatisering build/plugins/PB-Dub-echo.clap
+          for n in 1 2 3 4 5 6 7 8; do
+            build/param-toets state build/plugins/PB-Dub-echo.clap build/toetsen/PB-Dub-echo-zonder-$n.clap $n
+          done
+
       - name: pluginval ophalen
         run: |
           curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -95,8 +131,8 @@ jobs:
           CXX: clang++-20
         run: |
           cmake -S plugin -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPB_RTSAN=ON -DPB_KANARIE=ON
-          cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie
-          ls -la build-rtsan/plugins build-rtsan/kanarie
+          cmake --build build-rtsan --target pb-render dub_echo_clap dub_echo_kanarie param-toets dub_echo_zonder_8
+          ls -la build-rtsan/plugins build-rtsan/kanarie build-rtsan/toetsen
 
       - name: RTSan schoon (alle testsignalen, blok 512 en wisselend)
         run: |
@@ -109,6 +145,12 @@ jobs:
             done
           done
           echo "RTSan: geen overtreding in process"
+
+      - name: RTSan schoon met automatisering (events in process, params.flush op de audiothread, state laden terwijl actief)
+        run: |
+          build-rtsan/param-toets automatisering build-rtsan/plugins/PB-Dub-echo.clap
+          build-rtsan/param-toets state build-rtsan/plugins/PB-Dub-echo.clap build-rtsan/toetsen/PB-Dub-echo-zonder-8.clap 8
+          echo "RTSan: geen overtreding in process of flush"
 
       - name: Kanarie moet falen (malloc in process)
         run: |
@@ -187,6 +229,14 @@ jobs:
 
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
         run: sh gereedschap/ci-null.sh clap build
+
+      - name: Eigen toetsen fase 2 (tekst, automatisering, state zonder parameter N -> met)
+        run: |
+          build/param-toets tekst build/plugins/PB-Dub-echo.clap
+          build/param-toets automatisering build/plugins/PB-Dub-echo.clap
+          for n in 1 2 3 4 5 6 7 8; do
+            build/param-toets state build/plugins/PB-Dub-echo.clap build/toetsen/PB-Dub-echo-zonder-$n.clap $n
+          done
 
       - name: Null-test VST3 (pluginval test)
         run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3 "$PV" vst3-macos
