@@ -183,15 +183,19 @@ int main(int argc, char** argv) {
     Plug a(comp, sr); for (auto& [k, v] : stateWaarden) a.zet(k, v); a.init();
     CFPropertyListRef plist = nullptr; UInt32 s = sizeof plist;
     fout("ClassInfo lezen", AudioUnitGetProperty(a.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, &s));
+    // eerst vóór Initialize (zo doen sommige hosts het); weigert de AU dat, dan erna (zoals de meeste hosts)
     Plug b(comp, sr);
-    fout("ClassInfo zetten", AudioUnitSetProperty(b.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, sizeof plist));
+    OSStatus voor = AudioUnitSetProperty(b.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, sizeof plist);
     b.init();
+    if (voor != noErr) fout("ClassInfo zetten na Initialize", AudioUnitSetProperty(b.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, sizeof plist));
+    char vt[96]; snprintf(vt, sizeof vt, "%s", voor == noErr ? "ja" : "nee (OSStatus ");
+    string voorTekst = voor == noErr ? "ja" : string(vt) + to_string((int)voor) + "), wel na Initialize";
     string verschil; bool pg = true;
     for (auto& [k, v] : stateWaarden) { float va = a.lees(k), vb = b.lees(k); if (va != vb) { pg = false; char t[160]; snprintf(t, sizeof t, "%s %.9g→%.9g; ", k.c_str(), va, vb); verschil += t; } }
     auto ya = a.render(autoIn.k, 512, [](size_t) {}), yb = b.render(autoIn.k, 512, [](size_t) {});
     bool rg = ya == yb;
     CFRelease(plist);
-    info += string("\"state\":{\"parametersGelijk\":") + (pg ? "true" : "false") + ",\"renderGelijk\":" + (rg ? "true" : "false") + ",\"verschil\":" + jsonStr(verschil) + "},";
+    info += string("\"state\":{\"parametersGelijk\":") + (pg ? "true" : "false") + ",\"renderGelijk\":" + (rg ? "true" : "false") + ",\"verschil\":" + jsonStr(verschil) + ",\"voorInitialize\":" + jsonStr(voorTekst) + "},";
     printf("state: parameters %s, render %s %s\n", pg ? "gelijk" : "ANDERS", rg ? "gelijk" : "ANDERS", verschil.c_str());
   }
   // 6. bypass (gemeld)

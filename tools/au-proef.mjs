@@ -85,7 +85,8 @@ if (opdracht === 'maak') {
   const stilNa = (laatsteLuid + 1) / SR - 0.05;   // vanaf het einde van de stoot (50 ms)
   poort('staart', info.tailSec > 0 && stilNa <= info.tailSec, `onder −90 dBFS ${stilNa.toFixed(2)} s na de stoot, AU meldt TailTime ${Number(info.tailSec).toFixed(2)} s`);
   poort('state (ClassInfo terug in een nieuwe instantie)', info.state.parametersGelijk && info.state.renderGelijk, `parameters ${info.state.parametersGelijk ? 'gelijk' : 'ANDERS: ' + info.state.verschil}, render ${info.state.renderGelijk ? 'bit voor bit' : 'anders'}`);
-  console.log(`\nbypass (alleen gemeld): ${info.bypass}`);
+  console.log(`\nClassInfo vóór Initialize (alleen gemeld): ${info.state.voorInitialize}`);
+  console.log(`bypass (alleen gemeld): ${info.bypass}`);
   process.exit(poorten.every((p) => p.ok) ? 0 : 1);
 } else {
   console.error('gebruik: node tools/au-proef.mjs maak|toets …'); process.exit(2);
