@@ -48,6 +48,17 @@ jobs:
           sudo localedef -i nl_NL -f UTF-8 nl_NL.UTF-8
           PB_EIS_KOMMA=1 sh plugin/toets/toets-fase2.sh build 2>&1 | tee toets-fase2.log
 
+      - name: Fase 3 — frontpaneel (pb-paneel in een X11-venster onder xvfb; slepen, Shift, dubbelklik, host-waarden)
+        run: |
+          set -o pipefail
+          PB_VOOR="xvfb-run -a" sh plugin/toets/toets-fase3.sh build uit/paneel 2>&1 | tee toets-fase3.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-paneel-schermafbeelding
+          path: uit/paneel/
+
       - name: Cache clap-validator
         uses: actions/cache@v4
         with:
@@ -93,6 +104,8 @@ jobs:
           echo "null-test VST3 Linux:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
           echo "clap-validator fase 2:"; sed 's/\x1b\[[0-9;]*m//g' clap-validator.log | grep -A12 -E '─ (param-conversions|param-fuzz-|state-reproducibility-|param-set-)' | grep -E '─ |PASSED|FAILED|SKIPPED'
           echo "eigen toetsen fase 2 Linux:"; grep -E '^(state-toets|tekst|automatisering):|^###|^\| (echo|zelf|sweep)|FOUT' toets-fase2.log
+          echo "pluginval VST3 Linux, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-vst3.log
+          echo "eigen toets fase 3 Linux:"; grep -E '^pb-paneel:|^  ok:|^paneel:|FOUT' toets-fase3.log
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -106,7 +119,7 @@ jobs:
       - name: clang 20 via apt.llvm.org
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build lsb-release wget software-properties-common gnupg
+          sudo apt-get install -y ninja-build lsb-release wget software-properties-common gnupg libx11-dev xvfb
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 20
           clang-20 --version
@@ -133,6 +146,14 @@ jobs:
 
       - name: Fase 2-toetsen met de RTSan-bouw (events midden in blokken, state-load terwijl actief)
         run: sh plugin/toets/toets-fase2.sh build
+
+      - name: Fase 3 met de RTSan-bouw (paneel bedienen terwijl process op een audiothread loopt)
+        run: |
+          set -o pipefail
+          mkdir -p uit/paneel-rtsan
+          xvfb-run -a ./build/pb-paneel "build/plugins/PB Dub-echo.clap" uit/paneel-rtsan --audio 2>&1 | tee paneel-rtsan.log
+          if grep -q RealtimeSanitizer paneel-rtsan.log; then echo "FOUT: RTSan meldt iets"; exit 1; fi
+          grep "paneel: geslaagd" paneel-rtsan.log
 
       - name: Kanarie bouwen (malloc in process)
         env: { CC: clang-20, CXX: clang++-20 }
@@ -178,6 +199,11 @@ jobs:
         run: |
           set -o pipefail
           PB_EIS_KOMMA=1 sh plugin/toets/toets-fase2.sh build 2>&1 | tee toets-fase2.log
+
+      - name: Fase 3 — frontpaneel (pb-paneel in een NSWindow; slepen, Shift, dubbelklik, host-waarden, schermafbeelding)
+        run: |
+          set -o pipefail
+          sh plugin/toets/toets-fase3.sh build uit/paneel 2>&1 | tee toets-fase3.log
 
       - name: Ad-hoc signeren
         run: |
@@ -241,6 +267,9 @@ jobs:
           echo "null-test AU macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-au.log
           echo "null-test VST3 macOS:"; grep -E '^###|^\| (echo|zelf|sweep)|max abs diff' null-vst3.log
           echo "eigen toetsen fase 2 macOS:"; grep -E '^(state-toets|tekst|automatisering):|^###|^\| (echo|zelf|sweep)|FOUT|komma' toets-fase2.log
+          echo "pluginval AU, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-au.log
+          echo "pluginval VST3 macOS, editor-toetsen (geen --skip-gui-tests):"; grep -E 'Starting tests in: pluginval / .*Editor|open editor|Opening editor|Editor stress' pluginval-vst3.log
+          echo "eigen toets fase 3 macOS:"; grep -E '^pb-paneel:|^  ok:|^  schermafbeelding|^paneel:|FOUT' toets-fase3.log
 
       - name: Artefact klaarzetten
         if: always()
@@ -255,3 +284,9 @@ jobs:
         with:
           name: macos-keten_dub_echo
           path: artefact/
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-paneel-schermafbeelding
+          path: uit/paneel/

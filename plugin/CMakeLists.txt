@@ -36,8 +36,34 @@ add_library(pb-dsp INTERFACE)
 target_include_directories(pb-dsp INTERFACE ${PB_PAKKET}/dsp)
 target_compile_options(pb-dsp INTERFACE -ffp-contract=off -fno-fast-math -fno-math-errno)
 
-add_library(keten_dub_echo-impl STATIC bron/plugin.cpp)
+# Fase 3: het frontpaneel (design.md). Eigen tekenaar (paneel.cpp, stb_truetype) met de lettertypes erin, en per
+# platform een venster: Cocoa (macOS) of X11 (Linux). De DSP wordt er niet mee gecompileerd.
+set(PB_LETTERTYPES ${CMAKE_CURRENT_SOURCE_DIR}/extern/lettertypes)
+add_custom_command(
+  OUTPUT ${CMAKE_BINARY_DIR}/lettertypes.cpp
+  COMMAND ${CMAKE_COMMAND} -DUIT=${CMAKE_BINARY_DIR}/lettertypes.cpp -DMAP=${PB_LETTERTYPES}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/lettertypes.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lettertypes.cmake ${PB_LETTERTYPES}/IBMPlexMono-Regular.ttf
+          ${PB_LETTERTYPES}/IBMPlexMono-Medium.ttf ${PB_LETTERTYPES}/Silkscreen-Regular.ttf
+  COMMENT "lettertypes in de plugin zetten")
+set(PB_PANEEL_BRONNEN bron/paneel.cpp ${CMAKE_BINARY_DIR}/lettertypes.cpp)
+if (APPLE)
+  list(APPEND PB_PANEEL_BRONNEN bron/venster_mac.mm)
+  set_source_files_properties(bron/venster_mac.mm PROPERTIES COMPILE_OPTIONS "-fno-objc-arc")
+else()
+  find_package(X11 REQUIRED)
+  list(APPEND PB_PANEEL_BRONNEN bron/venster_x11.cpp)
+endif()
+
+add_library(keten_dub_echo-impl STATIC bron/plugin.cpp ${PB_PANEEL_BRONNEN})
 target_link_libraries(keten_dub_echo-impl PUBLIC clap clap-wrapper-extensions PRIVATE pb-dsp)
+target_compile_definitions(keten_dub_echo-impl PRIVATE PB_PANEEL=1)
+target_include_directories(keten_dub_echo-impl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern)
+if (APPLE)
+  target_link_libraries(keten_dub_echo-impl PUBLIC "-framework Cocoa" "-framework CoreGraphics")
+else()
+  target_link_libraries(keten_dub_echo-impl PUBLIC X11::X11)
+endif()
 if (PB_KANARIE)
   target_compile_definitions(keten_dub_echo-impl PRIVATE PB_KANARIE=1)
 endif()
@@ -109,4 +135,22 @@ if (PB_TOETSEN)
     list(APPEND PB_ZONDER_TARGETS pb-zonder-${id})
   endforeach()
   add_custom_target(pb-toetsen DEPENDS pb-toets ${PB_ZONDER_TARGETS})
+
+  # Fase 3: pb-paneel opent het frontpaneel in een echt venster (Cocoa of X11), bedient het met de muis, toetst wat
+  # de plugin aan de host meldt, en maakt schermafbeeldingen (plugin/toets/toets-fase3.sh).
+  add_executable(pb-paneel toets/pb-paneel.cpp)
+  target_link_libraries(pb-paneel PRIVATE clap ${CMAKE_DL_LIBS})
+  set_target_properties(pb-paneel PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  if (APPLE)
+    set_source_files_properties(toets/pb-paneel.cpp PROPERTIES LANGUAGE OBJCXX COMPILE_OPTIONS "-fno-objc-arc")
+    target_link_libraries(pb-paneel PRIVATE "-framework Cocoa" "-framework CoreGraphics")
+  else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(pb-paneel PRIVATE X11::X11 Threads::Threads)
+  endif()
+  if (PB_RTSAN)
+    target_compile_options(pb-paneel PRIVATE -fsanitize=realtime)
+    target_link_options(pb-paneel PRIVATE -fsanitize=realtime)
+  endif()
+  add_dependencies(pb-toetsen pb-paneel)
 endif()

@@ -1,0 +1,16 @@
+# lettertypes.cmake — zet de lettertypes (plugin/extern/lettertypes, OFL) als byte-rijen in een C++-bestand.
+#   cmake -DUIT=<bestand.cpp> -DMAP=<map met de .ttf's> -P lettertypes.cmake
+set(PAREN "IBMPlexMono-Regular.ttf;LETTER_PLEX_REGULAR;IBMPlexMono-Medium.ttf;LETTER_PLEX_MEDIUM;Silkscreen-Regular.ttf;LETTER_SILKSCREEN")
+set(tekst "// gemaakt door plugin/lettertypes.cmake uit plugin/extern/lettertypes (SIL Open Font License); niet bewerken\nnamespace pb {\n")
+list(LENGTH PAREN n)
+math(EXPR laatste "${n} - 1")
+foreach(i RANGE 0 ${laatste} 2)
+  math(EXPR j "${i} + 1")
+  list(GET PAREN ${i} bestand)
+  list(GET PAREN ${j} naam)
+  file(READ "${MAP}/${bestand}" hex HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," hex "${hex}")
+  string(APPEND tekst "extern const unsigned char ${naam}[];\nconst unsigned char ${naam}[] = {${hex}};\n")
+endforeach()
+string(APPEND tekst "}  // namespace pb\n")
+file(WRITE "${UIT}" "${tekst}")

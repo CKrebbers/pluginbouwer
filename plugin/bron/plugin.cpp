@@ -3,6 +3,9 @@
 // ingaat. Parameters: CLAP-params met id, bereik en standaard uit Ontwerp::PARAMS (de DSP neemt de INDEX).
 // Threads (ARCHITECTUUR.md): de audiothread schrijft het Ontwerp alleen in process/flush; de mainthread leest en
 // schrijft parameterwaarden via een atomische spiegel, en een state-load gaat via een vlag naar de audiothread.
+// Fase 3: het frontpaneel (PB_PANEEL, paneel.cpp + venster_*.cpp/mm) zet geen DSP-waarden. Het meldt gebaren
+// (begin/waarde/eind) via atomics; process of flush past ze toe zoals een host-event en meldt ze als
+// output-events aan de host (die er automatisering van maakt). Het paneel leest alleen de atomische spiegel.
 // PB_ZONDER_PARAM=<id> bouwt een schil die parameter <id> niet kent (zoals een oudere versie): alleen voor de
 // state-toets (plugin/toets), nooit voor een uitgeleverde plugin.
 #include <clap/clap.h>
@@ -18,6 +21,9 @@
 
 #include "entry.h"
 #include "ontwerpen/keten_dub_echo.h"
+#if PB_PANEEL
+#include "paneel.h"
+#endif
 
 #if PB_KANARIE
 // De kanarie voor RTSan: een malloc in process, de pointer in een globale variabele zodat de compiler hem niet
@@ -79,9 +85,30 @@ struct Plugin {
   std::atomic<double> waarde[N];                // spiegel van elke parameter (doelwaarde), voor get_value en state
   std::atomic<bool> stateNieuw{false};          // mainthread laadde state terwijl actief: process neemt de spiegel over
   std::atomic<uint32_t> staart{0};              // in samples; berekend op de audiothread (staartSec leest smoothers)
+  const clap_host_params_t* hostParams = nullptr;
+
+  // Van het paneel (mainthread) naar process/flush; alleen tellers en waarden, geen locks. Per parameter:
+  // uiBegin/uiEind tellen de gebaren, uiTeller de nieuwe waarden (uiWaarde); uiGezien = de teller die process
+  // heeft toegepast (zolang die achterloopt toont het paneel uiWaarde in plaats van de spiegel).
+  std::atomic<double> uiWaarde[N];
+  std::atomic<uint32_t> uiBegin[N], uiEind[N], uiTeller[N], uiGezien[N];
+  // alleen in process/flush (nooit tegelijk): wat de host al gemeld kreeg
+  uint32_t gemeldBegin[N] = {}, gemeldTeller[N] = {};
+  bool gebaarOpen[N] = {};
+
+  // het paneel (alleen mainthread)
+  uint32_t guiB = 0, guiH = 0;
+#if PB_PANEEL
+  pb::PaneelBron* bron = nullptr;
+  pb::Paneel* paneel = nullptr;
+  pb::Venster* venster = nullptr;
+#endif
 };
 
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
+#if PB_PANEEL
+void guiOpruimen(Plugin* z);
+#endif
 
 // de INDEX in PARAMS bij een parameter-id, of -1 (ook voor een verborgen parameter)
 int indexVan(clap_id id) {
@@ -124,6 +151,51 @@ void doeEvent(Plugin* z, const clap_event_header_t* h) {
   z->ontwerp->zetParam(i, v);
   z->waarde[i].store(v, std::memory_order_relaxed);
 }
+// De gebaren van het paneel: toegepast als een event op sample 0 en aan de host gemeld (gebaar begin, waarde,
+// gebaar eind), zodat de host ze opneemt als automatisering. Alleen in process of flush.
+bool meld(const clap_output_events_t* uit, uint16_t type, clap_id id, double v) {
+  if (!uit) return false;
+  if (type == CLAP_EVENT_PARAM_VALUE) {
+    clap_event_param_value_t e{};
+    e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, type, 0};
+    e.param_id = id;
+    e.cookie = nullptr;
+    e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1;
+    e.value = v;
+    return uit->try_push(uit, &e.header);
+  }
+  clap_event_param_gesture_t e{};
+  e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, type, 0};
+  e.param_id = id;
+  return uit->try_push(uit, &e.header);
+}
+void neemPaneelOver(Plugin* z, const clap_output_events_t* uit) {
+  for (int i = 0; i < N; ++i) {
+    // eerst het einde, dan het begin, dan de waarde: wie een einde ziet, ziet ook alles wat het paneel ervoor schreef
+    const uint32_t eind = z->uiEind[i].load(std::memory_order_acquire);
+    const uint32_t begin = z->uiBegin[i].load(std::memory_order_acquire);
+    const uint32_t teller = z->uiTeller[i].load(std::memory_order_acquire);
+    const clap_id id = Ontwerp::PARAMS[i].id;
+    if (begin != z->gemeldBegin[i] && !z->gebaarOpen[i]) {
+      meld(uit, CLAP_EVENT_PARAM_GESTURE_BEGIN, id, 0);
+      z->gebaarOpen[i] = true;
+    }
+    z->gemeldBegin[i] = begin;
+    if (teller != z->gemeldTeller[i]) {
+      z->gemeldTeller[i] = teller;
+      const double v = klem(i, z->uiWaarde[i].load(std::memory_order_relaxed));
+      z->ontwerp->zetParam(i, v);
+      z->waarde[i].store(v, std::memory_order_relaxed);
+      z->uiGezien[i].store(teller, std::memory_order_release);
+      meld(uit, CLAP_EVENT_PARAM_VALUE, id, v);
+    }
+    if (z->gebaarOpen[i] && begin == eind) {
+      meld(uit, CLAP_EVENT_PARAM_GESTURE_END, id, 0);
+      z->gebaarOpen[i] = false;
+    }
+  }
+}
+
 void neemStateOver(Plugin* z) {
   if (!z->stateNieuw.exchange(false, std::memory_order_acquire)) return;
   for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, z->waarde[i].load(std::memory_order_relaxed));
@@ -295,12 +367,13 @@ bool paramUitTekst(const clap_plugin_t*, clap_id id, const char* tekst, double* 
   if (i < 0 || !tekst || !v) return false;
   return uitTekst(i, tekst, v);
 }
-void paramFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) {
+void paramFlush(const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t* uit) {
   // [actief ? audiothread : mainthread]; in beide gevallen draait process niet tegelijk
   // Zonder process: de host zet waarden terwijl er geen audio loopt (een project openen, automatisering lezen
   // terwijl het transport stilstaat). De events gaan in de DSP en de spiegel; de staart volgt als hij actief is.
   Plugin* z = zelf(p);
   neemStateOver(z);
+  neemPaneelOver(z, uit);
   if (in) {
     const uint32_t n = in->size(in);
     for (uint32_t k = 0; k < n; ++k) doeEvent(z, in->get(in, k));
@@ -396,11 +469,17 @@ bool init(const clap_plugin_t* p) {
   for (int i = 0; i < N; ++i) {
     z->waarde[i].store(Ontwerp::PARAMS[i].standaard, std::memory_order_relaxed);
     z->ontwerp->zetParam(i, Ontwerp::PARAMS[i].standaard);
+    z->uiWaarde[i].store(Ontwerp::PARAMS[i].standaard, std::memory_order_relaxed);
+    z->uiBegin[i].store(0); z->uiEind[i].store(0); z->uiTeller[i].store(0); z->uiGezien[i].store(0);
   }
+  if (z->host) z->hostParams = static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS));
   return true;
 }
 void destroy(const clap_plugin_t* p) {
   Plugin* z = zelf(p);
+#if PB_PANEEL
+  guiOpruimen(z);  // de host hoort gui.destroy eerst te doen
+#endif
   delete z->ontwerp;
   delete[] z->geheugen;
   delete z;
@@ -438,6 +517,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
 #endif
   Plugin* z = zelf(p);
   neemStateOver(z);
+  neemPaneelOver(z, pr->out_events);
   const uint32_t n = pr->frames_count;
   const clap_input_events_t* ev = pr->in_events;
   const uint32_t nEv = ev ? ev->size(ev) : 0;
@@ -487,7 +567,138 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   return CLAP_PROCESS_CONTINUE;
 }
 
+// --- gui: het frontpaneel (design.md) ------------------------------------------------------------------------
+#if PB_PANEEL
+// Wat het paneel van de plugin ziet. Lezen: de atomische spiegel (of de eigen waarde die process nog niet nam).
+// Schrijven: alleen de ui-tellers en een verzoek aan de host om flush (of process) aan te roepen.
+class Bron : public pb::PaneelBron {
+ public:
+  explicit Bron(Plugin* z) : z_(z) {}
+  int aantal() const override { return N_ZICHTBAAR; }
+  pb::KnopInfo info(int k) const override {
+    const auto& pi = Ontwerp::PARAMS[indexOpPositie((uint32_t)k)];
+    const Soort s = soortVan(indexOpPositie((uint32_t)k));
+    return {pi.naam, pi.min, pi.max, pi.standaard, (s == Soort::HZ || s == Soort::MS) && pi.min > 0};
+  }
+  double waarde(int k) const override {
+    const int i = indexOpPositie((uint32_t)k);
+    const uint32_t teller = z_->uiTeller[i].load(std::memory_order_acquire);
+    if (z_->uiGezien[i].load(std::memory_order_acquire) != teller) return klem(i, z_->uiWaarde[i].load(std::memory_order_relaxed));
+    return z_->waarde[i].load(std::memory_order_relaxed);
+  }
+  void tekst(int k, double v, char* t, uint32_t grootte) const override { naarTekst(indexOpPositie((uint32_t)k), v, t, grootte); }
+  void begin(int k) override {
+    z_->uiBegin[indexOpPositie((uint32_t)k)].fetch_add(1, std::memory_order_release);
+    vraagFlush();
+  }
+  void zet(int k, double v) override {
+    const int i = indexOpPositie((uint32_t)k);
+    z_->uiWaarde[i].store(klem(i, v), std::memory_order_relaxed);
+    z_->uiTeller[i].fetch_add(1, std::memory_order_release);
+    vraagFlush();
+  }
+  void eind(int k) override {
+    z_->uiEind[indexOpPositie((uint32_t)k)].fetch_add(1, std::memory_order_release);
+    vraagFlush();
+  }
+
+ private:
+  // de host roept daarna process of flush aan; daar gaan de waarden de DSP in en naar de host
+  void vraagFlush() {
+    if (z_->hostParams && z_->hostParams->request_flush) z_->hostParams->request_flush(z_->host);
+  }
+  Plugin* z_;
+};
+
+void guiOpruimen(Plugin* z) {
+  if (z->paneel && z->paneel->sleept()) z->paneel->muisOp();  // een open gebaar netjes sluiten
+  delete z->venster; z->venster = nullptr;
+  delete z->paneel; z->paneel = nullptr;
+  delete z->bron; z->bron = nullptr;
+}
+bool guiApi(const clap_plugin_t*, const char* api, bool zwevend) {
+  return !zwevend && api && pb::vensterApi() && !std::strcmp(api, pb::vensterApi());
+}
+bool guiVoorkeur(const clap_plugin_t*, const char** api, bool* zwevend) {
+  *api = pb::vensterApi();
+  *zwevend = false;
+  return *api != nullptr;
+}
+bool guiMaak(const clap_plugin_t* p, const char* api, bool zwevend) {
+  Plugin* z = zelf(p);
+  if (!guiApi(p, api, zwevend) || z->paneel) return false;
+  if (!z->guiB) { z->guiB = pb::PANEEL_STD_B; z->guiH = pb::PANEEL_STD_H; }
+  z->bron = new Bron(z);
+  z->paneel = new pb::Paneel(*z->bron);
+  z->venster = pb::maakVenster(*z->paneel, z->host, z->guiB, z->guiH);
+  if (!z->venster) {
+    guiOpruimen(z);
+    return false;
+  }
+  return true;
+}
+void guiWeg(const clap_plugin_t* p) { guiOpruimen(zelf(p)); }
+bool guiSchaal(const clap_plugin_t*, double) { return false; }  // grootte in punten (macOS) of pixels (X11)
+bool guiGrootte(const clap_plugin_t* p, uint32_t* b, uint32_t* h) {
+  Plugin* z = zelf(p);
+  *b = z->guiB ? z->guiB : pb::PANEEL_STD_B;
+  *h = z->guiH ? z->guiH : pb::PANEEL_STD_H;
+  return true;
+}
+bool guiKanGroter(const clap_plugin_t*) { return true; }
+bool guiHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) {
+  hints->can_resize_horizontally = true;
+  hints->can_resize_vertically = true;
+  hints->preserve_aspect_ratio = false;  // het paneel schaalt gelijkmatig en staat in het midden
+  hints->aspect_ratio_width = 0;
+  hints->aspect_ratio_height = 0;
+  return true;
+}
+bool guiPas(const clap_plugin_t*, uint32_t* b, uint32_t* h) {
+  if (*b < pb::PANEEL_MIN_B) *b = pb::PANEEL_MIN_B;
+  if (*h < pb::PANEEL_MIN_H) *h = pb::PANEEL_MIN_H;
+  if (*b > 8192) *b = 8192;
+  if (*h > 8192) *h = 8192;
+  return true;
+}
+bool guiZetGrootte(const clap_plugin_t* p, uint32_t b, uint32_t h) {
+  Plugin* z = zelf(p);
+  guiPas(p, &b, &h);
+  z->guiB = b; z->guiH = h;
+  return z->venster ? z->venster->zetGrootte(b, h) : true;
+}
+bool guiOuder(const clap_plugin_t* p, const clap_window_t* w) {
+  Plugin* z = zelf(p);
+  return z->venster && w && w->api && pb::vensterApi() && !std::strcmp(w->api, pb::vensterApi()) && z->venster->zetOuder(w);
+}
+bool guiTijdelijk(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiTitel(const clap_plugin_t*, const char*) {}
+bool guiToon(const clap_plugin_t* p) { return zelf(p)->venster && zelf(p)->venster->toon(); }
+bool guiVerberg(const clap_plugin_t* p) { return zelf(p)->venster && zelf(p)->venster->verberg(); }
+const clap_plugin_gui_t GUI = {guiApi, guiVoorkeur, guiMaak, guiWeg, guiSchaal, guiGrootte, guiKanGroter, guiHints,
+                               guiPas, guiZetGrootte, guiOuder, guiTijdelijk, guiTitel, guiToon, guiVerberg};
+
+#if !defined(__APPLE__) && !defined(_WIN32)
+// timers en fd's van de host (Linux: het X11-venster hertekent en leest zijn events zo)
+void opTimer(const clap_plugin_t* p, clap_id id) {
+  if (zelf(p)->venster) zelf(p)->venster->opTimer(id);
+}
+const clap_plugin_timer_support_t TIMER = {opTimer};
+void opFd(const clap_plugin_t* p, int fd, clap_posix_fd_flags_t vlaggen) {
+  if (zelf(p)->venster) zelf(p)->venster->opFd(fd, vlaggen);
+}
+const clap_plugin_posix_fd_support_t FD = {opFd};
+#endif
+#endif
+
 const void* getExtension(const clap_plugin_t*, const char* id) {
+#if PB_PANEEL
+  if (!std::strcmp(id, CLAP_EXT_GUI) && pb::vensterApi()) return &GUI;
+#if !defined(__APPLE__) && !defined(_WIN32)
+  if (!std::strcmp(id, CLAP_EXT_TIMER_SUPPORT)) return &TIMER;
+  if (!std::strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT)) return &FD;
+#endif
+#endif
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
