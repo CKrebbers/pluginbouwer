@@ -1,6 +1,7 @@
 // vergelijk.mjs — de null-test van het bouwpakket: verwachte uitvoer (uit de WASM van de Pluginbouwer) tegen een
 // render door het gebouwde binary. Staat los: alleen Node, geen andere bestanden dan testsignalen/ en wasm/.
 //   node gereedschap/vergelijk.mjs <map met renders>      exit 1 als iets boven de grens komt
+//   node gereedschap/vergelijk.mjs --automatie <render.wav>  de render van pb-render --automatie (events midden in blokken)
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -94,8 +95,15 @@ function standaardRender(invoer, sr) {
   return uit;
 }
 
+if (process.argv[2] === '--automatie') {
+  // node gereedschap/vergelijk.mjs --automatie <render.wav>: pb-render --automatie tegen testsignalen/automatie/verwacht.wav
+  const r = nullTest(leesWav(join(PAKKET, 'testsignalen', 'automatie', 'verwacht.wav')).kanalen, leesWav(process.argv[3]).kanalen);
+  const ok = r.piekDb <= GRENS_DB, f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
+  console.log(`| automatie (events midden in blokken) | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS** — splitst de plugin het blok bij elk event (header.time)?'}`);
+  process.exit(ok ? 0 : 1);
+}
 const map = process.argv[2];
-if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders>'); process.exit(2); }
+if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders> | --automatie <render.wav>'); process.exit(2); }
 const gevallen = JSON.parse(readFileSync(join(PAKKET, 'testsignalen', 'gevallen.json'), 'utf8'));
 let mis = 0;
 console.log('| geval | piek | RMS | bit voor bit |\n|---|---|---|---|');

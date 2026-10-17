@@ -13,16 +13,20 @@ export function laadKeten(e, rij, sr) {
   if (!e.pg_laad(h, rij.length)) { e.pg_weg(h); throw new Error('de motor weigerde de keten (te groot of ongeldig)'); }
   return h;
 }
-export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128 } = {}) {
+// events: [[sample, index, waarde], …] gesorteerd op sample; elk event geldt vanaf zijn sample (zoals een CLAP-event).
+export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128, events = [] } = {}) {
   const h = laadKeten(e, rij, sr);
   try {
     for (const [i, v] of Object.entries(waarden)) e.pg_zet(h, Number(i), v);
     const k = invoer.length, n = invoer[0].length, uit = invoer.map(() => new Float32Array(n));
-    for (let pos = 0; pos < n; pos += blok) {
-      const m = Math.min(blok, n - pos);
+    for (let pos = 0, ev = 0; pos < n;) {
+      while (ev < events.length && events[ev][0] <= pos) { e.pg_zet(h, events[ev][1], events[ev][2]); ev++; }
+      const grens = Math.min(n, (Math.floor(pos / blok) + 1) * blok, ev < events.length ? events[ev][0] : n);
+      const m = grens - pos;
       for (let c = 0; c < k; c++) new Float32Array(e.memory.buffer, e.pg_in(h, c), m).set(invoer[c].subarray(pos, pos + m));
       e.pg_verwerk(h, k, m);
       for (let c = 0; c < k; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pg_uit(h, c), m), pos);
+      pos += m;
     }
     return { uit, staart: e.pg_staart(h) };
   } finally { e.pg_weg(h); }

@@ -1,7 +1,9 @@
 # LEERPAD — wat Clay zelf doet
 
 ## Installeren (gratis, geen Apple Developer-account)
-1. Download in GitHub bij de laatste groene CI-run het artefact `macos-keten_dub_echo` (een zip).
+1. Download in GitHub bij de laatste groene CI-run het artefact `macos-keten_dub_echo` (een zip). Een artefact van
+   GitHub bewaart geen Unix-rechten of symlinks: laat CI daarom de bundels zelf nog eens zippen (`ditto -c -k
+   --keepParent` of `zip -y`) en pak díe zip uit.
 2. Uitpakken. macOS zet een quarantainevlag op downloads: `xattr -dr com.apple.quarantine "PB Dub-echo.component"`
    (en hetzelfde voor .vst3 en .clap).
 3. Kopieer `PB Dub-echo.component` naar `~/Library/Audio/Plug-Ins/Components/`.

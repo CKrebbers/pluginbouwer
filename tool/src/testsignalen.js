@@ -34,6 +34,21 @@ export function toetsgevallen(ontwerp, nParams, { terugkoppeling = false } = {})
   return lijst;
 }
 
+// Automatisering op willekeurige samples (ook midden in een blok, en twee events op dezelfde sample): elke parameter
+// beweegt tussen 1/8 en 6/8 van zijn bereik (exact in float32). Ids in events.txt zijn index + 1, zoals pbRender.
+export function automatieGeval(params) {
+  const sr = 48000, sec = 4, invoer = MAKERS['ruis-stukjes'](sr, sec), n = sr * sec, events = [];
+  for (let k = 0; ; k++) {
+    const sample = Math.floor(k * 293.37);
+    if (sample >= n) break;
+    const zet = (j) => { const i = j % params.length, nn = 0.125 + ((j * 3) % 6) * 0.125; events.push([sample, i, params[i].min + nn * (params[i].max - params[i].min)]); };
+    zet(k);
+    if (k % 10 === 9) zet(k + 3);   // een tweede event op dezelfde sample
+  }
+  const tekst = events.map(([t, i, v]) => `${t} ${i + 1} ${v}`).join('\n') + '\n';
+  return { naam: 'automatie', sr, invoer, events, tekst };
+}
+
 export function wavBytes(kanalen, sr) {
   const n = kanalen[0].length, k = kanalen.length, data = n * k * 4;
   const b = new ArrayBuffer(44 + data), v = new DataView(b);
@@ -71,5 +86,9 @@ export function maakTestsignalen(e, rij, params, ontwerp, { terugkoppeling = fal
     bestanden[`testsignalen/pluginval/${g.naam}.json`] = enc(pluginvalConfig(g, params.map((p) => p.naam)));
   }
   bestanden['testsignalen/gevallen.json'] = enc(index);
+  const a = automatieGeval(params);
+  bestanden['testsignalen/automatie/in.wav'] = wavBytes(a.invoer, a.sr);
+  bestanden['testsignalen/automatie/events.txt'] = a.tekst;
+  bestanden['testsignalen/automatie/verwacht.wav'] = wavBytes(render(e, rij, a.invoer, { sr: a.sr, blok: 128, events: a.events }).uit, a.sr);
   return bestanden;
 }

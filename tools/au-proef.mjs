@@ -6,7 +6,7 @@
 //   zelfosc     terugkoppeling boven 1: na 6 s stilte nog geluid (> −40 dBFS RMS), begrensd (piek ≤ 2), eindig
 //   staart      na een stoot valt de uitgang onder −90 dBFS binnen de TailTime die de AU meldt
 //   state       ClassInfo bewaren, nieuwe instantie, terugzetten: zelfde parameterwaarden en bit voor bit zelfde render
-//   bypass      met BypassEffect aan is de uitgang de ingang (alleen gemeld: niet elke host gebruikt het)
+//   bypass      met BypassEffect aan is de uitgang de ingang (na 10 ms overvloeien)
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
@@ -85,8 +85,8 @@ if (opdracht === 'maak') {
   const stilNa = (laatsteLuid + 1) / SR - 0.05;   // vanaf het einde van de stoot (50 ms)
   poort('staart', info.tailSec > 0 && stilNa <= info.tailSec, `onder −90 dBFS ${stilNa.toFixed(2)} s na de stoot, AU meldt TailTime ${Number(info.tailSec).toFixed(2)} s`);
   poort('state (ClassInfo terug in een nieuwe instantie)', info.state.parametersGelijk && info.state.renderGelijk, `parameters ${info.state.parametersGelijk ? 'gelijk' : 'ANDERS: ' + info.state.verschil}, render ${info.state.renderGelijk ? 'bit voor bit' : 'anders'}`);
-  console.log(`\nClassInfo vóór Initialize (alleen gemeld): ${info.state.voorInitialize}`);
-  console.log(`bypass (alleen gemeld): ${info.bypass}`);
+  poort('bypass (BypassEffect)', info.bypass.startsWith('uitgang = ingang'), info.bypass);
+  console.log(`\nClassInfo vóór Initialize (alleen gemeld; clap-wrapper eist Initialize): ${info.state.voorInitialize}`);
   process.exit(poorten.every((p) => p.ok) ? 0 : 1);
 } else {
   console.error('gebruik: node tools/au-proef.mjs maak|toets …'); process.exit(2);

@@ -26,6 +26,16 @@ if [ "$SOORT" = clap ]; then
       node "$WAAR/tools/null.mjs" vergelijk "$UIT" "$ONTWERP"; echo; } | tee /dev/stderr | som
     node "$WAAR/tools/null.mjs" vergelijk "$UIT" "$ONTWERP" > /dev/null
   done
+  # automatisering: parameter-events op willekeurige samples, ook midden in een blok (het splitsen, op de bits)
+  if [ -f "$MAP/automatie/events.txt" ]; then
+    UIT="$WAAR/uit/clap-automatie"; mkdir -p "$UIT"
+    { echo "### Null-test CLAP automatisering ($(uname -m)): events midden in blokken"; echo; echo "| render | piek | RMS | bit voor bit |"; echo "|---|---|---|---|"; } | tee /dev/stderr | som
+    for blok in 512 3,128,1,4096,77; do
+      "$BUILD/pb-render" "$CLAP" "$MAP/automatie/in.wav" "$UIT/blok-$blok.wav" --blok "$blok" --automatie "$MAP/automatie/events.txt"
+      node "$WAAR/tools/null.mjs" automatie "$UIT/blok-$blok.wav" "$ONTWERP" | sed "s/^| automatie/| blok $blok/" | tee /dev/stderr | som
+      node "$WAAR/tools/null.mjs" automatie "$UIT/blok-$blok.wav" "$ONTWERP" > /dev/null
+    done
+  fi
 elif [ "$SOORT" = pluginval ]; then
   PLUGIN="$1"; PV="$2"; LABEL="$3"; ONTWERP="${4:-pijplijn_biquad}"
   MAP="$WAAR/testsignalen/$ONTWERP"

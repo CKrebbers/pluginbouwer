@@ -3,6 +3,8 @@
 //
 //   pb-render <plugin.clap> <in.wav> <uit.wav> [--sr 48000] [--blok 512 | --blok 3,128,1,4096] [--p id=waarde ...]
 //             [--state-rondje]    (state opslaan, nieuwe instantie, state laden, dan pas renderen)
+//             [--automatie f]     parameter-events op hun sample tijdens het renderen; f: per regel "sample id waarde"
+//                                 (ook midden in een blok: zo bewijst de null-test het splitsen bij events op de bits)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -12,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -102,6 +105,8 @@ int main(int argc, char** argv) {
   if (argc < 4) fout("gebruik: pb-render <plugin.clap> <in.wav> <uit.wav> [--sr N] [--blok N[,N…]] [--p id=waarde] [--state-rondje]");
   std::string pad = argv[1];
   double sr = 0; std::vector<uint32_t> blokken = {512}; bool rondje = false;
+  struct Auto { uint64_t sample; clap_id id; double waarde; };
+  std::vector<Auto> automatie;
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -114,6 +119,10 @@ int main(int argc, char** argv) {
       if (k == std::string::npos) fout("--p id=waarde");
       params.push_back({(clap_id)std::atoi(s.substr(0, k).c_str()), std::atof(s.substr(k + 1).c_str())});
     } else if (a == "--state-rondje") rondje = true;
+    else if (a == "--automatie" && i + 1 < argc) {
+      std::ifstream f(argv[++i]); if (!f) fout("--automatie: bestand niet te lezen");
+      Auto x; while (f >> x.sample >> x.id >> x.waarde) automatie.push_back(x);
+    }
     else fout("onbekende optie " + a);
   }
 
@@ -178,8 +187,9 @@ int main(int argc, char** argv) {
   std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
   std::vector<float*> pi(kan), pu(kan);
   for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
-  Events leeg;
-  clap_input_events_t geenEv = {&leeg, evSize, evGet};
+  Events blokEv; blokEv.ev.reserve(automatie.size());
+  clap_input_events_t blokIn = {&blokEv, evSize, evGet};
+  size_t volgende = 0;
 
   size_t pos = 0, bnr = 0; int64_t steady = 0;
   while (pos < n) {
@@ -187,7 +197,16 @@ int main(int argc, char** argv) {
     if (pos + m > n) m = (uint32_t)(n - pos);
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
     clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
-    clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &geenEv, &uitEv};
+    // de events van dit blok, met hun tijd binnen het blok (buiten doeProcess opgebouwd: geen allocatie in RT)
+    blokEv.ev.clear();
+    while (volgende < automatie.size() && automatie[volgende].sample < pos + m) {
+      const auto& x = automatie[volgende++];
+      clap_event_param_value_t e{};
+      e.header = {sizeof(e), (uint32_t)(x.sample < pos ? 0 : x.sample - pos), CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+      e.param_id = x.id; e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1; e.value = x.waarde;
+      blokEv.ev.push_back(e);
+    }
+    clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;

@@ -70,6 +70,9 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   not supported"). Derde patch `plugin/patches/clap-wrapper-auv2-tailtime.patch`; `host/au-proef` toetst het in CI.
 - **Draden in de schil**: actief = alleen de audiothread raakt het Ontwerp; get_value/state lezen `spiegel`,
   state.load zet `vuil`, tail.get leest `staartSmp` (plugin/src/plugin.cpp). Gevonden door de verse sessies (E1, E2).
+- **Bypass**: clap-wrapper geeft AU BypassEffect alleen door aan een CLAP-parameter met `CLAP_PARAM_IS_BYPASS`;
+  zonder die parameter deed bypass niets. De schil heeft er een (id 1000, 10 ms overvloeien; uit = bit voor bit het
+  oude pad). AU ClassInfo kan pas na Initialize (clap-wrapper `RestoreState`), hosts doen dat meestal ook zo.
 - **Linux-VST3 met `-z nodelete`**: anders crasht pluginval na "SUCCESS" (statics in de VST3 SDK, exit na dlclose).
 - **RTSan-kanarie via een globale sink**: clang -O2 haalt een malloc/free-paar weg, ook met een volatile lokale pointer.
 - **Denormale invoer** nooit als float omzetten om te testen (`pb::invoer` kijkt naar de bits).

@@ -18,7 +18,8 @@ export function laadOntwerp(naam = 'pijplijn_biquad') {
 
 // Rendert in (Float32Array[] per kanaal) door een verse instantie. waarden: { index: waarde } in eigen eenheid.
 // blok: vaste blokgrootte, of een array die rondloopt (voor de wisselende-blokgrootte-toets).
-export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128 } = {}) {
+// events: [[sample, index, waarde], …] gesorteerd; elk event geldt vanaf zijn sample (het blok wordt daar gesplitst).
+export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128, events = [] } = {}) {
   const { e } = ontwerp;
   const h = e.pb_maak(sr);
   if (h < 0) throw new Error('geen vrije instantie');
@@ -26,9 +27,11 @@ export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128 }
   const kanalen = invoer.length, n = invoer[0].length;
   const uit = invoer.map(() => new Float32Array(n));
   const blokken = Array.isArray(blok) ? blok : [blok];
-  let pos = 0, b = 0;
+  let pos = 0, b = 0, ev = 0, blokEind = 0;
   while (pos < n) {
-    const m = Math.min(blokken[b++ % blokken.length], n - pos);
+    if (pos >= blokEind) blokEind = pos + blokken[b++ % blokken.length];
+    while (ev < events.length && events[ev][0] <= pos) { e.pb_zet(h, events[ev][1], events[ev][2]); ev++; }
+    const m = Math.min(blokEind, n, ev < events.length ? events[ev][0] : n) - pos;
     for (let c = 0; c < kanalen; c++) new Float32Array(e.memory.buffer, e.pb_in(h, c), m).set(invoer[c].subarray(pos, pos + m));
     e.pb_verwerk(h, kanalen, m);
     for (let c = 0; c < kanalen; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pb_uit(h, c), m), pos);

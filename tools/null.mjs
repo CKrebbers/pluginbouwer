@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, render, uitNorm, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
-import { toetsgevallen, maakInvoer } from '../tool/src/testsignalen.js';
+import { toetsgevallen, maakInvoer, automatieGeval } from '../tool/src/testsignalen.js';
 import { ARCHETYPEN } from '../tool/src/archetypen.js';
 import * as SPEC from '../tests/lib/fft.mjs';
 
@@ -43,7 +43,7 @@ export function statistisch(a, b, sr) {
   return { bandDb: slechtstBand, omhullendeDb: slechtstOmh };
 }
 
-const ontwerpNaam = (opdracht === 'vergelijk' ? a2 : a1) || 'pijplijn_biquad';
+const ontwerpNaam = (opdracht === 'vergelijk' || opdracht === 'automatie' ? a2 : a1) || 'pijplijn_biquad';
 const o = laadOntwerp(ontwerpNaam);
 const map = join(ROOT, 'testsignalen', ontwerpNaam);
 
@@ -70,7 +70,20 @@ if (opdracht === 'maak') {
     }, null, 2) + '\n');
   }
   writeFileSync(join(map, 'gevallen.json'), JSON.stringify(index, null, 2) + '\n');
-  console.log(`${index.length} gevallen in ${map}`);
+  // automatisering op willekeurige samples (pb-render --automatie): bewijst het splitsen bij events, op de bits
+  const a = automatieGeval(o.params);
+  mkdirSync(join(map, 'automatie'), { recursive: true });
+  schrijfWav(join(map, 'automatie', 'in.wav'), a.invoer, a.sr);
+  writeFileSync(join(map, 'automatie', 'events.txt'), a.tekst);
+  schrijfWav(join(map, 'automatie', 'verwacht.wav'), render(o, a.invoer, { sr: a.sr, blok: 128, events: a.events }), a.sr);
+  console.log(`${index.length} gevallen en automatie (${a.events.length} events) in ${map}`);
+} else if (opdracht === 'automatie') {
+  // node tools/null.mjs automatie <render.wav> [ontwerp]: de render van pb-render --automatie tegen de WASM
+  if (!a1) throw new Error('gebruik: automatie <render.wav> [ontwerp]');
+  const r = nullTest(leesWav(join(map, 'automatie', 'verwacht.wav')).kanalen, leesWav(a1).kanalen);
+  const ok = r.piekDb <= GRENS_DB;
+  console.log(`| automatie (events midden in blokken) | ${fmtDb(r.piekDb)} | ${fmtDb(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS**'}`);
+  process.exit(ok ? 0 : 1);
 } else if (opdracht === 'vergelijk') {
   if (!a1) throw new Error('gebruik: vergelijk <map met renders> [ontwerp]');
   const index = JSON.parse(readFileSync(join(map, 'gevallen.json'), 'utf8'));

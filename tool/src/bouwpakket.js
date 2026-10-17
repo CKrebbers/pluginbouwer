@@ -128,12 +128,19 @@ ${c.orde.length} knopen, uitgevoerd in een vaste volgorde per sample (SPEC.md "K
   event gesplitst; de DSP rekent per sample, dus de uitvoer is gelijk aan die zonder splitsen.
 - **Mainthread**: \`init\`, \`activate\` (hier wordt geheugen gereserveerd), state, parameters lezen en tekst.
 - Geen locks, geen allocatie, geen syscalls in \`process\` (RTSan bewaakt het in CI).
-- Parameteroverdracht: alleen via CLAP-events (\`process\` en \`params.flush\`). Geen gedeelde variabelen tussen threads.
+- Parameteroverdracht naar het Ontwerp: alleen via CLAP-events (\`process\` en \`params.flush\`). Wat de mainthread
+  moet lezen (\`params.get_value\`, \`state.save\`) komt uit een atomaire kopie per parameter die de audiothread
+  bijwerkt; \`state.load\` terwijl de plugin actief is zet de waarden in die kopie plus een atomaire vlag, en
+  \`process\`/\`flush\` neemt ze over vóór de events van dat blok. Verder geen gedeelde variabelen.
+- \`staartSec()\` geeft −1 voor oneindig (lusversterking ≥ 1): meld dan \`INT32_MAX\` of meer (CLAP: oneindig).
+- De null-test \`ci-null.sh clap\` heeft een geval \`testsignalen/automatie/\`: 720 parameter-events, ook midden in een
+  blok en twee op dezelfde sample. Bit voor bit gelijk = het splitsen bij events klopt.
 
 ## State
 Binair, klein en vooruit-compatibel: \`"PBST"\`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
-standaard. Parameter-id's veranderen nooit.
+standaard. Parameter-id's veranderen nooit. Na een geslaagde load: \`host_params->rescan(CLAP_PARAM_RESCAN_VALUES)\`
+(clap-validator eist het in state-reproducibility), en als de plugin actief is \`request_flush\`.
 
 ## Presets (fase 4)
 Een preset is een state-blob plus naam, als JSON naast de plugin (\`presets/<naam>.json\` met de parameterwaarden
@@ -189,6 +196,8 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 11. **Draden**: zolang de plugin actief is, raakt alleen de audiothread het Ontwerp aan. \`params.get_value\` en
    \`state.save\` lezen een atomaire kopie; \`state.load\` zet waarden klaar die process of flush overneemt;
    \`tail.get\` leest een staart die process uitrekende (\`staartSec()\` leest de smoothers).
+12. **CLAP-headers** komen van clap-wrapper (\`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON\` haalt CLAP 1.2.x op; doel \`clap\`);
+   het pakket heeft ze niet zelf.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
@@ -234,7 +243,9 @@ export function leerpad(ontwerp) {
   return `# LEERPAD — wat Clay zelf doet
 
 ## Installeren (gratis, geen Apple Developer-account)
-1. Download in GitHub bij de laatste groene CI-run het artefact \`macos-keten_${ontwerp.id}\` (een zip).
+1. Download in GitHub bij de laatste groene CI-run het artefact \`macos-keten_${ontwerp.id}\` (een zip). Een artefact van
+   GitHub bewaart geen Unix-rechten of symlinks: laat CI daarom de bundels zelf nog eens zippen (\`ditto -c -k
+   --keepParent\` of \`zip -y\`) en pak díe zip uit.
 2. Uitpakken. macOS zet een quarantainevlag op downloads: \`xattr -dr com.apple.quarantine "PB ${ontwerp.naam}.component"\`
    (en hetzelfde voor .vst3 en .clap).
 3. Kopieer \`PB ${ontwerp.naam}.component\` naar \`~/Library/Audio/Plug-Ins/Components/\`.

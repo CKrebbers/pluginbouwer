@@ -22,12 +22,19 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
   event gesplitst; de DSP rekent per sample, dus de uitvoer is gelijk aan die zonder splitsen.
 - **Mainthread**: `init`, `activate` (hier wordt geheugen gereserveerd), state, parameters lezen en tekst.
 - Geen locks, geen allocatie, geen syscalls in `process` (RTSan bewaakt het in CI).
-- Parameteroverdracht: alleen via CLAP-events (`process` en `params.flush`). Geen gedeelde variabelen tussen threads.
+- Parameteroverdracht naar het Ontwerp: alleen via CLAP-events (`process` en `params.flush`). Wat de mainthread
+  moet lezen (`params.get_value`, `state.save`) komt uit een atomaire kopie per parameter die de audiothread
+  bijwerkt; `state.load` terwijl de plugin actief is zet de waarden in die kopie plus een atomaire vlag, en
+  `process`/`flush` neemt ze over vóór de events van dat blok. Verder geen gedeelde variabelen.
+- `staartSec()` geeft −1 voor oneindig (lusversterking ≥ 1): meld dan `INT32_MAX` of meer (CLAP: oneindig).
+- De null-test `ci-null.sh clap` heeft een geval `testsignalen/automatie/`: 720 parameter-events, ook midden in een
+  blok en twee op dezelfde sample. Bit voor bit gelijk = het splitsen bij events klopt.
 
 ## State
 Binair, klein en vooruit-compatibel: `"PBST"`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
-standaard. Parameter-id's veranderen nooit.
+standaard. Parameter-id's veranderen nooit. Na een geslaagde load: `host_params->rescan(CLAP_PARAM_RESCAN_VALUES)`
+(clap-validator eist het in state-reproducibility), en als de plugin actief is `request_flush`.
 
 ## Presets (fase 4)
 Een preset is een state-blob plus naam, als JSON naast de plugin (`presets/<naam>.json` met de parameterwaarden

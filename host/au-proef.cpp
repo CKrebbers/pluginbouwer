@@ -204,7 +204,13 @@ int main(int argc, char** argv) {
     UInt32 aan = 1; OSStatus s = AudioUnitSetProperty(p.au, kAudioUnitProperty_BypassEffect, kAudioUnitScope_Global, 0, &aan, sizeof aan);
     string wat;
     if (s != noErr) { char t[64]; snprintf(t, sizeof t, "niet ondersteund (OSStatus %d)", (int)s); wat = t; }
-    else { auto y = p.render(autoIn.k, 512, [](size_t) {}); wat = y == autoIn.k ? "uitgang = ingang (bit voor bit)" : "aan, maar de uitgang is niet de ingang"; }
+    else {
+      // de plugin vloeit 10 ms over: vergelijk vanaf 20 ms
+      auto y = p.render(autoIn.k, 512, [](size_t) {});
+      size_t van = (size_t)(0.020 * sr); bool gelijk = true;
+      for (size_t c = 0; c < y.size() && gelijk; ++c) for (size_t i = van; i < y[c].size(); ++i) if (y[c][i] != autoIn.k[c][i]) { gelijk = false; break; }
+      wat = gelijk ? "uitgang = ingang (bit voor bit, vanaf 20 ms)" : "aan, maar de uitgang is niet de ingang";
+    }
     info += "\"bypass\":" + jsonStr(wat) + "}";
     printf("bypass: %s\n", wat.c_str());
   }

@@ -38,6 +38,8 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 11. **Draden**: zolang de plugin actief is, raakt alleen de audiothread het Ontwerp aan. `params.get_value` en
    `state.save` lezen een atomaire kopie; `state.load` zet waarden klaar die process of flush overneemt;
    `tail.get` leest een staart die process uitrekende (`staartSec()` leest de smoothers).
+12. **CLAP-headers** komen van clap-wrapper (`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON` haalt CLAP 1.2.x op; doel `clap`);
+   het pakket heeft ze niet zelf.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:

@@ -1,6 +1,7 @@
 #!/bin/sh
 # ci-null.sh — de null-test van het bouwpakket in CI (en lokaal).
-#   sh gereedschap/ci-null.sh clap <build-dir>                          pb-render door het .clap (blok 512, wisselend, state-rondje)
+#   sh gereedschap/ci-null.sh clap <build-dir>                          pb-render door het .clap (blok 512, wisselend, state-rondje,
+#                                                                       en automatisering met events midden in blokken)
 #   sh gereedschap/ci-null.sh pluginval <plugin> "<pluginval>" <label>  pluginval test (VST3/AU): render opnemen, meten, poort
 # Verwacht <build-dir>/pb-render (uit gereedschap/pb-render.cpp) en <build-dir>/plugins/*.clap; of zet CLAP=… en PB_RENDER=….
 set -e
@@ -23,6 +24,15 @@ if [ "$SOORT" = clap ]; then
     { echo "### Null-test CLAP ($naam, $(uname -m))"; echo; node "$PAKKET/gereedschap/vergelijk.mjs" "$UIT" || true; echo; } | tee /dev/stderr | som
     node "$PAKKET/gereedschap/vergelijk.mjs" "$UIT" > /dev/null
   done
+  # automatisering: parameter-events op willekeurige samples, ook midden in een blok (bewijst het splitsen, op de bits)
+  if [ -f "$T/automatie/events.txt" ]; then
+    UIT="$PAKKET/uit/clap-automatie"; mkdir -p "$UIT"
+    for blok in 512 3,128,1,4096,77; do
+      "$RENDER" "$CLAPPAD" "$T/automatie/in.wav" "$UIT/blok-$blok.wav" --blok "$blok" --automatie "$T/automatie/events.txt"
+      { echo "### Null-test CLAP automatisering, blok $blok ($(uname -m))"; echo; node "$PAKKET/gereedschap/vergelijk.mjs" --automatie "$UIT/blok-$blok.wav" || true; echo; } | tee /dev/stderr | som
+      node "$PAKKET/gereedschap/vergelijk.mjs" --automatie "$UIT/blok-$blok.wav" > /dev/null
+    done
+  fi
 elif [ "$SOORT" = pluginval ]; then
   PLUGIN="$1"; PV="$2"; LABEL="$3"; UIT="$PAKKET/uit/pluginval-$LABEL"; mkdir -p "$UIT/cfg"
   for cfg in "$T"/pluginval/*.json; do
