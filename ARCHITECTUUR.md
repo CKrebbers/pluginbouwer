@@ -3,7 +3,7 @@
 ## Lagen
 ```
 dsp/                 DE DSP (gegeven, niet herschrijven): pb_*.h + de keten als constante (ontwerpen/keten_dub_echo.h)
-plugin/              de CLAP-schil (fase 0–2) en het frontpaneel (fase 3); clap-wrapper maakt VST3 en AUv2
+plugin/              de CLAP-schil (fase 0–2, formaten fase 5) en het frontpaneel (fase 3); clap-wrapper maakt VST3 en AUv2
 gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh
 testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
 ```
@@ -100,6 +100,37 @@ per naam). Fabriekspresets komen uit de varianten van de tool.
   `gereedschap/pb-au-presets` (macOS: elke AU factory preset zetten, PresentPreset en ClassInfo lezen) en door auval,
   dat de presets bij naam toont. `gereedschap/vergelijk-presets.mjs` legt de waarden uit beide toetsen naast
   `presets/*.json` (CLAP bit voor bit, AU als float32).
+
+## Formaten (fase 5)
+- **Kanaalindelingen.** Eén ingang en één uitgang, in drie indelingen: Stereo (2 → 2, standaard), Mono (1 → 1) en
+  Mono naar stereo (1 → 2). Een CLAP-host kiest met `audio-ports-config` (`select`, mainthread, niet actief);
+  `audio-ports-config-info` meldt de huidige. `configurable-audio-ports` neemt een verzoek per poort aan (alles of
+  niets, alleen een indeling uit de lijst): zo zet clap-wrapper de VST3-busindeling door (`setBusArrangements`).
+  Voor de AU leest `patches/clap-wrapper-auv2-toegestane-kanalen-uit-audio-ports-config.patch` de lijst uit
+  `audio-ports-config`: SupportedNumChannels meldt [1, 1] [1, 2] [2, 2], en Initialize kiest de indeling die bij de
+  streamformaten van de host past (stereo naar mono: `kAudioUnitErr_FormatNotSupported`).
+- **process.** Het Ontwerp rekent min(in, uit) kanalen. Mono naar stereo: het Ontwerp rekent mono en uitgang 1 is een
+  kopie van uitgang 0; twee kanalen met dezelfde invoer zijn in het Ontwerp bit voor bit gelijk (de toets vergelijkt
+  met de motor op twee kanalen). Zo leest het Ontwerp nooit een ingang die het al overschreef. De DSP schrijft per
+  sample eerst uitgang 0 en leest dan ingang 1: deelt een host ingang 1 met uitgang 0, dan kopieert process ingang 1
+  eerst naar een vooraf gereserveerde buffer. Gewoon in-place (ingang c = uitgang c) is veilig.
+- **Bypass.** Parameter 9 "Bypass" (0/1, `CLAP_PARAM_IS_BYPASS`, stappen): clap-wrapper maakt er `kIsBypass` (VST3)
+  en `kAudioUnitProperty_BypassEffect` (AU) van, dus de bypassknop van de host werkt in elk formaat. Het Ontwerp
+  rekent door (de staart en de echo blijven kloppen); de uitgang vloeit in 10 ms lineair over naar de droge ingang
+  en terug. Na activate/reset springt hij op de eerste sample, zoals de smoothers. Vol aan = de ingang, bit voor bit.
+  De bypass zit in de state (id 9; een oude state zonder id 9 = uit), niet in een preset: een preset laden laat hem
+  staan.
+- **Samplerates en blokken.** 44,1–192 kHz en blokken 1..4096: het geheugen komt in activate (`geheugenNodig(sr)`,
+  de buffers voor bypass en kopie op maxFrames); process hakt een blok dat groter is dan maxFrames in stukken.
+- **Getoetst.** `gereedschap/maak-matrix.mjs` maakt invoer en verwachte uitvoer op 44,1 / 48 / 88,2 / 96 / 176,4 /
+  192 kHz, per indeling, met de ketenmotor van de tool (`wasm/graaf.wasm`); op de eigen samplerate geeft hij bit voor
+  bit `testsignalen/*.verwacht.wav` (dat toetst hij eerst). Daartegen: `ci-null.sh matrix` (CLAP via pb-render
+  `--indeling`, blok 512, wisselend 1..4096, `--in-place`), `ci-null.sh pluginval-matrix` (VST3 en AU via
+  `pluginval test`, elke samplerate, blok 1 en 4096, Bypass), `ci-null.sh au-matrix` (de AU via
+  `gereedschap/pb-au-render`: streamformaten zoals Logic, BypassEffect, en een geweigerde indeling),
+  `ci-bypass.sh` (aan, aan- en uitzetten met overvloeiing). pluginval validate draait met alle samplerates en
+  blokgroottes; `ci-formaten.sh` eist Mono en Stereo in de busindeling en de AU-indelingen in auval. RTSan rekent in
+  elke indeling, in-place en met de bypass.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

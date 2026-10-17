@@ -46,7 +46,7 @@ elif [ "$SOORT" = pluginval ]; then
   done
   node "$PAKKET/gereedschap/vergelijk.mjs" "$UIT" > /dev/null
 elif [ "$SOORT" = matrix ]; then
-  BUILD="$1"; M="$2"
+  BUILD="$1"; M="$(cd "$2" && pwd)"
   CLAPPAD="${CLAP:-$(ls -d "$BUILD"/plugins/*.clap 2>/dev/null | head -1)}"
   RENDER="${PB_RENDER:-$BUILD/pb-render}"
   [ -n "$CLAPPAD" ] && [ -d "$M" ] || { echo "gebruik: ci-null.sh matrix <build-dir> <matrix>" >&2; exit 2; }
@@ -71,7 +71,8 @@ elif [ "$SOORT" = matrix ]; then
   [ "$fout" = 0 ] || { echo "FOUT: de matrix (CLAP) is niet groen" >&2; exit 1; }
   echo "Null-test CLAP-matrix: alles groen"
 elif [ "$SOORT" = pluginval-matrix ]; then
-  PLUGIN="$1"; PV="$2"; LABEL="$3"; M="$4"; SRS="${5:-$(ls "$M" | tr '\n' ',' | sed 's/,$//')}"
+  # de matrix als absoluut pad: pluginval test lost relatieve paden op tegen de map van de config
+  PLUGIN="$1"; PV="$2"; LABEL="$3"; M="$(cd "$4" && pwd)"; SRS="${5:-$(ls "$M" | tr '\n' ',' | sed 's/,$//')}"
   fout=0
   for paar in $(echo "$SRS" | tr ',' ' ' | sed 's/\([0-9][0-9]*\)/\1:512/g') 48000:1 48000:4096; do
     sr="${paar%%:*}"; blok="${paar#*:}"; V="$M/$sr/stereo"; UIT="$PAKKET/uit-matrix/$LABEL/$sr-blok$blok"; mkdir -p "$UIT/cfg"
@@ -104,7 +105,7 @@ elif [ "$SOORT" = pluginval-matrix ]; then
   [ "$fout" = 0 ] || { echo "FOUT: de matrix ($LABEL) is niet groen" >&2; exit 1; }
   echo "Null-test $LABEL-matrix: alles groen"
 elif [ "$SOORT" = au-matrix ]; then
-  AUR="$1"; M="$2"
+  AUR="$1"; M="$(cd "$2" && pwd)"
   [ -x "$AUR" ] && [ -d "$M" ] || { echo "gebruik: ci-null.sh au-matrix <pb-au-render> <matrix>" >&2; exit 2; }
   fout=0
   for srmap in "$M"/*/; do

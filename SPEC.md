@@ -47,6 +47,8 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
+- Daarnaast heeft de plugin (niet het Ontwerp) parameter **9 "Bypass"** (0/1, `CLAP_PARAM_IS_BYPASS`): de bypass van
+  de host; 10 ms overvloeiing, het Ontwerp rekent door (ARCHITECTUUR.md "Formaten").
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
 
 ## Budgetten

@@ -8,7 +8,7 @@
 set -e
 PAKKET="$(cd "$(dirname "$0")/.." && pwd)"
 T="$PAKKET/testsignalen"
-BUILD="$1"; M="$2"
+BUILD="$1"; M="$(cd "$2" && pwd)"
 CLAPPAD="${CLAP:-$(ls -d "$BUILD"/plugins/*.clap 2>/dev/null | head -1)}"
 RENDER="${PB_RENDER:-$BUILD/pb-render}"
 [ -n "$CLAPPAD" ] && [ -d "$M" ] || { echo "gebruik: ci-bypass.sh <build-dir> <matrix>" >&2; exit 2; }
