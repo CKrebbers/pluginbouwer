@@ -30,9 +30,12 @@ done
 # dezelfde CFBundleIdentifier (bv. in de bouwmap), dan werkt Installer DIE bij in plaats van de plugin-map.
 # Daarom een component-plist met BundleIsRelocatable = false voor elke bundel.
 pkgbuild --analyze --root "$wortel" "$werk/componenten.plist"
+plutil -p "$werk/componenten.plist"
 i=0
 while /usr/libexec/PlistBuddy -c "Print :$i" "$werk/componenten.plist" > /dev/null 2>&1; do
-  /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$werk/componenten.plist"
+  # niet elke entry heeft de sleutel al (CI: "Set: Entry … Does Not Exist"), dus weghalen en opnieuw toevoegen
+  /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$werk/componenten.plist" > /dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$werk/componenten.plist"
   i=$((i + 1))
 done
 echo "pkgbuild --analyze: $i bundels, alle met BundleIsRelocatable = false"
