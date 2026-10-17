@@ -70,14 +70,15 @@ Stopcriterium: in de tool een voorbeeld kiezen = meteen geluid, ook zonder eigen
 - [ ] Pass@3 (fase E) opnieuw met een instrument-ontwerp
 
 ## G. Pakket v2 door alle fasen (verse sessies, tak proef/f1–f3)
-- [x] fase 0 3/3, fase 1 3/3, fase 2 3/3, fase 3 3/3 (tussenstand 17 okt; uitslagen in tools/pakket/uitslagen.json zodra fase 6 klaar is)
-- [ ] fase 4–6 (lopen)
+- [x] fase 0–6 elk **3/3** (17 okt; per fase het aantal rondes en wat gevonden is in tools/pakket/uitslagen.json en PROMPTS.md)
 - [x] vondsten terug in main: subnormale uitvoer (pb::uitvoer), vierde clap-wrapper-patch (AU SetParameter tegen Render,
-  pluginval AU met --repeat 3), pakket v3 (tekst ↔ waarde, stateversie, frontpaneel.svg, valkuilen 13–14)
-- [x] upstream klaargezet: upstream/clap-wrapper/LEESMIJ.md (zes punten clap-wrapper, één clap-validator) — **plakken: Clay**
+  pluginval AU met --repeat 3), vijfde en zesde patch (AU-fabriekspresets, AU-kanaalindelingen), bypass zonder subnormalen,
+  pakket v3 (tekst ↔ waarde, stateversie, frontpaneel.svg, presets in het binary, fase-6-prompt, valkuilen 13–18)
+- [x] upstream klaargezet: upstream/clap-wrapper/LEESMIJ.md (zeven punten clap-wrapper, één clap-validator) — **plakken: Clay**
 - [ ] PR 1 (geluid-maken) samengevoegd met main op tak integratie/geluid-maken (toetsen 105/105, tool in Chrome klinkt);
   het artifact draait die versie — **samenvoegen in main: Clay beslist**
-- [ ] Referentie: echte band (Aalto-dataset, Akai) tegen onze tanh en Jiles-Atherton (.github/workflows/referentie.yml)
+- [x] Referentie: echte band (Aalto-dataset, Akai GX-4000D) gemeten: ref/referentie/RAPPORT.md. Beweging van onze standaard
+  2,2 × de Akai en schaalt met de delaytijd; H3 past beter op Jiles-Atherton; de band maakt H2 die wij niet maken.
 
 ## Bibliotheek later (niet bouwen vóór de dub-echo de hele keten gehaald heeft)
 Oscillatoren (polyBLEP), sampler, granulair, ruis, fysische modellen (Karplus-Strong, waveguide), filters (ladder, comb,
@@ -86,5 +87,7 @@ multitap), reverb (Dattorro-plaat, FDN, veer, convolutie), modulatie (chorus, fl
 (pitchshift, freeze), spectraal (STFT, vocoder), ruimtelijk (mid/side, breedte, panner); besturing (LFO, envelopes,
 MSEG, macro's, sidechain, MIDI/MPE, tempo-sync, randomisatie); techniek (oversampling, latency melden, presets, undo);
 UI (XY-vlak, meters, scopes, presetbrowser).
+Uit ref/referentie/RAPPORT.md (eerst ABX): bandbeweging als snelheid ε(t) los van de delaytijd, met de Akai als ijkpunt
+(0,15 % RMS, flutter 7,7 Hz) voor haperen 0,25; een kleine even term voor H2; een blok bandruis (−61 dBFS, brom + sis).
 Bandhysterese (Jiles-Atherton zoals CHOWTape; zie TWEEDE-MENING.md: vervorming bij zachte niveaus en niveau-afhankelijke fase die
 onze tanh mist; eerst een ABX-toets of het in de dub-echo hoorbaar is).

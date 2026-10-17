@@ -58,6 +58,14 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    `clap_entry.init` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
    `std::string` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
 
+17. **Kanaalindelingen kiest elk formaat anders**: CLAP via `audio-ports-config`, de VST3 van clap-wrapper via
+   `configurable-audio-ports` (`setBusArrangements`), de AUv2 van clap-wrapper v0.16.0 alleen de vaste poort (zonder
+   patch biedt Logic de AU alleen stereo aan). Implementeer beide extensies; `patches/clap-wrapper-auv2-volgt-presets-
+   mono-stereo.patch` maakt de indelingen van audio-ports-config de AU-kanaalindelingen. Alle drie de verse gesprekken
+   van fase 5 (F1, F2, F3) moesten hem zelf bouwen.
+18. **pluginval v2 op de opdrachtregel**: bij `validate` staat het pluginpad vóór `--sample-rates`/`--block-sizes` (die
+   lijsten slokken anders het pad op); `pluginval test` lost een relatief pad op tegen de map van zijn config: geef
+   absolute paden. De GitHub-tools geven van een job alleen de laatste 5000 logregels: zet bewijsstappen achteraan.
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in `VERSLAG.md`; zet een toets nooit uit om groen te worden.

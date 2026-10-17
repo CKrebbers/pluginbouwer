@@ -1,11 +1,11 @@
-# Zes punten in clap-wrapper v0.16.0 (en één in clap-validator), klaar om te melden
+# Zeven punten in clap-wrapper v0.16.0 (en één in clap-validator), klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
-klaar om te plakken. De patches 0001–0004 gaan elk los schoon op v0.16.0, 0005 na 0004 (= hun `main` op 17 okt 2026, commit 1cca996); in de
+klaar om te plakken. De patches 0001–0004 gaan elk los schoon op v0.16.0, 0005 na 0004, 0006 na 0004 en 0005 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1 tot en met 6 (3 heeft geen patch). Het punt voor clap-validator staat onderaan en gaat
+issue 1 tot en met 7 (3 heeft geen patch). Het punt voor clap-validator staat onderaan en gaat
 naar https://github.com/free-audio/clap-validator/issues/new. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
 
@@ -153,8 +153,30 @@ Tested on macOS 15 arm64: `auval -strict` lists the presets ("HAS FACTORY PRESET
 `kAudioUnitProperty_FactoryPresets`, sets `kAudioUnitProperty_PresentPreset` before and after `Initialize`, and every
 parameter and the ClassInfo match the preset; an unknown preset number returns an error. Not tested in Logic itself.
 Known gap: VST3 gets no program list from the same presets.
+Related: `auval` warns "Preset name is not retained in retrieved class data" because `SaveState` writes a fixed
+name ("Program"); one session fixed it by keeping the current preset name (factory or `NewCustomPresetSet`) in
+ClassInfo and restoring it in `RestoreState`.
 
 Found by: an independent build session of the Pluginbouwer project (preset phase).
+
+---
+
+## Issue 7 — AUv2: only the fixed port layout is offered (no mono, no mono → stereo)
+
+**What happens.** A CLAP that implements `clap.audio-ports-config` (stereo 2→2, mono 1→1, mono→stereo 1→2) is offered
+by the AUv2 wrapper only in its current layout: `SupportedNumChannels` and `ValidFormat` use the port cache taken at
+construction, so Logic offers the AU on a stereo track only. The VST3 side already supports this through
+`clap.configurable-audio-ports` (`setBusArrangements`).
+
+**Proposal** (`0006-auv2-channel-layouts-from-audio-ports-config.patch`, applies after 0004 and 0005): snapshot the
+`audio-ports-config` layouts with one main input and one main output at `PostConstructor`; `SupportedNumChannels`
+lists them, `ValidFormat` accepts their channel counts on element 0, and `Initialize` selects the matching config
+(`clap_plugin_audio_ports_config.select`) before activating the CLAP, or returns `kAudioUnitErr_FormatNotSupported`.
+Without `audio-ports-config` nothing changes.
+
+Tested on macOS 15 arm64: `auval -strict` reports channel capabilities `[2, 2] [1, 1] [1, 2]` and passes; pluginval 10
+passes on the AU. Mono renders were compared bit for bit through the CLAP (same process code), not through the AU.
+Needed independently by two build sessions.
 
 ---
 
@@ -177,3 +199,5 @@ containers pass. Same code on master (b2f1d9b).
 rustc 1.97); it has not yet been run against a plugin with a multi-preset container.
 
 Workaround used meanwhile: one provider per preset, each a container of one (valid CLAP, but unusual for hosts).
+Found independently by three build sessions of the Pluginbouwer project (each hit the 45 s timeout with a container of
+five presets). Side effect of the workaround: `preset-discovery-load` only keeps the result of the last provider.

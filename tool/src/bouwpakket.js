@@ -255,6 +255,14 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    \`clap_entry.init\` al tijdens de statische initialisatie aanroept, mogelijk vóór jouw eigen globals. Een globale
    \`std::string\` die init vult wordt daarna weer leeg gemaakt: gebruik een functie-static.
 
+17. **Kanaalindelingen kiest elk formaat anders**: CLAP via \`audio-ports-config\`, de VST3 van clap-wrapper via
+   \`configurable-audio-ports\` (\`setBusArrangements\`), de AUv2 van clap-wrapper v0.16.0 alleen de vaste poort (zonder
+   patch biedt Logic de AU alleen stereo aan). Implementeer beide extensies; \`patches/clap-wrapper-auv2-volgt-presets-
+   mono-stereo.patch\` maakt de indelingen van audio-ports-config de AU-kanaalindelingen. Alle drie de verse gesprekken
+   van fase 5 (F1, F2, F3) moesten hem zelf bouwen.
+18. **pluginval v2 op de opdrachtregel**: bij \`validate\` staat het pluginpad vóór \`--sample-rates\`/\`--block-sizes\` (die
+   lijsten slokken anders het pad op); \`pluginval test\` lost een relatief pad op tegen de map van zijn config: geef
+   absolute paden. De GitHub-tools geven van een job alleen de laatste 5000 logregels: zet bewijsstappen achteraan.
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in \`VERSLAG.md\`; zet een toets nooit uit om groen te worden.
@@ -434,14 +442,25 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
 > CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
-> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst.
+> lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
+> stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
+> formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met \`wasm/graaf.wasm\` (die
+> doet \`testsignalen/\` eerst bit voor bit na). Bypass: \`CLAP_PARAM_IS_BYPASS\`, de DSP rekent door, 10 ms overvloeien,
+> en ook de droge invoer door \`pb::uitvoer\` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
 **Uitslag**: ${u('5')}
 
 ---
 ## Fase 6 — signeren en installeren
 **Prompt**
-> Maak een installatiepakket (\`.pkg\` via pkgbuild, ad-hoc gesigneerd) dat de AU, VST3 en CLAP op de juiste plek zet.
+> Maak een installatiepakket (\`.pkg\` via pkgbuild) met de ad-hoc gesigneerde AU, VST3 en CLAP, dat ze op de juiste
+> plek zet (\`/Library/Audio/Plug-Ins/{Components,VST3,CLAP}\`). Het \`.pkg\` zelf kan niet ad-hoc gesigneerd worden
+> (\`pkgbuild --sign\`/\`productsign\` eisen een betaald Developer ID Installer-certificaat): het blijft ongesigneerd,
+> en LEERPAD.md zegt wat Clay bij het openen doet (macOS 15: Privacy en beveiliging → "Open toch"; rechtsklik → Open
+> werkt daar niet meer). Zet \`BundleIsRelocatable\` op false in de component-plist (\`pkgbuild --analyze\`; de sleutel
+> ontbreekt soms: toevoegen, niet zetten), anders installeert Installer in een bestaande bundel elders op de schijf.
+> postinstall: \`killall -9 AudioComponentRegistrar\`. Toets in een aparte job op een verse runner die niets bouwt:
+> installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan \`auval -strict\`.
 > Notarisatie alleen als optie in de docs, met de kosten.
 **Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
 **Uitslag**: ${u('6')}
@@ -504,6 +523,7 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
   'plugin/patches/clap-wrapper-auv2-tailtime.patch': 'patches/clap-wrapper-auv2-tailtime.patch',
   'plugin/patches/clap-wrapper-auv2-presets.patch': 'patches/clap-wrapper-auv2-presets.patch',
+  'plugin/patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch': 'patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch',
   'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };

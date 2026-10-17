@@ -77,6 +77,11 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   (uit proef F2) leest de preset-discovery-factory (locaties PLUGIN). Onze eigen plugin heeft nog geen presets; de
   patch staat erop zodat CI bewijst dat de vijf samen bouwen. clap-validator 0.4.1 loopt vast op een preset-container
   met meer dan één preset (F2 en F3 los van elkaar; patch in upstream/).
+- **AU mono**: clap-wrapper v0.16.0 kent voor AUv2 alleen de vaste poort. Zesde patch
+  `plugin/patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch` (uit F2; F3 had hem ook nodig): de indelingen uit
+  audio-ports-config worden de AU-kanaalindelingen. Onze schil is nog stereo; de patch staat erop om mee te bouwen.
+- **Bypass en subnormalen**: ook de droge invoer gaat door `pb::uitvoer` (de fuzzer van clap-validator ving bij F2 een
+  subnormale invoersample die in bypass ongewijzigd naar de host ging).
 - **Draden in de schil**: actief = alleen de audiothread raakt het Ontwerp; get_value/state lezen `spiegel`,
   state.load zet `vuil`, tail.get leest `staartSmp` (plugin/src/plugin.cpp). Gevonden door de verse sessies (E1, E2).
 - **Bypass**: clap-wrapper geeft AU BypassEffect alleen door aan een CLAP-parameter met `CLAP_PARAM_IS_BYPASS`;

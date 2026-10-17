@@ -332,7 +332,7 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
       for (uint32_t i = 0; i < len; ++i) {
         double& g = s->bypassG;
         g = g < doel ? (g + s->bypassStap > doel ? doel : g + s->bypassStap) : (g - s->bypassStap < doel ? doel : g - s->bypassStap);
-        for (int c = 0; c < k; ++c) uitDeel[c][i] = (float)((1.0 - g) * uitDeel[c][i] + g * s->droog[c][i]);
+        for (int c = 0; c < k; ++c) uitDeel[c][i] = pb::uitvoer((1.0 - g) * uitDeel[c][i] + g * s->droog[c][i]);   // ook de droge invoer: geen subnormale float naar de host
       }
     }
     pos = tot;
