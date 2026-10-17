@@ -1,0 +1,35 @@
+MAP LogSweepsContinuousPulse100_AKAI_IPS[3.75]_SCOTCH  1 bestanden  0 MB  bv. README.md
+MAP LogSweepsContinuousPulse100_AKAI_IPS[3.75]_SCOTCH/Train  3 bestanden  331 MB  bv. trajectory_0_.npy, target_0_.wav, input_0_.wav
+MAP LogSweepsContinuousPulse100_AKAI_IPS[7.5]_MAXELL  1 bestanden  0 MB  bv. README.md
+MAP LogSweepsContinuousPulse100_AKAI_IPS[7.5]_MAXELL/Train  3 bestanden  331 MB  bv. trajectory_0_.npy, target_0_.wav, input_0_.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[3.75]_SCOTCH_TRAJECTORIES_SPLIT/Test  15 bestanden  691 MB  bv. input_3_09.wav, input_3_12.wav, input_3_14.wav, input_3_07.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[3.75]_SCOTCH_TRAJECTORIES_SPLIT/Train  60 bestanden  2765 MB  bv. input_1_10.wav, input_0_03.wav, input_0_24.wav, input_1_08.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[3.75]_SCOTCH_TRAJECTORIES_SPLIT/Val  20 bestanden  922 MB  bv. input_2_17.wav, input_2_01.wav, input_2_09.wav, input_2_04.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[7.5]_MAXELL_TRAJECTORIES_SPLIT/Test  15 bestanden  691 MB  bv. input_3_09.wav, input_3_12.wav, input_3_14.wav, input_3_07.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[7.5]_MAXELL_TRAJECTORIES_SPLIT/Train  60 bestanden  2765 MB  bv. input_1_10.wav, input_0_03.wav, input_0_24.wav, input_1_08.wav
+MAP ReelToReel_Dataset_Mini192kHzPulse100_AKAI_IPS[7.5]_MAXELL_TRAJECTORIES_SPLIT/Val  20 bestanden  922 MB  bv. input_2_17.wav, input_2_01.wav, input_2_09.wav, input_2_04.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[3.75]_SCOTCH  1 bestanden  0 MB  bv. README.md
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[3.75]_SCOTCH/Test  3 bestanden  954 MB  bv. trajectory_3_.npy, target_3_.wav, input_3_.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[3.75]_SCOTCH/Train  6 bestanden  3816 MB  bv. input_1_.wav, trajectory_1_.npy, trajectory_0_.npy, target_1_.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[3.75]_SCOTCH/Val  3 bestanden  1272 MB  bv. target_2_.wav, trajectory_2_.npy, input_2_.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[7.5]_MAXELL  1 bestanden  0 MB  bv. README.md
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[7.5]_MAXELL/Test  3 bestanden  954 MB  bv. trajectory_3_.npy, target_3_.wav, input_3_.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[7.5]_MAXELL/Train  6 bestanden  3816 MB  bv. input_1_.wav, trajectory_1_.npy, trajectory_0_.npy, target_1_.wav
+MAP ReelToReel_Dataset_MiniPulse100_AKAI_IPS[7.5]_MAXELL/Val  3 bestanden  1272 MB  bv. target_2_.wav, trajectory_2_.npy, input_2_.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH/Test  2 bestanden  106 MB  bv. target_4_.wav, input_4_.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH/Train  6 bestanden  953 MB  bv. input_1_.wav, target_2_.wav, input_2_.wav, target_1_.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH/Val  2 bestanden  212 MB  bv. target_3_.wav, input_3_.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH_SPLIT/Test  5 bestanden  53 MB  bv. target_4_005.wav, target_4_002.wav, target_4_003.wav, target_4_001.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH_SPLIT/Train  45 bestanden  476 MB  bv. target_0_002.wav, target_0_004.wav, target_1_002.wav, target_1_007.wav
+MAP Silence_AKAI_IPS[3.75]_SCOTCH_SPLIT/Val  10 bestanden  106 MB  bv. target_3_007.wav, target_3_001.wav, target_3_004.wav, target_3_009.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL/Test  2 bestanden  106 MB  bv. target_4_.wav, input_4_.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL/Train  6 bestanden  953 MB  bv. input_1_.wav, target_2_.wav, input_2_.wav, target_1_.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL/Val  2 bestanden  212 MB  bv. target_3_.wav, input_3_.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL_SPLIT  2 bestanden  0 MB  bv. ._.DS_Store, .DS_Store
+MAP Silence_AKAI_IPS[7.5]_MAXELL_SPLIT/Test  5 bestanden  53 MB  bv. target_4__003.wav, target_4__001.wav, target_4__004.wav, target_4__002.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL_SPLIT/Train  45 bestanden  476 MB  bv. target_2__006.wav, target_2__005.wav, target_1__013.wav, target_0__012.wav
+MAP Silence_AKAI_IPS[7.5]_MAXELL_SPLIT/Val  10 bestanden  106 MB  bv. target_3__005.wav, target_3__006.wav, target_3__001.wav, target_3__002.wav
+MAP SinesFadedShortContinuousPulse100_AKAI_IPS[3.75]_SCOTCH  1 bestanden  0 MB  bv. README.md
+MAP SinesFadedShortContinuousPulse100_AKAI_IPS[3.75]_SCOTCH/Train  3 bestanden  119 MB  bv. trajectory_0_.npy, target_0_.wav, input_0_.wav
+MAP SinesFadedShortContinuousPulse100_AKAI_IPS[7.5]_MAXELL  1 bestanden  0 MB  bv. README.md
+MAP SinesFadedShortContinuousPulse100_AKAI_IPS[7.5]_MAXELL/Train  3 bestanden  119 MB  bv. trajectory_0_.npy, target_0_.wav, input_0_.wav
