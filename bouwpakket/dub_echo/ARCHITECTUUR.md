@@ -33,7 +33,9 @@ testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + plug
 ## State
 Binair, klein en vooruit-compatibel: `"PBST"`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
-standaard. Parameter-id's veranderen nooit. Na een geslaagde load: `host_params->rescan(CLAP_PARAM_RESCAN_VALUES)`
+standaard. Parameter-id's veranderen nooit. Versie is nu 1. Laden leest de versie: andere magic, versie 0 of een
+blob korter dan zijn `aantal` belooft = false (niets veranderd); een hogere versie laadt gewoon per id (een nieuwere
+plugin mag er velden bij hebben, nooit een id een andere betekenis geven). Na een geslaagde load: `host_params->rescan(CLAP_PARAM_RESCAN_VALUES)`
 (clap-validator eist het in state-reproducibility), en als de plugin actief is `request_flush`.
 
 ## Presets (fase 4)

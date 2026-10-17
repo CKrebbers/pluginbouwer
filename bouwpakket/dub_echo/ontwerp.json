@@ -215,6 +215,7 @@
     },
     {
       "naam": "Terugkoppeling",
+      "kort": "Terug",
       "knoop": "terug",
       "knop": "hoeveel",
       "min": 0,

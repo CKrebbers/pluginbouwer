@@ -1,4 +1,4 @@
-# PROMPTS — Dub-echo (v1 (15 okt 2026))
+# PROMPTS — Dub-echo (v3 (17 okt 2026))
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
 Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de
@@ -9,14 +9,14 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 **Prompt**
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Dub-echo": een CLAP-plugin in
 > `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit `patches/`, in naamvolgorde) voor VST3 en AUv2
-> (`make_clapfirst_plugins`, AU maker `Vrve`, subtype `PDca`, type `aufx`). De plugin gebruikt het Ontwerp uit
+> (`make_clapfirst_plugins`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker `Vrve`, subtype `PDca`, type `aufx`). De plugin gebruikt het Ontwerp uit
 > `dsp/ontwerpen/keten_dub_echo.h` (include-pad `dsp/`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf `.github/workflows/ci.yml` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, `gereedschap/pb-render`
 > gebouwd met `-fsanitize=realtime`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
 > installeren in ~/Library/Audio/Plug-Ins, `killall -9 AudioComponentRegistrar`, `auval -strict -v aufx PDca Vrve`,
-> pluginval strictness 10 met `--rtcheck enabled` op AU en VST3, de plugins als artefact
-> `macos-keten_dub_echo`). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
+> pluginval strictness 10 met `--rtcheck enabled` op AU (met `--repeat 3`) en VST3, de plugins als artefact
+> `macos-keten_dub_echo`; een artefactnaam mag geen `:` `/` `*` `?` `"` `<` `>` `|` bevatten, zet de matrixnaam dus niet ongefilterd in de naam). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
 VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
@@ -39,16 +39,20 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 2 — parameters, automatisering, state
 **Prompt**
-> Maak de parameters af: tekst ↔ waarde in gewone eenheden (ms, Hz, dB), stapjes waar nodig, `params.flush` buiten
-> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets: state van een build zonder
-> parameter N laadt in een build mét (vooruit-compatibel). Automatisering in een DAW verandert niets aan de null-test.
+> Maak de parameters af: tekst ↔ waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, `params.flush` buiten
+> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets (in CI, door het binary):
+> (a) een met de hand gemaakte state-blob zonder de laatste parameter (`aantal` = N − 1, zoals een oudere build hem
+> schreef) laadt en die parameter houdt zijn standaard; (b) een blob met een extra onbekend id en versie 2 laadt;
+> (c) andere magic, versie 0 of een afgekapte blob geeft false en verandert niets. Er hoeft geen tweede build te zijn.
+> Daarnaast: `value_to_text` van de standaard geeft precies de tekst uit de tabel, en `text_to_value` daarvan terug
+> geeft de waarde. Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
 **Uitslag**: nog niet getoetst
 
 ---
 ## Fase 3 — UI
 **Prompt**
-> Bouw het frontpaneel uit design.md (CLAP gui-extensie; clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
+> Bouw het frontpaneel uit design.md en `frontpaneel.svg` (de mockup; CLAP gui-extensie, clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
 > parameters via de host, nooit rechtstreeks de DSP. Geen audiothread-toegang vanuit de UI.
 **Stopcriterium**: pluginval 10 zonder `--skip-gui-tests` groen op macOS; een schermafbeelding in CI als artefact.
 **Uitslag**: nog niet getoetst

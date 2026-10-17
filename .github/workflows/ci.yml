@@ -231,8 +231,8 @@ jobs:
           curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
           unzip -q pv.zip -d pv && ls pv
           echo "PV=$PWD/pv/pluginval.app/Contents/MacOS/pluginval" >> "$GITHUB_ENV"
-      - name: pluginval strictness 10 met rtcheck (AU)
-        run: $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/Components/*.component
+      - name: pluginval strictness 10 met rtcheck (AU), 3× (een race in SetParameter sloeg 1 op de 3 runs toe)
+        run: $PV validate --strictness-level 10 --rtcheck enabled --repeat 3 ~/Library/Audio/Plug-Ins/Components/*.component
       - name: pluginval strictness 10 met rtcheck (VST3)
         run: $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
       - name: Null-test AU (pluginval test, blok 512)

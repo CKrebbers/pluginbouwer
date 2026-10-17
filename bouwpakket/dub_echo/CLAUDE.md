@@ -40,6 +40,16 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    `tail.get` leest een staart die process uitrekende (`staartSec()` leest de smoothers).
 12. **CLAP-headers** komen van clap-wrapper (`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON` haalt CLAP 1.2.x op; doel `clap`);
    het pakket heeft ze niet zelf.
+13. **pluginval AU "Parameter thread safety" crasht af en toe in process** (`VALIDATION CRASHED`, process ←
+   `ProcessAdapter::process` ← `WrapAsAUV2::Render`): clap-wrapper v0.16.0 zet in `addParameterEvent` events in
+   dezelfde vectors die process op de audiothread sorteert en wist, zonder lock, vanaf de thread van SetParameter.
+   Oplossing: `patches/clap-wrapper-auv2-setparameter-draadveilig.patch` (gevonden door een vers gesprek, proef F1).
+   Draai pluginval op de AU met `--repeat 3`: de race sloeg één op de drie runs toe.
+14. **"Knoppen via de host" bij CLAP**: een CLAP-host stuurt een uitvoerevent van de plugin niet terug. Het paneel zet
+   een verandering als BEGIN/WAARDE/EIND in een lock-vrije rij en vraagt `request_flush`; process of `params.flush`
+   pusht ze als `CLAP_EVENT_PARAM_GESTURE_BEGIN`/`PARAM_VALUE`/`GESTURE_END` naar de host én past de waarde zelf
+   toe, zoals een event van de host. Het paneel raakt het Ontwerp nooit. Onder AUv2 doet `request_flush` niets
+   (clap-wrapper v0.16.0): de host hoort de verandering pas bij de volgende Render.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:

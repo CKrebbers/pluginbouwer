@@ -1,0 +1,68 @@
+diff --git a/src/detail/auv2/process.cpp b/src/detail/auv2/process.cpp
+index 6e4c315..bb97291 100644
+--- a/src/detail/auv2/process.cpp
++++ b/src/detail/auv2/process.cpp
+@@ -162,6 +162,11 @@ void ProcessAdapter::setupProcessing(ausdk::AUScope &audioInputs, ausdk::AUScope
+   _eventindices.clear();
+   _eventindices.reserve(_events.capacity());
+   _sysexBuffers.prepare(16);
++  {
++    ClapWrapper::detail::shared::SpinLockGuard guard(_pendingLock);
++    _pendingParams.clear();
++    _pendingParams.reserve(8192);
++  }
+ 
+   _out_events.ctx = this;
+ 
+@@ -189,6 +194,16 @@ void ProcessAdapter::sortEventIndices()
+ 
+ void ProcessAdapter::process(ProcessData &data)
+ {
++  {
++    // take over the parameter events queued by SetParameter (possibly from other threads)
++    ClapWrapper::detail::shared::SpinLockGuard guard(_pendingLock);
++    for (auto &n : _pendingParams)
++    {
++      _eventindices.emplace_back(_events.size());
++      _events.emplace_back(n);
++    }
++    _pendingParams.clear();
++  }
+   // CLAP requires event times within [0, frames_count); a host stamping
+   // MIDIEventList packets with out-of-range timestamps (e.g. mach host time
+   // instead of sample offsets) would otherwise make plugins that index their
+@@ -802,7 +817,7 @@ void ProcessAdapter::addParameterEvent(const clap_param_info_t &info, double val
+   n.param.channel = -1;
+   n.param.note_id = -1;
+ 
+-  this->_eventindices.emplace_back(this->_events.size());
+-  this->_events.emplace_back(n);
++  ClapWrapper::detail::shared::SpinLockGuard guard(_pendingLock);
++  this->_pendingParams.emplace_back(n);
+ }
+ }  // namespace Clap::AUv2
+diff --git a/src/detail/auv2/process.h b/src/detail/auv2/process.h
+index 30186b1..6135eef 100644
+--- a/src/detail/auv2/process.h
++++ b/src/detail/auv2/process.h
+@@ -22,6 +22,7 @@
+ #endif
+ 
+ #include <AudioUnitSDK/AUBase.h>
++#include "detail/shared/spinlock.h"
+ 
+ // TODO: check if additional AU headers are needed
+ #include <AudioToolbox/AudioToolbox.h>
+@@ -174,6 +175,12 @@ class ProcessAdapter
+   std::vector<clap_multi_event_t> _events;
+   std::vector<size_t> _eventindices;
+ 
++  // parameter events from SetParameter, which a host may call from any thread while
++  // process() runs; process() moves them into _events at its start. Only the spin lock
++  // guards _pendingParams; _events/_eventindices stay with the audio thread.
++  ClapWrapper::detail::shared::SpinLock _pendingLock;
++  std::vector<clap_multi_event_t> _pendingParams;
++
+   // owns the payloads referenced by CLAP_EVENT_MIDI_SYSEX events for the
+   // duration of one process() cycle (clap_event_midi_sysex_t only borrows a
+   // pointer). Reset together with _events at the end of each cycle; buffers

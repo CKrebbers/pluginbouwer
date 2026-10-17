@@ -34,7 +34,7 @@ export const DUB_ECHO = {
   parameters: [
     { naam: 'Tijd', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 375, glijMs: 250, glijden: 'glijden',
       uitleg: 'Hoe lang tot de echo komt. Draaien laat de toon glijden, zoals een band die sneller gaat' },
-    { naam: 'Terugkoppeling', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.25, standaard: 0.5, glijMs: 30,
+    { naam: 'Terugkoppeling', kort: 'Terug', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.25, standaard: 0.5, glijMs: 30,
       uitleg: 'Hoeveel van de echo weer de band op gaat. Boven 1 gaat hij vanzelf door (zelfoscillatie)' },
     { naam: 'Toon', knoop: 'toon', knop: 'freq', min: 300, max: 12000, standaard: 3000, glijMs: 20,
       uitleg: 'Hoe donker elke herhaling wordt: het filter in de lus haalt hoog weg' },

@@ -56,7 +56,7 @@ const waardeTekst = (v, eenheid) => {
   if (eenheid === 'ms') return v >= 100 ? Math.round(v) + ' ms' : nl(v, 1) + ' ms';
   if (eenheid === 'dB') return nl(v, 1) + ' dB';
   if (eenheid === 'Q') return 'Q ' + nl(v, 2);
-  return nl(v, 2);
+  return Math.round(v * 100) + ' %';
 };
 const dbTekst = (x) => (x === null || x === undefined ? 'n.v.t.' : nl(x, 0) + ' dB');
 const knoopVan = (id) => S.ontwerp.knopen.find((k) => k.id === id);

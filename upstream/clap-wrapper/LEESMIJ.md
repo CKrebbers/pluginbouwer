@@ -1,11 +1,11 @@
-# Drie punten in clap-wrapper v0.16.0, klaar om te melden
+# Vier punten in clap-wrapper v0.16.0, klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
-klaar om te plakken. De twee patches gaan schoon op v0.16.0 (= hun `main` op 17 okt 2026, commit 1cca996); in de
+klaar om te plakken. De drie patches gaan schoon op v0.16.0 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1, 2 en 3 (3 heeft geen patch). Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
+issue 1 tot en met 4 (3 heeft geen patch). Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
 
 ---
@@ -87,3 +87,31 @@ No patch included; found by an independent build session (frontpanel phase) and 
 
 (Checked and *not* an issue: `_gesturedParameters.push_back` in `Render` cannot allocate in practice, the vector is
 reserved for 8192 entries in `process.cpp`.)
+
+---
+
+## Issue 4 — AUv2: data race between SetParameter and Render (`ProcessAdapter::addParameterEvent`)
+
+**What happens.** `pluginval --strictness-level 10` on the AUv2 intermittently fails in "Parameter thread safety"
+(roughly one run in three on GitHub's macOS 15 arm64 runners):
+
+```
+*** FAILED: VALIDATION CRASHED
+  process + 344
+   Clap::AUv2::ProcessAdapter::process(...)
+    free_audio::auv2_wrapper::WrapAsAUV2::Render(...)
+```
+
+`WrapAsAUV2::SetParameter` → `ProcessAdapter::addParameterEvent` does `_eventindices.emplace_back` / `_events.emplace_back`
+on the calling thread, without synchronisation. A host may call `AudioUnitSetParameter` from any thread while `Render`
+runs, and `process()` sorts, reads and clears the same vectors on the audio thread.
+
+**Fix** (`0003-auv2-setparameter-thread-safe.patch`): `addParameterEvent` appends to a separate `_pendingParams` vector
+under the existing `ClapWrapper::detail::shared::SpinLock`; `process()` moves the pending events into `_events` at its
+start, briefly under the same lock. The lock is never held while the plugin processes, so a `SetParameter` from inside
+`Render` cannot deadlock. `_pendingParams` is reserved in `setupProcessing` (8192, like `_events`), so the audio thread
+does not allocate.
+
+Tested on macOS 15 arm64: pluginval 10 (AU, `--rtcheck enabled`) green on four consecutive runs with the patch.
+
+Found by: an independent build session of the Pluginbouwer project (https://github.com/CKrebbers/pluginbouwer).

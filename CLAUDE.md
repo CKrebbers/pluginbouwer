@@ -68,6 +68,9 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   Patches gaan erop via `plugin/cmake/pas-patches-toe.sh` (een `;` direct in PATCH_COMMAND splitst CMake).
 - **De AU meldde geen TailTime** (clap-wrapper v0.16.0: `SupportsTail()` vast false; auval: "Recommended Property is
   not supported"). Derde patch `plugin/patches/clap-wrapper-auv2-tailtime.patch`; `host/au-proef` toetst het in CI.
+- **AU SetParameter tegen Render** (clap-wrapper v0.16.0, `addParameterEvent` zonder lock): pluginval "Parameter thread
+  safety" crashte één op de drie runs. Vierde patch `plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch`
+  (gevonden door verse sessie F1, fase 3); CI draait pluginval op de AU daarom met `--repeat 3`.
 - **Draden in de schil**: actief = alleen de audiothread raakt het Ontwerp; get_value/state lezen `spiegel`,
   state.load zet `vuil`, tail.get leest `staartSmp` (plugin/src/plugin.cpp). Gevonden door de verse sessies (E1, E2).
 - **Bypass**: clap-wrapper geeft AU BypassEffect alleen door aan een CLAP-parameter met `CLAP_PARAM_IS_BYPASS`;

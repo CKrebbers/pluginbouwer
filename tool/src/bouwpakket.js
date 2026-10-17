@@ -4,9 +4,28 @@
 import { compileer, BIB, latentie, volgorde } from './keten.js';
 import { ketenHeader, auSubtype } from './codegen.js';
 
-const PROMPT_VERSIE = 'v1 (15 okt 2026)';
+const PROMPT_VERSIE = 'v3 (17 okt 2026)';
 
 const fmt = (x, d = 2) => (x === undefined || x === null || Number.isNaN(x) ? '—' : (Math.abs(x) === Infinity ? (x < 0 ? '−∞' : '∞') : Number(x).toFixed(d)).replace('-', '−').replace('.', ','));
+
+// Tekst op het paneel en in de host: dezelfde regels als de tool (app.js waardeTekst), plus % voor eenheidloos.
+const nlG = (v, d) => v.toFixed(d).replace('.', ',');
+export function waardeTekst(v, eenheid) {
+  if (eenheid === 'Hz') return v >= 1000 ? nlG(v / 1000, v >= 10000 ? 1 : 2) + ' kHz' : Math.round(v) + ' Hz';
+  if (eenheid === 'ms') return v >= 100 ? Math.round(v) + ' ms' : nlG(v, 1) + ' ms';
+  if (eenheid === 'dB') return nlG(v, 1) + ' dB';
+  if (eenheid === 'Q') return 'Q ' + nlG(v, 2);
+  return Math.round(v * 100) + ' %';
+}
+const TEKST_REGEL = {
+  Hz: 'onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz")',
+  ms: 'onder 100: 1 decimaal ("20,0 ms"); vanaf 100 hele ms ("375 ms")',
+  dB: '1 decimaal ("6,0 dB")',
+  Q: '"Q " en 2 decimalen ("Q 0,71")',
+  '': 'eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %")',
+};
+// Label op het paneel: hooguit 11 tekens (een knopkolom is 76 px breed, Plex Mono 11 px ≈ 6,6 px per teken)
+export const kortLabel = (p) => p.kort ?? (p.naam.length <= 11 ? p.naam : p.naam.slice(0, 10) + '.');
 
 function ketenTekst(ontwerp, c) {
   const naam = (id) => { const k = ontwerp.knopen.find((x) => x.id === id); return `${id} (${BIB[k.type].naam})`; };
@@ -70,6 +89,16 @@ ${p.join('\n')}
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
+
+## Tekst ↔ waarde (paneel, host, clap \`value_to_text\`/\`text_to_value\`)
+| id | naam | label op het paneel | standaard als tekst | regel |
+|---|---|---|---|---|
+${c.params.map((q, i) => `| ${i + 1} | ${q.naam} | ${kortLabel(ontwerp.parameters[i])} | ${waardeTekst(q.standaard, q.eenheid || '')} | ${TEKST_REGEL[q.eenheid || ''] ?? TEKST_REGEL['']} |`).join('\n')}
+
+- Decimaalteken een komma (Nederlands), spatie voor de eenheid. \`text_to_value\` neemt komma én punt, met of zonder
+  eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten
+  het bereik = klemmen, onleesbaar = false.
+- Stapjes: ${c.params.some((q) => q.stappen) ? 'zie de kolom bereik.' : 'geen; elke parameter is continu (geen CLAP_PARAM_IS_STEPPED).'}
 
 ## Budgetten
 | wat | budget | geschat/gemeten |
@@ -139,7 +168,9 @@ ${c.orde.length} knopen, uitgevoerd in een vaste volgorde per sample (SPEC.md "K
 ## State
 Binair, klein en vooruit-compatibel: \`"PBST"\`, versie (u32), aantal (u32), dan per parameter (id u32, waarde f64).
 Laden gaat per id: een onbekend id (van een nieuwere versie) wordt overgeslagen, een ontbrekend id houdt zijn
-standaard. Parameter-id's veranderen nooit. Na een geslaagde load: \`host_params->rescan(CLAP_PARAM_RESCAN_VALUES)\`
+standaard. Parameter-id's veranderen nooit. Versie is nu 1. Laden leest de versie: andere magic, versie 0 of een
+blob korter dan zijn \`aantal\` belooft = false (niets veranderd); een hogere versie laadt gewoon per id (een nieuwere
+plugin mag er velden bij hebben, nooit een id een andere betekenis geven). Na een geslaagde load: \`host_params->rescan(CLAP_PARAM_RESCAN_VALUES)\`
 (clap-validator eist het in state-reproducibility), en als de plugin actief is \`request_flush\`.
 
 ## Presets (fase 4)
@@ -198,6 +229,16 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    \`tail.get\` leest een staart die process uitrekende (\`staartSec()\` leest de smoothers).
 12. **CLAP-headers** komen van clap-wrapper (\`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON\` haalt CLAP 1.2.x op; doel \`clap\`);
    het pakket heeft ze niet zelf.
+13. **pluginval AU "Parameter thread safety" crasht af en toe in process** (\`VALIDATION CRASHED\`, process ←
+   \`ProcessAdapter::process\` ← \`WrapAsAUV2::Render\`): clap-wrapper v0.16.0 zet in \`addParameterEvent\` events in
+   dezelfde vectors die process op de audiothread sorteert en wist, zonder lock, vanaf de thread van SetParameter.
+   Oplossing: \`patches/clap-wrapper-auv2-setparameter-draadveilig.patch\` (gevonden door een vers gesprek, proef F1).
+   Draai pluginval op de AU met \`--repeat 3\`: de race sloeg één op de drie runs toe.
+14. **"Knoppen via de host" bij CLAP**: een CLAP-host stuurt een uitvoerevent van de plugin niet terug. Het paneel zet
+   een verandering als BEGIN/WAARDE/EIND in een lock-vrije rij en vraagt \`request_flush\`; process of \`params.flush\`
+   pusht ze als \`CLAP_EVENT_PARAM_GESTURE_BEGIN\`/\`PARAM_VALUE\`/\`GESTURE_END\` naar de host én past de waarde zelf
+   toe, zoals een event van de host. Het paneel raakt het Ontwerp nooit. Onder AUv2 doet \`request_flush\` niets
+   (clap-wrapper v0.16.0): de host hoort de verandering pas bij de volgende Render.
 
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
@@ -232,10 +273,46 @@ glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Si
 | inkt | #e7e5dd | tekst, knopranden |
 | tape | #f2c200 | naamlabel, de boog van de gekozen knop |
 | spoor | #40cbda | boog van de knoppen |
+| groef | #3a3e42 | de boog onder het spoor (het hele bereik) |
+| schaduw | #0d0e0f | harde schaduw, 3 px rechts en onder |
 
-Indeling: één rij van ${c.params.length} draaiknoppen (270°, −135° tot +135°), naam erboven, waarde in gewone eenheden
-eronder, in de volgorde van SPEC.md. Dubbelklik = standaard. Shift + slepen = fijn.
-Minimaal 560 × 220 px, schaalbaar. De mockup staat in de tool (stand Ontwerpen, "Frontpaneel").
+Indeling: één rij van ${c.params.length} draaiknoppen (270°, −135° tot +135°), label erboven, waarde in gewone eenheden
+eronder (tekst zoals SPEC.md "Tekst ↔ waarde"), in de volgorde van SPEC.md. Dubbelklik = standaard. Slepen: 200 px
+omhoog = het hele bereik, lineair in de CLAP-waarde (zoals de host normaliseert); Shift + slepen = 10× fijner. "De
+gekozen knop" = de laatst aangeraakte; zijn boog is tape. Beginmaat 640 × 250.
+Kolom per knop 76 px. Labels (hooguit 11 tekens, de volle naam in de tooltip en bij de host): ${ontwerp.parameters.map((p) => kortLabel(p)).join(' · ')}.
+Minimaal 560 × 220 px, schaalbaar. De mockup is \`frontpaneel.svg\` in dit pakket (op ware grootte, alle knoppen op
+hun standaard); dezelfde staat in de tool (stand Ontwerpen, "Frontpaneel").
+`;
+}
+
+// De mockup als SVG: één rij knoppen op hun standaard, maten en kleuren uit design.md.
+export function frontpaneelSvg(ontwerp) {
+  const c = compileer(ontwerp);
+  const n = c.params.length, kol = 76, mx = 24, B = Math.max(560, mx * 2 + n * kol), H = 220;
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const pt = (r, a) => [r * Math.sin(a), -r * Math.cos(a)].map((x) => x.toFixed(2));
+  const boog = (r, a0, a1) => { const [x0, y0] = pt(r, a0), [x1, y1] = pt(r, a1); return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`; };
+  const knoppen = c.params.map((q, i) => {
+    const t = (q.standaard - q.min) / (q.max - q.min), a0 = -0.75 * Math.PI, a = a0 + t * 1.5 * Math.PI;
+    const [kx, ky] = pt(14, a), x = mx + kol * i + kol / 2;
+    return `  <g transform="translate(${x} 130)"><title>${esc(q.naam)}</title>
+    <text y="-34" class="l">${esc(kortLabel(ontwerp.parameters[i]))}</text>
+    <path d="${boog(22, a0, 0.75 * Math.PI)}" class="spoor0"/><path d="${boog(22, a0, a)}" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="${kx}" y2="${ky}" class="wijzer"/>
+    <text y="44" class="w">${esc(waardeTekst(q.standaard, q.eenheid || ''))}</text></g>`;
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${B}" height="${H}" viewBox="0 0 ${B} ${H}">
+  <style>text{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#e7e5dd;text-anchor:middle;font-variant-numeric:tabular-nums}
+  .n{font-family:Silkscreen,monospace;font-size:14px;fill:#232629;text-anchor:start}.w{fill:#e7e5dd}
+  .knop{fill:#232629;stroke:#e7e5dd;stroke-width:2}.wijzer{stroke:#e7e5dd;stroke-width:2}
+  .spoor0{fill:none;stroke:#3a3e42;stroke-width:3}.spoor{fill:none;stroke:#40cbda;stroke-width:3}</style>
+  <rect x="3" y="3" width="${B - 6}" height="${H - 6}" fill="#0d0e0f"/>
+  <rect x="0" y="0" width="${B - 6}" height="${H - 6}" fill="#232629" stroke="#e7e5dd" stroke-width="2"/>
+  <rect x="${mx}" y="18" width="${12 + 9 * (3 + ontwerp.naam.length)}" height="24" fill="#f2c200"/>
+  <text x="${mx + 6}" y="35" class="n">PB ${esc(ontwerp.naam.toUpperCase())}</text>
+${knoppen.join('\n')}
+</svg>
 `;
 }
 
@@ -280,14 +357,14 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 **Prompt**
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "${ontwerp.naam}": een CLAP-plugin in
 > \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit \`patches/\`, in naamvolgorde) voor VST3 en AUv2
-> (\`make_clapfirst_plugins\`, AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
+> (\`make_clapfirst_plugins\`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
 > \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, \`gereedschap/pb-render\`
 > gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
 > installeren in ~/Library/Audio/Plug-Ins, \`killall -9 AudioComponentRegistrar\`, \`auval -strict -v aufx ${au} Vrve\`,
-> pluginval strictness 10 met \`--rtcheck enabled\` op AU en VST3, de plugins als artefact
-> \`macos-keten_${id}\`). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
+> pluginval strictness 10 met \`--rtcheck enabled\` op AU (met \`--repeat 3\`) en VST3, de plugins als artefact
+> \`macos-keten_${id}\`; een artefactnaam mag geen \`:\` \`/\` \`*\` \`?\` \`"\` \`<\` \`>\` \`|\` bevatten, zet de matrixnaam dus niet ongefilterd in de naam). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
 VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
@@ -310,16 +387,20 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 2 — parameters, automatisering, state
 **Prompt**
-> Maak de parameters af: tekst ↔ waarde in gewone eenheden (ms, Hz, dB), stapjes waar nodig, \`params.flush\` buiten
-> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets: state van een build zonder
-> parameter N laadt in een build mét (vooruit-compatibel). Automatisering in een DAW verandert niets aan de null-test.
+> Maak de parameters af: tekst ↔ waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, \`params.flush\` buiten
+> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets (in CI, door het binary):
+> (a) een met de hand gemaakte state-blob zonder de laatste parameter (\`aantal\` = N − 1, zoals een oudere build hem
+> schreef) laadt en die parameter houdt zijn standaard; (b) een blob met een extra onbekend id en versie 2 laadt;
+> (c) andere magic, versie 0 of een afgekapte blob geeft false en verandert niets. Er hoeft geen tweede build te zijn.
+> Daarnaast: \`value_to_text\` van de standaard geeft precies de tekst uit de tabel, en \`text_to_value\` daarvan terug
+> geeft de waarde. Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
 **Uitslag**: ${u('2')}
 
 ---
 ## Fase 3 — UI
 **Prompt**
-> Bouw het frontpaneel uit design.md (CLAP gui-extensie; clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
+> Bouw het frontpaneel uit design.md en \`frontpaneel.svg\` (de mockup; CLAP gui-extensie, clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
 > parameters via de host, nooit rechtstreeks de DSP. Geen audiothread-toegang vanuit de UI.
 **Stopcriterium**: pluginval 10 zonder \`--skip-gui-tests\` groen op macOS; een schermafbeelding in CI als artefact.
 **Uitslag**: ${u('3')}
@@ -380,6 +461,7 @@ export function bouwpakket(ontwerp, { metingen = {}, metingBlokken = null, bronn
     'TASKS.md': tasksMd(ontwerp),
     'PROMPTS.md': promptsMd(ontwerp, { uitslagen }),
     'design.md': designMd(ontwerp),
+    'frontpaneel.svg': frontpaneelSvg(ontwerp),
     'LEERPAD.md': leerpad(ontwerp),
     'ontwerp.json': JSON.stringify(ontwerp, null, 2) + '\n',
     'metingen.json': JSON.stringify({ metingen, metingBlokken }, null, 2) + '\n',
@@ -404,5 +486,6 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-auv2-params-voor-init.patch': 'patches/clap-wrapper-auv2-params-voor-init.patch',
   'plugin/patches/clap-wrapper-geen-thread-local-in-process.patch': 'patches/clap-wrapper-geen-thread-local-in-process.patch',
   'plugin/patches/clap-wrapper-auv2-tailtime.patch': 'patches/clap-wrapper-auv2-tailtime.patch',
+  'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
 };

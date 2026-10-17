@@ -49,6 +49,23 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
 
+## Tekst ↔ waarde (paneel, host, clap `value_to_text`/`text_to_value`)
+| id | naam | label op het paneel | standaard als tekst | regel |
+|---|---|---|---|---|
+| 1 | Tijd | Tijd | 375 ms | onder 100: 1 decimaal ("20,0 ms"); vanaf 100 hele ms ("375 ms") |
+| 2 | Terugkoppeling | Terug | 50 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 3 | Toon | Toon | 3,00 kHz | onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz") |
+| 4 | Laag weg | Laag weg | 100 Hz | onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz") |
+| 5 | Resonantie | Resonantie | Q 0,71 | "Q " en 2 decimalen ("Q 0,71") |
+| 6 | Verzadiging | Verzadiging | 6,0 dB | 1 decimaal ("6,0 dB") |
+| 7 | Haperen | Haperen | 25 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 8 | Mix | Mix | 38 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+
+- Decimaalteken een komma (Nederlands), spatie voor de eenheid. `text_to_value` neemt komma én punt, met of zonder
+  eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten
+  het bereik = klemmen, onleesbaar = false.
+- Stapjes: geen; elke parameter is continu (geen CLAP_PARAM_IS_STEPPED).
+
 ## Budgetten
 | wat | budget | geschat/gemeten |
 |---|---|---|
