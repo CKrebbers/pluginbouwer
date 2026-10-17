@@ -68,6 +68,12 @@ jobs:
           test ${PIPESTATUS[0]} -eq 0
           grep -q "SUCCESS" pv-vst3.log
 
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval build/plugins/PB-Dub-echo.vst3 "$PWD/pluginval/pluginval" vst3-linux
+
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
     runs-on: ubuntu-24.04
@@ -178,6 +184,15 @@ jobs:
           "$PV" validate --strictness-level 10 --rtcheck enabled --verbose ~/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3 2>&1 | tee pv-vst3.log
           test ${PIPESTATUS[0]} -eq 0
           grep -q "SUCCESS" pv-vst3.log
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/VST3/PB-Dub-echo.vst3 "$PV" vst3-macos
+
+      - name: Null-test AU (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval ~/Library/Audio/Plug-Ins/Components/PB-Dub-echo.component "$PV" au-macos
 
       - name: Plugins als artefact
         uses: actions/upload-artifact@v4
