@@ -40,10 +40,31 @@ FetchContent_MakeAvailable(clap-wrapper)
 # De DSP: gegeven, met vaste rekenregels (CLAUDE.md). Alles wat dsp/ insluit krijgt deze vlaggen.
 set(PB_FP_VLAGGEN -ffp-contract=off -fno-fast-math -fno-math-errno)
 
-add_library(dub_echo_impl STATIC src/dub_echo.cpp src/tekst.cpp)
+# Het frontpaneel (fase 3): het model is overal hetzelfde; tekenen alleen op macOS (Cocoa). Elders geen gui-extensie.
+# De lettertypen (OFL, plugin/lettertypen/) gaan als byte-rij in het binary: geen bestanden naast de plugin.
+set(PB_LETTERTYPEN_C ${CMAKE_BINARY_DIR}/lettertypen.c)
+add_custom_command(OUTPUT ${PB_LETTERTYPEN_C}
+  COMMAND ${CMAKE_COMMAND} -DUIT=${PB_LETTERTYPEN_C}
+    "-DBRONNEN=plexmono=${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/IBMPlexMono-Regular.ttf;silkscreen=${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/Silkscreen-Regular.ttf"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bytes.cmake
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/IBMPlexMono-Regular.ttf
+          ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/Silkscreen-Regular.ttf ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bytes.cmake
+  VERBATIM)
+
+set(PB_PANEEL_BRONNEN src/paneel_model.cpp)
+if (APPLE)
+  list(APPEND PB_PANEEL_BRONNEN src/paneel_mac.mm ${PB_LETTERTYPEN_C})
+else()
+  list(APPEND PB_PANEEL_BRONNEN src/paneel_geen.cpp)
+endif()
+
+add_library(dub_echo_impl STATIC src/dub_echo.cpp src/tekst.cpp ${PB_PANEEL_BRONNEN})
 target_include_directories(dub_echo_impl PUBLIC ${PB_PAKKET}/dsp)
 target_compile_options(dub_echo_impl PRIVATE ${PB_FP_VLAGGEN})
 target_link_libraries(dub_echo_impl PUBLIC clap)
+if (APPLE)
+  target_link_libraries(dub_echo_impl PUBLIC "-framework Cocoa" "-framework CoreText" "-framework CoreGraphics")
+endif()
 if (PB_KANARIE)
   target_compile_definitions(dub_echo_impl PRIVATE PB_KANARIE=1)
 endif()
@@ -82,3 +103,19 @@ endif()
 add_executable(pb-statetoets toets/state_toets.cpp)
 target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
 set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# de eigen toets van fase 3, deel 1 (elk platform): het paneelmodel tegen de mockup en de brievenbus (ook met twee draden)
+add_executable(pb-paneeltoets toets/paneel_toets.cpp src/paneel_model.cpp)
+target_include_directories(pb-paneeltoets PRIVATE src ${PB_PAKKET}/dsp)
+target_link_libraries(pb-paneeltoets PRIVATE clap)
+find_package(Threads REQUIRED)
+target_link_libraries(pb-paneeltoets PRIVATE Threads::Threads)
+set_target_properties(pb-paneeltoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# deel 2 (macOS): het paneel door het gebouwde .clap openen in een venster, een schermafbeelding (PNG) maken en met de
+# muis aan de knoppen draaien; de waarden moeten via de host (flush/process als uitvoerevents) terugkomen
+if (APPLE)
+  add_executable(pb-guitoets toets/gui_toets.mm)
+  target_link_libraries(pb-guitoets PRIVATE clap ${CMAKE_DL_LIBS} "-framework Cocoa")
+  set_target_properties(pb-guitoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()

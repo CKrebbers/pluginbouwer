@@ -7,6 +7,10 @@
 //
 // Fase 1: process splitst het blok bij elk event en laat het Ontwerp elk stuk rekenen (verwerk). De staart rekent de
 // audiothread aan het eind van process uit (staartSec leest de smoothers); tail.get leest die atomaire waarde.
+//
+// Fase 3: het frontpaneel (paneel.h, paneel_mac.mm) stuurt parameters via de host (valkuil 14). Het zet gebaren in
+// de brievenbus en vraagt request_flush; process of params.flush leegt hem, stuurt GESTURE_BEGIN/PARAM_VALUE/
+// GESTURE_END naar de host en past de waarde zelf toe, zoals een event van de host. Het paneel leest alleen `kopie`.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -18,6 +22,7 @@
 
 #include "dub_echo_entry.h"
 #include "ontwerpen/keten_dub_echo.h"
+#include "paneel.h"
 #include "tekst.h"
 
 namespace {
@@ -64,9 +69,13 @@ struct Plugin {
   std::atomic<bool> actief{false};
   std::atomic<uint32_t> staart{0};   // in samples, uit staartSec() (audiothread; in activate ook)
   std::vector<float> kopieIn;        // invoer die ook uitvoer is (in-place) en voor twee DSP-ingangen dient; uit activate
+  dub::Bus bus;                      // van het paneel naar process/flush
+  dub::PaneelPlek paneel;
 
   Plugin() {
     for (int i = 0; i < N; ++i) { waarde[i] = Ontwerp::PARAMS[i].standaard; kopie[i].store(waarde[i]); }
+    paneel.kopie = kopie;
+    paneel.bus = &bus;
   }
 
   void zet(int i, double v) {
@@ -78,6 +87,29 @@ struct Plugin {
   void neemStateOver() {
     if (!stateKlaar.exchange(false, std::memory_order_acquire)) return;
     for (int i = 0; i < N; ++i) zet(i, kopie[i].load(std::memory_order_relaxed));
+  }
+  // wat het paneel klaarzette: naar de host als gebaar en waarde, en zelf toepassen (een CLAP-host stuurt een
+  // uitvoerevent van de plugin niet terug). Op sample 0, vóór de events van de host in dit blok.
+  void neemPaneelOver(const clap_output_events_t* uit) {
+    bus.leeg([&](dub::Bus::Soort soort, int i, double v) {
+      const clap_id id = Ontwerp::PARAMS[i].id;
+      if (soort == dub::Bus::WAARDE) {
+        zet(i, v);
+        clap_event_param_value_t e{};
+        e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+        e.param_id = id;
+        e.cookie = nullptr;
+        e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1;
+        e.value = waarde[i];
+        if (uit) uit->try_push(uit, &e.header);
+      } else {
+        clap_event_param_gesture_t e{};
+        e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID,
+                    (uint16_t)(soort == dub::Bus::BEGIN ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END), 0};
+        e.param_id = id;
+        if (uit) uit->try_push(uit, &e.header);
+      }
+    });
   }
   void pasToe(const clap_event_header_t* h) {
     if (h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) return;
@@ -129,6 +161,7 @@ struct Plugin {
 
   clap_process_status process(const clap_process_t* pr) {
     neemStateOver();
+    neemPaneelOver(pr->out_events);
 #ifdef PB_KANARIE
     pbKanarie = std::malloc(64);
 #endif
@@ -216,6 +249,12 @@ struct Plugin {
 
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
 
+}  // namespace
+
+dub::PaneelPlek* dub::paneelPlek(const clap_plugin_t* p) { return p ? &zelf(p)->paneel : nullptr; }
+
+namespace {
+
 // --- params ------------------------------------------------------------------------------------------------
 uint32_t paramsCount(const clap_plugin_t*) { return N; }
 bool paramsInfo(const clap_plugin_t*, uint32_t i, clap_param_info_t* info) {
@@ -252,9 +291,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* t, double* 
   const auto& p = Ontwerp::PARAMS[i];
   return dub::tekstNaarWaarde(p.eenheid, t, p.min, p.max, *v);
 }
-void paramsFlush(const clap_plugin_t* pl, const clap_input_events_t* in, const clap_output_events_t*) {
+void paramsFlush(const clap_plugin_t* pl, const clap_input_events_t* in, const clap_output_events_t* uit) {
   Plugin* z = zelf(pl);
   z->neemStateOver();
+  z->neemPaneelOver(uit);
   const uint32_t n = in ? in->size(in) : 0;
   for (uint32_t k = 0; k < n; ++k) z->pasToe(in->get(in, k));
 }
@@ -291,11 +331,16 @@ const clap_plugin_tail_t STAART_EXT = {staart};
 bool plInit(const clap_plugin_t* pl) {
   Plugin* z = zelf(pl);
   z->hostParams = static_cast<const clap_host_params_t*>(z->host->get_extension(z->host, CLAP_EXT_PARAMS));
+  z->paneel.host = z->host;
+  z->paneel.hostParams = z->hostParams;
   z->ontwerp.reset(new Ontwerp());
   for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, z->waarde[i]);
   return true;
 }
-void plDestroy(const clap_plugin_t* pl) { delete zelf(pl); }
+void plDestroy(const clap_plugin_t* pl) {
+  if (const clap_plugin_gui_t* g = dub::paneelGui()) g->destroy(pl);  // een host die het paneel open liet
+  delete zelf(pl);
+}
 bool plActivate(const clap_plugin_t* pl, double sr, uint32_t minFrames, uint32_t maxFrames) {
   (void)minFrames;
   Plugin* z = zelf(pl);
@@ -327,6 +372,7 @@ const void* plExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &POORTEN_EXT;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENTIE_EXT;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &STAART_EXT;
+  if (!std::strcmp(id, CLAP_EXT_GUI)) return dub::paneelGui();  // nullptr waar geen paneel is (alleen macOS heeft er een)
   return nullptr;
 }
 void plMainThread(const clap_plugin_t*) {}
