@@ -225,7 +225,10 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
   met meer presets).
 - AU: \`patches/clap-wrapper-auv2-presets.patch\` leest dezelfde factory en geeft ze als factory presets
   (\`GetPresets\`, \`NewFactoryPresetSet\`). VST3 krijgt van clap-wrapper geen presetlijst.
-- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
+- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.${notenParams(ontwerp) ? `
+- Een preset zet alleen de klank. ${c.params[notenParams(ontwerp).noot].naam} en ${c.params[notenParams(ontwerp).poort].naam} staan er niet in en
+  gaan bij het laden dus naar hun standaard, zoals elke ontbrekende naam (${c.params[notenParams(ontwerp).poort].naam} 0: stil tot je een toets speelt;
+  de toetsen spelen ze, en ${c.params[notenParams(ontwerp).poort].naam} 1 in een preset zou zonder toets klinken).` : ''}
 
 ${architectuurInstrument(ontwerp)}## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: \`pb_math.h\` (alleen + − × ÷ sqrt floor). Vlaggen \`-ffp-contract=off\`, geen \`-ffast-math\`.
@@ -558,7 +561,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 ---
 ## Fase 4 — presets
 **Prompt**
-> Fabriekspresets uit \`presets/\` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
+> ${ontwerp.presets?.length ? 'Fabriekspresets uit `presets/`' : 'Het ontwerp heeft (nog) geen presets: maak er drie in `presets/` die laten horen wat het kan, en dan de fabriekspresets daaruit'} (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
 > (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
 > (SKIPPED telt niet; \`node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^preset-discovery'\`) en dat elke presetnaam in de uitvoer van \`auval -strict -v\` staat.
 **Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.

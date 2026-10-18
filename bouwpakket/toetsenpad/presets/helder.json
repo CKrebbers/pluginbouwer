@@ -1,0 +1,8 @@
+{
+  "naam": "Helder",
+  "uitleg": "Open filter, kort loslaten.",
+  "waarden": {
+    "Filter": 3000,
+    "Loslaten": 300
+  }
+}

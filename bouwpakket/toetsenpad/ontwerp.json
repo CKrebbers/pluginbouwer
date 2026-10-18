@@ -338,5 +338,39 @@
       ],
       "diepte": 0.25
     }
+  ],
+  "presets": [
+    {
+      "naam": "Zacht pad",
+      "uitleg": "Donker en lang uitklinkend.",
+      "waarden": {
+        "Filter": 600,
+        "Loslaten": 1500
+      }
+    },
+    {
+      "naam": "Helder",
+      "uitleg": "Open filter, kort loslaten.",
+      "waarden": {
+        "Filter": 3000,
+        "Loslaten": 300
+      }
+    },
+    {
+      "naam": "Lange staart",
+      "uitleg": "De galm krijgt de tijd.",
+      "waarden": {
+        "Filter": 1200,
+        "Loslaten": 4000
+      }
+    },
+    {
+      "naam": "Pluk",
+      "uitleg": "Kort en scherp.",
+      "waarden": {
+        "Filter": 2000,
+        "Loslaten": 60
+      }
+    }
   ]
 }

@@ -386,6 +386,13 @@ export const TOETSENPAD = {
     { naam: 'Loslaten', knoop: 'omh', knop: 'loslaten', min: 10, max: 4000, standaard: 450, glijMs: 20 },
   ],
   modulaties: [{ bron: ['omh', 'omhulling'], doel: ['filter', 'freq'], diepte: 0.25 }],
+  // fabriekspresets: alleen de klank, nooit Noot en Poort (die spelen de toetsen; Poort 1 zou zonder toets klinken)
+  presets: [
+    { naam: 'Zacht pad', uitleg: 'Donker en lang uitklinkend.', waarden: { Filter: 600, Loslaten: 1500 } },
+    { naam: 'Helder', uitleg: 'Open filter, kort loslaten.', waarden: { Filter: 3000, Loslaten: 300 } },
+    { naam: 'Lange staart', uitleg: 'De galm krijgt de tijd.', waarden: { Filter: 1200, Loslaten: 4000 } },
+    { naam: 'Pluk', uitleg: 'Kort en scherp.', waarden: { Filter: 2000, Loslaten: 60 } },
+  ],
 };
 
 // ---- effecten (bewerken de ingang) ----

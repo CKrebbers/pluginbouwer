@@ -49,6 +49,9 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
 - AU: `patches/clap-wrapper-auv2-presets.patch` leest dezelfde factory en geeft ze als factory presets
   (`GetPresets`, `NewFactoryPresetSet`). VST3 krijgt van clap-wrapper geen presetlijst.
 - Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
+- Een preset zet alleen de klank. Noot en Poort staan er niet in en
+  gaan bij het laden dus naar hun standaard, zoals elke ontbrekende naam (Poort 0: stil tot je een toets speelt;
+  de toetsen spelen ze, en Poort 1 in een preset zou zonder toets klinken).
 
 ## Instrument
 - Geen audio-ingang: `audio-ports` meldt 0 ingangen en 1 uitgang; `audio-ports-config` (fase 5) alleen stereo en mono

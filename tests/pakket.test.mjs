@@ -35,13 +35,16 @@ test('zip.js maakt een ZIP die unzip leest', () => {
   assert.equal(execFileSync('unzip', ['-p', join(d, 't.zip'), 'pakket/a.txt']).toString(), 'hallo');
 });
 
-test('presets: elke parameter genoemd, binnen het bereik en exact in float32', async () => {
+test('presets: elke parameter genoemd (bij een instrument nooit Noot en Poort), binnen het bereik en exact in float32', async () => {
   const { ARCHETYPEN } = await import('../tool/src/archetypen.js');
   const { presetBestanden } = await import('../tool/src/bouwpakket.js');
+  const { notenParams } = await import('../tool/src/testsignalen.js');
   for (const a of ARCHETYPEN) {
+    const np = notenParams(a), gespeeld = np ? [np.noot, np.poort] : [];
+    const genoemd = a.parameters.filter((q, i) => !gespeeld.includes(i));
     for (const p of a.presets || []) {
-      assert.deepEqual(Object.keys(p.waarden).sort(), a.parameters.map((q) => q.naam).sort(), `${a.id}/${p.naam}: niet alle parameters`);
-      for (const q of a.parameters) {
+      assert.deepEqual(Object.keys(p.waarden).sort(), genoemd.map((q) => q.naam).sort(), `${a.id}/${p.naam}: niet de goede parameters`);
+      for (const q of genoemd) {
         const v = p.waarden[q.naam];
         assert.ok(v >= q.min && v <= q.max, `${a.id}/${p.naam}: ${q.naam} = ${v} buiten ${q.min}..${q.max}`);
         assert.equal(Math.fround(v), v, `${a.id}/${p.naam}: ${q.naam} = ${v} niet exact in float32`);
