@@ -1,4 +1,4 @@
-# CI van het bouwpakket Dub-echo (fase 0): bouwen en alle validators. Het log is het bewijs; elke job eindigt met een
+# CI van het bouwpakket Dub-echo (fase 0–1): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
 # stap "Bewijs" die de uitslagen samenvat (de GitHub-tools geven alleen de laatste 5000 regels van een job: valkuil 18).
 name: ci
 
@@ -57,11 +57,14 @@ jobs:
           test "$status" -eq 0
           grep -E "tests run, .* 0 failed" clap-validator.log
 
-      - name: pluginval VST3 (strictness 10, xvfb)
+      - name: pluginval ophalen
         run: |
           curl -sSL -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
           unzip -o pv.zip -d pv
           chmod +x pv/pluginval
+
+      - name: pluginval VST3 (strictness 10, xvfb)
+        run: |
           status=0
           xvfb-run -a pv/pluginval validate --strictness-level 10 "$PWD/build/plugins/PB Dub-echo.vst3" > pluginval-vst3.log 2>&1 || status=$?
           cat pluginval-vst3.log
@@ -69,12 +72,24 @@ jobs:
           test "$status" -eq 0
           grep -q "^SUCCESS" pluginval-vst3.log
 
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
+
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: |
+          set -o pipefail
+          xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/PB Dub-echo.vst3" "$PWD/pv/pluginval" vst3-linux 2>&1 | tee null-vst3.log
+
       - name: Bewijs
         if: always()
         run: |
           echo "== clap-validator =="; grep -E "tests run" clap-validator.log || echo "(geen uitslag)"
           grep -E "FAILED" clap-validator.log || echo "geen FAILED"
           echo "== pluginval VST3 Linux =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!" pluginval-vst3.log || echo "(geen uitslag)"
+          echo "== null-test CLAP Linux =="; grep -aE "^###|^\| [a-z]" null-clap.log || echo "(geen uitslag)"
+          echo "== null-test VST3 Linux =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-vst3.log || echo "(geen uitslag)"
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -212,6 +227,21 @@ jobs:
           test "$status" -eq 0
           grep -q "^SUCCESS" pluginval-vst3.log
 
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh clap build 2>&1 | tee null-clap.log
+
+      - name: Null-test VST3 (pluginval test)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" "$PV" vst3-macos 2>&1 | tee null-vst3.log
+
+      - name: Null-test AU (pluginval test)
+        run: |
+          set -o pipefail
+          sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" "$PV" au-macos 2>&1 | tee null-au.log
+
       - name: Bundels zippen (GitHub-artefacten bewaren geen rechten of symlinks)
         if: always()
         run: |
@@ -233,3 +263,6 @@ jobs:
           echo "== auval =="; grep -E "AU VALIDATION|Tail Time|FAIL|WARNING" auval.log || echo "(geen uitslag)"
           echo "== pluginval AU =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!|Real-time violation" pluginval-au.log || echo "(geen uitslag)"
           echo "== pluginval VST3 macOS =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!|Real-time violation" pluginval-vst3.log || echo "(geen uitslag)"
+          echo "== null-test CLAP macOS =="; grep -aE "^###|^\| [a-z]" null-clap.log || echo "(geen uitslag)"
+          echo "== null-test VST3 macOS =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-vst3.log || echo "(geen uitslag)"
+          echo "== null-test AU macOS =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-au.log || echo "(geen uitslag)"

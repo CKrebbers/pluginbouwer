@@ -5,8 +5,8 @@
 // state.load terwijl de plugin actief is schrijft die kopie en zet een vlag, en process/flush neemt de waarden over
 // vóór de events van dat blok.
 //
-// Fase 0: process geeft de invoer door (alleen langs pb::invoer/pb::uitvoer: geen subnormale floats naar de host).
-// De parameters gaan al naar het Ontwerp, maar het rekent nog niet mee; fase 1 sluit verwerk() en de staart aan.
+// Fase 1: process splitst het blok bij elk event en laat het Ontwerp elk stuk rekenen (verwerk). De staart rekent de
+// audiothread aan het eind van process uit (staartSec leest de smoothers); tail.get leest die atomaire waarde.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -62,7 +62,8 @@ struct Plugin {
   std::atomic<double> kopie[N];      // voor get_value en state.save (elke draad)
   std::atomic<bool> stateKlaar{false};  // state.load terwijl actief: process/flush neemt `kopie` over
   std::atomic<bool> actief{false};
-  std::atomic<uint32_t> staart{0};   // in samples; fase 1: uit staartSec()
+  std::atomic<uint32_t> staart{0};   // in samples, uit staartSec() (audiothread; in activate ook)
+  std::vector<float> kopieIn;        // invoer die ook uitvoer is (in-place) en voor twee DSP-ingangen dient; uit activate
 
   Plugin() {
     for (int i = 0; i < N; ++i) { waarde[i] = Ontwerp::PARAMS[i].standaard; kopie[i].store(waarde[i]); }
@@ -85,19 +86,45 @@ struct Plugin {
     if (i >= 0) zet(i, e->value);
   }
 
-  // [pos, pos + n) van het blok: fase 0 geeft de invoer door
+  void zetStaart() {
+    const double t = ontwerp->staartSec();  // −1 = oneindig (lusversterking ≥ 1); CLAP: ≥ INT32_MAX is oneindig
+    const double n = t * sr;
+    staart.store(t < 0 || n >= (double)INT32_MAX ? (uint32_t)INT32_MAX : (uint32_t)(n + 0.5), std::memory_order_relaxed);
+  }
+
+  // [pos, pos + n) van het blok door het Ontwerp. De DSP heeft twee kanalen; een kanaal dat de host niet geeft
+  // leest het laatste ingangskanaal (of stilte). De DSP schrijft per sample eerst uitgang 0: dient één hostbuffer
+  // als twee DSP-ingangen en is hij ook uitgang 0, dan eerst de invoer kopiëren (vooraf gereserveerd in activate).
   void verwerkStuk(const clap_process_t* pr, uint32_t pos, uint32_t n) {
     if (pr->audio_outputs_count == 0 || n == 0) return;
     const clap_audio_buffer_t& uit = pr->audio_outputs[0];
+    if (!uit.data32 || uit.channel_count == 0) return;
     const clap_audio_buffer_t* in = pr->audio_inputs_count ? &pr->audio_inputs[0] : nullptr;
     const uint32_t nIn = (in && in->data32) ? in->channel_count : 0;
-    if (!uit.data32) return;
-    for (uint32_t c = 0; c < uit.channel_count; ++c) {
-      float* u = uit.data32[c] + pos;
-      const float* x = nIn ? in->data32[c < nIn ? c : nIn - 1] + pos : nullptr;
-      if (x) for (uint32_t s = 0; s < n; ++s) u[s] = pb::uitvoer(pb::invoer(x[s]));
-      else for (uint32_t s = 0; s < n; ++s) u[s] = 0.0f;
+    const int kanalen = uit.channel_count >= 2 ? 2 : 1;
+    const float* x[2];
+    float* u[2];
+    for (int c = 0; c < kanalen; ++c) u[c] = uit.data32[c] + pos;
+    if (nIn == 0) {
+      for (int c = 0; c < kanalen; ++c) std::memset(u[c], 0, n * sizeof(float));  // stilte als invoer
+      x[0] = x[1] = u[0];
+      if (kanalen == 2) {
+        // u[0] wordt per sample overschreven: lees de stilte uit een eigen buffer
+        std::memset(kopieIn.data(), 0, n * sizeof(float));
+        x[0] = x[1] = kopieIn.data();
+      }
+    } else {
+      for (int c = 0; c < kanalen; ++c) x[c] = in->data32[(uint32_t)c < nIn ? c : nIn - 1] + pos;
+      if (kanalen == 2 && x[1] == u[0]) {
+        std::memcpy(kopieIn.data(), x[1], n * sizeof(float));
+        if (x[0] == x[1]) x[0] = kopieIn.data();
+        x[1] = kopieIn.data();
+      }
     }
+    ontwerp->verwerk(x, u, kanalen, n);
+    // meer uitgangskanalen dan de DSP heeft: kopie van het laatste
+    for (uint32_t c = (uint32_t)kanalen; c < uit.channel_count; ++c)
+      std::memcpy(uit.data32[c] + pos, u[kanalen - 1], n * sizeof(float));
   }
 
   clap_process_status process(const clap_process_t* pr) {
@@ -119,10 +146,16 @@ struct Plugin {
       }
       uint32_t eind = n;
       if (e < nEv) { const uint32_t t = ev->get(ev, e)->time; if (t < eind) eind = t; }
-      verwerkStuk(pr, pos, eind - pos);
+      // nooit meer dan maxFrames uit activate tegelijk (de kopiebuffer is zo groot)
+      for (uint32_t p = pos; p < eind;) {
+        const uint32_t m = eind - p < (uint32_t)kopieIn.size() ? eind - p : (uint32_t)kopieIn.size();
+        verwerkStuk(pr, p, m);
+        p += m;
+      }
       pos = eind;
     }
     for (; e < nEv; ++e) pasToe(ev->get(ev, e));
+    zetStaart();
     return CLAP_PROCESS_CONTINUE;
   }
 
@@ -272,8 +305,10 @@ bool plActivate(const clap_plugin_t* pl, double sr, uint32_t minFrames, uint32_t
   g.p = z->geheugen.data();
   g.over = (unsigned long)z->geheugen.size();
   z->ontwerp->activeer(sr, maxFrames, g);
+  z->neemStateOver();
   for (int i = 0; i < N; ++i) z->ontwerp->zetParam(i, z->waarde[i]);
-  z->staart.store(0);
+  z->kopieIn.assign(maxFrames > 0 ? maxFrames : 1, 0.0f);
+  z->zetStaart();
   z->actief.store(true);
   return true;
 }
