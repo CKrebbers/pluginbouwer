@@ -1,7 +1,7 @@
 # Toetsenpad — de CLAP-plugin, en via clap-wrapper v0.16.0 de VST3 en AUv2 (make_clapfirst_plugins).
 #   cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (gereedschap/pb-render.cpp) en
-# build/pb-statetoets (gereedschap/pb-statetoets.cpp).
+# build/pb-statetoets (gereedschap/pb-statetoets.cpp), en op macOS build/pb-paneel (gereedschap/pb-paneel.mm).
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "laagste macOS")
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
@@ -13,6 +13,7 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_OBJCXX_STANDARD 17)  # het paneel (paneel_mac.mm) en pb-paneel
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 get_filename_component(PAKKET "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -35,11 +36,22 @@ FetchContent_MakeAvailable(clap-wrapper)
 # --- de DSP: gegeven, met de vlaggen die hem bit voor bit gelijk aan de WASM houden ------------------------------
 set(PB_DSP_VLAGGEN -ffp-contract=off -fno-fast-math -fno-math-errno)
 
+# --- het frontpaneel (fase 3): een NSView op macOS, met de lettertypen van design.md in het binary -------------------
+if (APPLE)
+  include(lettertypen.cmake)
+  pb_lettertypen("${CMAKE_BINARY_DIR}/lettertypen/lettertypen.cpp")
+  set(PB_PANEEL_BRONNEN src/paneel_mac.mm "${CMAKE_BINARY_DIR}/lettertypen/lettertypen.cpp")
+  set_source_files_properties(src/paneel_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+endif()
+
 function(pb_impl naam)
-  add_library(${naam} STATIC src/plugin.cpp)
+  add_library(${naam} STATIC src/plugin.cpp ${PB_PANEEL_BRONNEN})
   target_include_directories(${naam} PUBLIC "${PAKKET}/dsp" "${CMAKE_CURRENT_SOURCE_DIR}/src")
   target_compile_options(${naam} PRIVATE ${PB_DSP_VLAGGEN})
   target_link_libraries(${naam} PUBLIC clap)
+  if (APPLE)
+    target_link_libraries(${naam} PUBLIC "-framework AppKit" "-framework CoreText" "-framework CoreGraphics")
+  endif()
 endfunction()
 
 pb_impl(toetsenpad-impl)
@@ -78,6 +90,15 @@ endif()
 add_executable(pb-statetoets "${PAKKET}/gereedschap/pb-statetoets.cpp")
 target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
 set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+# --- pb-paneel: het paneel door het gebouwde .clap en de AU (schermafbeelding, knoppen via de host; fase 3) -------
+if (APPLE)
+  add_executable(pb-paneel "${PAKKET}/gereedschap/pb-paneel.mm")
+  target_link_libraries(pb-paneel PRIVATE clap "-framework AppKit" "-framework AudioToolbox" "-framework CoreAudio"
+    "-framework CoreAudioKit")
+  target_compile_options(pb-paneel PRIVATE -fobjc-arc)
+  set_target_properties(pb-paneel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
 
 # --- de RTSan-kanarie: dezelfde plugin met een malloc in process (valkuil 4); RTSan MOET hem vangen --------------
 if (PB_KANARIE)

@@ -1,4 +1,4 @@
-# CI van Toetsenpad: bouwen, alle validators en de null-test (PROMPTS.md fase 0, 1 en 2). Het log is het bewijs; zet hier nooit een toets uit.
+# CI van Toetsenpad: bouwen, alle validators, de null-test en het paneel (PROMPTS.md fase 0 tot en met 3). Het log is het bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -140,6 +140,14 @@ jobs:
           cat auval.log
           echo "auval exitcode: $status"
           [ "$status" = 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log
+      - name: Paneel (pb-paneel; schermafbeeldingen, knoppen via de host, CLAP en AU)
+        run: build/pb-paneel "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" "$PWD/schermafbeelding"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-paneel-schermafbeelding
+          path: schermafbeelding/
+          if-no-files-found: error
       - name: pluginval ${{ env.PLUGINVAL_VERSIE }}
         run: |
           curl -sSfL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -153,8 +161,14 @@ jobs:
           cat pv-au.log
           echo "pluginval AU exitcode: $status"
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv-au.log
+          # fase 3: zonder --skip-gui-tests, en de editor moet er echt zijn (pluginval slaat de editortoetsen anders stil over)
+          grep -q "Testing opening Editor with released processing" pv-au.log || { echo "FOUT: pluginval opende geen editor (AU)"; exit 1; }
+          echo "pluginval AU: editor geopend ($(grep -c "Testing opening Editor" pv-au.log)×)"
       - name: pluginval strictness 10, rtcheck (VST3 van een instrument, valkuil 22)
-        run: sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3"
+        run: |
+          sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" | tee pv-vst3.log
+          grep -q "Testing opening Editor with released processing" pv-vst3.log || { echo "FOUT: pluginval opende geen editor (VST3)"; exit 1; }
+          echo "pluginval VST3: editor geopend ($(grep -c "Testing opening Editor" pv-vst3.log)×)"
       - name: State- en teksttoets (pb-statetoets door het .clap, arm64)
         run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
