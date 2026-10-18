@@ -51,7 +51,8 @@ jobs:
           sh dsp/bouw-wasm.sh graaf
           for o in dub_echo toetsenpad acidlijn; do node tools/keten-header.mjs "$o"; done
           for o in dub_echo toetsenpad; do node tools/bouwpakket.mjs "$o"; done
-          git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/
+          # metingen.json niet: daarin staan metingen van deze runner (tests/uit/dubecho.json), die per machine verschillen
+          git diff --stat --exit-code -- dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/ ':!bouwpakket/*/metingen.json'
           test -z "$(git status --porcelain bouwpakket/ dsp/ testsignalen/)" || { git status --porcelain bouwpakket/ dsp/ testsignalen/; exit 1; }
           git diff --stat --exit-code testsignalen/
       - name: De tool (tool/index.html) in Chrome — laden, meten, horen, export = de testsignalen van CI
