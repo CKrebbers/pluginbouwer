@@ -336,7 +336,19 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
 void deactivate(const clap_plugin_t* p) { zelf(p)->actief = false; }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
-void reset(const clap_plugin_t* p) { auto* s = zelf(p); s->ontwerp.reset(); s->noten.leeg(); }
+// reset: klonk er een noot, dan na het legen ook de poort dicht (anders blijft hij hangen; gevonden door proef G1).
+// Zonder noten blijft de poort wat de knop zegt, dus een reset vóór een render verandert de null-test niet.
+void reset(const clap_plugin_t* p) {
+  auto* s = zelf(p);
+  s->ontwerp.reset();
+#ifdef PB_NOTEN
+  const bool klonk = s->noten.boven() >= 0;
+  s->noten.leeg();
+  if (klonk) speel(s);
+#else
+  s->noten.leeg();
+#endif
+}
 
 clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   auto* s = zelf(p);

@@ -255,7 +255,9 @@ dit, dus wijk er niet van af:
 3. MIDI-bytes (\`CLAP_EVENT_MIDI\`, de AU-wrapper geeft ze zo door): \`0x9n\` met velocity > 0 = noot-aan, \`0x8n\` of \`0x9n\`
    met velocity 0 = noot-uit, \`0xBn\` CC 120 of 123 = stapel leeg en dan stap 2.
 4. Velocity speelt geen rol. De noot zet de parameterspiegel NIET (de host ziet de knopwaarde, niet de laatste noot); state
-   bewaart dus geen noot. \`reset\` maakt de stapel leeg (na \`ontwerp.reset()\`).
+   bewaart dus geen noot. \`reset\`: na \`ontwerp.reset()\` de stapel leeg, en zat er een noot in, dan daarna stap 2
+   (dus \`zetParam(${np.poort}, 0.0)\`): anders blijft de poort open en hangt de noot. Zat de stapel al leeg, dan niets (de
+   poort blijft wat de knop zegt).
 5. Note port: één ingang, \`supported_dialects = CLAP_NOTE_DIALECT_CLAP\`, \`preferred_dialect = CLAP_NOTE_DIALECT_CLAP\`
    (valkuil 19). De null-test speelt de noten ook als MIDI-bytes: stap 3 moet dus ook werken.
 `;
