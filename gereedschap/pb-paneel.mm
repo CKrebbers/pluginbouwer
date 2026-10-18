@@ -174,10 +174,24 @@ NSWindow* venster(double b, double h) {
   return w;
 }
 
+// in een bitmap die als sRGB getagd is: dan staan de kleuren uit design.md er onveranderd in (de cache-bitmap van het
+// venster zit in de kleurruimte van het scherm; daarin werd #232629 #2f3336)
 NSBitmapImageRep* beeld(NSView* v) {
-  [v.window displayIfNeeded];
-  NSBitmapImageRep* r = [v bitmapImageRepForCachingDisplayInRect:v.bounds];
-  [v cacheDisplayInRect:v.bounds toBitmapImageRep:r];
+  const NSInteger b = (NSInteger)v.bounds.size.width, h = (NSInteger)v.bounds.size.height;
+  NSBitmapImageRep* r = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                pixelsWide:b
+                                                                pixelsHigh:h
+                                                             bitsPerSample:8
+                                                           samplesPerPixel:4
+                                                                  hasAlpha:YES
+                                                                  isPlanar:NO
+                                                            colorSpaceName:NSDeviceRGBColorSpace
+                                                               bytesPerRow:0
+                                                              bitsPerPixel:0];
+  r = [r bitmapImageRepByRetaggingWithColorSpace:[NSColorSpace sRGBColorSpace]];
+  NSGraphicsContext* g = [NSGraphicsContext graphicsContextWithBitmapImageRep:r];
+  [v displayRectIgnoringOpacity:v.bounds inContext:g];
+  [g flushGraphics];
   return r;
 }
 
@@ -195,11 +209,11 @@ Rgb pixel(NSBitmapImageRep* r, NSView* v, double x, double y) {  // x, y in punt
   const NSInteger px = (NSInteger)std::floor(x * f), py = (NSInteger)std::floor(y * f);
   Rgb u;
   if (px < 0 || py < 0 || px >= r.pixelsWide || py >= r.pixelsHigh) return u;
-  NSColor* c = [[r colorAtX:px y:py] colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-  if (!c) return u;
-  u.r = (int)std::lround(c.redComponent * 255);
-  u.g = (int)std::lround(c.greenComponent * 255);
-  u.b = (int)std::lround(c.blueComponent * 255);
+  NSUInteger p[4] = {0, 0, 0, 0};
+  [r getPixel:p atX:px y:py];  // de ruwe sRGB-waarden, zonder omrekening
+  u.r = (int)p[0];
+  u.g = (int)p[1];
+  u.b = (int)p[2];
   return u;
 }
 bool lijkt(Rgb p, uint32_t hex, int tol) {
