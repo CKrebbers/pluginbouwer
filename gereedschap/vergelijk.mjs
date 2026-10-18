@@ -4,6 +4,12 @@
 //   node gereedschap/vergelijk.mjs --automatie <render.wav>  de render van pb-render --automatie (events midden in blokken)
 //   node gereedschap/vergelijk.mjs --noten <render.wav>      instrument: pb-render --noten (CLAP-noten of --midi)
 //   node gereedschap/vergelijk.mjs --hosttempo <render.wav>  instrument met sequencer: pb-render --tempo
+//   node gereedschap/vergelijk.mjs --paar <verwacht.wav> <render.wav> [label]   fase 5: één render tegen een verwachte
+//        uitvoer van gereedschap/maak-sr.mjs (andere samplerate, mono); ook het aantal kanalen, de lengte en de
+//        samplerate moeten gelijk zijn
+//   node gereedschap/vergelijk.mjs --bypass <zonder.wav> <met.wav> <aan-sample> <uit-sample> [label]   fase 5: de
+//        render met bypass-events tegen dezelfde render zonder: vóór "aan" bit voor bit gelijk, daarna 10 ms
+//        overvloeien (|met| ≤ |zonder|), dan precies 0 tot "uit", daarna 10 ms terug en weer bit voor bit gelijk
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -109,6 +115,49 @@ if (process.argv[2]?.startsWith('--') && LOS[process.argv[2].slice(2)]) {
   const ok = r.piekDb <= GRENS_DB, f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
   console.log(`| ${process.argv[4] || label} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS** — ' + hint}`);
   process.exit(ok ? 0 : 1);
+}
+if (process.argv[2] === '--paar') {
+  const [, , , vPad, rPad, label] = process.argv;
+  const v = leesWav(vPad), r = leesWav(rPad);
+  const vorm = v.kanalen.length === r.kanalen.length && v.kanalen[0].length === r.kanalen[0].length && v.sr === r.sr;
+  const res = nullTest(v.kanalen, r.kanalen);
+  // de verwachting moet iets laten horen, anders bewijst een stille render niets
+  const hoorbaar = v.kanalen.every((k) => k.some((x) => Math.abs(x) > 1e-3));
+  const ok = vorm && hoorbaar && res.piekDb <= GRENS_DB, f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
+  const k = (w) => `${w.kanalen.length} kan., ${w.kanalen[0].length} smp, ${w.sr} Hz`;
+  console.log(`| ${label || rPad} | ${f(res.piekDb)} | ${f(res.rmsDb)} | ${res.piekDb === -Infinity && vorm ? 'ja' : 'nee'} |` +
+    (vorm ? '' : ` **VORM ANDERS**: verwacht ${k(v)}, render ${k(r)}`) + (hoorbaar ? '' : ' **VERWACHTING STIL**') +
+    (ok ? '' : ' **FOUT**'));
+  process.exit(ok ? 0 : 1);
+}
+if (process.argv[2] === '--bypass') {
+  const [, , , zPad, mPad, aanS, uitS, label] = process.argv;
+  const z = leesWav(zPad), m = leesWav(mPad), aan = +aanS, uit = +uitS, L = Math.round(z.sr * 0.010);
+  const fouten = [];
+  if (z.kanalen.length !== m.kanalen.length || z.kanalen[0].length !== m.kanalen[0].length) fouten.push('vorm anders');
+  let stilTot = 0, overvloei = 0;
+  for (let c = 0; !fouten.length && c < z.kanalen.length; c++) {
+    const a = z.kanalen[c], b = m.kanalen[c];
+    for (let i = 0; i < a.length && fouten.length < 5; i++) {
+      const gelijk = Object.is(a[i], b[i]);
+      if (i < aan || i >= uit + L) { if (!gelijk) fouten.push(`kanaal ${c} sample ${i}: ${b[i]} ≠ ${a[i]} (hoort gelijk)`); }
+      else if (i >= aan + L - 1 && i < uit) { if (b[i] !== 0 || Object.is(b[i], -0)) fouten.push(`kanaal ${c} sample ${i}: ${b[i]} (hoort 0)`); else stilTot++; }
+      else {
+        // overvloeien: g = stap/L, uitvoer = nat × (1 − g); nooit luider dan zonder bypass, geen subnormale float
+        const g = i < uit ? (i - aan + 1) / L : 1 - (i - uit + 1) / L;
+        const verwacht = Math.fround(a[i] * (1 - g));
+        if (Math.abs(b[i]) > Math.abs(a[i])) fouten.push(`kanaal ${c} sample ${i}: |${b[i]}| > |${a[i]}| tijdens overvloeien`);
+        else if (b[i] !== 0 && Math.abs(b[i]) < 1.1754943508222875e-38) fouten.push(`kanaal ${c} sample ${i}: subnormaal ${b[i]}`);
+        else if (Math.abs(b[i] - verwacht) > 1e-6) fouten.push(`kanaal ${c} sample ${i}: ${b[i]}, verwacht ${verwacht} (lineair in ${L} samples)`);
+        else overvloei++;
+      }
+    }
+  }
+  let hoorbaar = 0;
+  for (const a of z.kanalen) for (let i = aan; i < uit; i++) if (Math.abs(a[i]) > 1e-3) hoorbaar++;
+  if (!hoorbaar) fouten.push('zonder bypass is er tussen aan en uit niets te horen: dan bewijst dit niets');
+  console.log(`| ${label || mPad} | aan op ${aan}, uit op ${uit}, overvloei ${L} samples | ${stilTot} samples precies 0, ${overvloei} overvloei-samples lineair | ${fouten.length ? '**FOUT**: ' + fouten.join('; ') : 'ja'} |`);
+  process.exit(fouten.length ? 1 : 0);
 }
 const map = process.argv[2];
 if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders> | --automatie|--noten|--hosttempo <render.wav>'); process.exit(2); }

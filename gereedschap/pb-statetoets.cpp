@@ -8,10 +8,16 @@
 //   (b) een blob met versie 2 en een extra onbekend id laadt; de bekende id's krijgen hun waarde;
 //   (c) andere magic, versie 0 of een afgekapte blob geeft false en verandert niets: get_value, de bytes van state.save
 //       en het geluid blijven gelijk, en de host krijgt geen rescan.
+//   (d) fase 5: een blob van een oudere build (alleen de DSP-parameters, zonder bypass) laadt en zet de bypass op zijn
+//       standaard (uit); een blob met de bypass aan laadt hem aan: get_value 1, het geluid is na de overvloei van 10 ms
+//       stil (laden vóór activate: meteen stil), en state.save houdt hem.
+// De bypass (CLAP_PARAM_IS_BYPASS) staat bij (a) t/m (c) uit, zodat er iets te horen is; (a) laat de laatste
+// DSP-parameter weg, zoals in fase 2.
 // Bij elk geval ook het geluid: een noot door de plugin na de load is bit voor bit gelijk aan dezelfde noot door een verse
 // instantie die de verwachte waarden via params.flush kreeg (de state komt dus echt in het Ontwerp).
 // Tekst (SPEC.md "Tekst ↔ waarde"): value_to_text van de standaard geeft precies de tekst uit de tabel, en text_to_value
-// van die tekst geeft de standaard terug; plus de voorbeelden uit de kolom "regel" en de leesregels.
+// van die tekst geeft de standaard terug; plus de voorbeelden uit de kolom "regel" en de leesregels. De bypass staat niet
+// in die tabel (hij is van de schil): "Uit"/"Aan", ook "off"/"on" en 0/1.
 // Presets (PROMPTS.md fase 4, met --presets; de tabel maakt gereedschap/presets-verwacht.sh uit presets/*.json):
 //   preset-discovery: per preset een provider met één locatie van soort PLUGIN en een container van één preset (valkuil
 //   15), met de naam, de load key en het plugin-id; preset-load van elke preset (niet actief en actief) geeft precies de
@@ -225,7 +231,7 @@ struct Instantie {
   }
 };
 
-struct Param { uint32_t id; std::string naam; double min, max, standaard; };
+struct Param { uint32_t id; std::string naam; double min, max, standaard; bool bypass; };
 std::vector<Param> params;
 
 std::string tekst(const std::map<uint32_t, double>& w) {
@@ -255,11 +261,25 @@ std::vector<float> referentie(const std::map<uint32_t, double>& w) {  // een ver
   return ref.speel();
 }
 
-// waarden ver van de standaard en van elkaar, exact in float32 (zoals de grenzen en standaarden)
+// waarden ver van de standaard en van elkaar, exact in float32 (zoals de grenzen en standaarden); de bypass uit
 std::map<uint32_t, double> waardenSet(double t) {
   std::map<uint32_t, double> w;
-  for (auto& p : params) w[p.id] = (double)(float)(p.min + t * (p.max - p.min));
+  for (auto& p : params) w[p.id] = p.bypass ? p.min : (double)(float)(p.min + t * (p.max - p.min));
   return w;
+}
+const Param* bypassParam() {
+  for (auto& p : params) if (p.bypass) return &p;
+  return nullptr;
+}
+size_t laatsteDsp() {
+  for (size_t k = params.size(); k-- > 0;) if (!params[k].bypass) return k;
+  stop("geen DSP-parameters");
+}
+bool stilVanaf(const std::vector<float>& lr, uint32_t vanaf) {  // speel() geeft per blok links en dan rechts
+  for (size_t b = 0; b * 2 * BLOK < lr.size(); ++b)
+    for (uint32_t i = 0; i < 2 * BLOK; ++i)
+      if (b * BLOK + (i % BLOK) >= vanaf && lr[b * 2 * BLOK + i] != 0.0f) return false;
+  return true;
 }
 std::map<uint32_t, double> standaarden() {
   std::map<uint32_t, double> w;
@@ -274,11 +294,12 @@ void toetsState(bool actiefLaden) {
   auto voor = waardenSet(0.9), A = waardenSet(0.3), C = waardenSet(0.6);
   std::printf("\n## state, laden terwijl %s\n", modus);
 
-  {  // (a) aantal = N − 1: de laatste parameter ontbreekt en houdt zijn standaard
+  {  // (a) aantal = N − 1: de laatste (DSP-)parameter ontbreekt en houdt zijn standaard
     std::vector<std::pair<uint32_t, double>> paren;
     auto verwacht = A;
-    for (size_t k = 0; k + 1 < N; ++k) paren.push_back({params[k].id, A[params[k].id]});
-    verwacht[params[N - 1].id] = params[N - 1].standaard;
+    const size_t weg = laatsteDsp();
+    for (size_t k = 0; k < N; ++k) if (k != weg) paren.push_back({params[k].id, A[params[k].id]});
+    verwacht[params[weg].id] = params[weg].standaard;
     const auto b = blob("PBST", 1, (uint32_t)(N - 1), paren);
     Instantie s;
     s.zet(voor);
@@ -289,8 +310,8 @@ void toetsState(bool actiefLaden) {
     check(rescans == r0 + 1, "(a) na de load een rescan(VALUES) naar de host");
     const auto w = s.waarden();
     check(gelijk(w, verwacht), "(a) waarden " + tekst(w) + " = verwacht " + tekst(verwacht));
-    check(w.at(params[N - 1].id) == params[N - 1].standaard,
-          "(a) " + params[N - 1].naam + " (de laatste) houdt zijn standaard, niet de waarde van voor de load");
+    check(w.at(params[weg].id) == params[weg].standaard,
+          "(a) " + params[weg].naam + " (de laatste) houdt zijn standaard, niet de waarde van voor de load");
     const auto geluid = s.speel();
     check(hoorbaar(geluid) && bitGelijk(geluid, referentie(verwacht)),
           "(a) het geluid na de load is bit voor bit dat van de verwachte waarden");
@@ -354,6 +375,50 @@ void toetsState(bool actiefLaden) {
     s.zet(voor);
     if (actiefLaden) s.activeer();
     check(s.laad(goed) && gelijk(s.waarden(), A), "(c) controle: dezelfde blob heel en met de goede kop laadt wel");
+  }
+
+  const Param* bp = bypassParam();
+  check(bp != nullptr, std::string("(d) de plugin heeft een bypass-parameter (CLAP_PARAM_IS_BYPASS) [") + modus + "]");
+  if (!bp) return;
+  {  // (d) een blob van een oudere build: alleen de DSP-parameters; de bypass (aan vóór de load) gaat naar zijn standaard
+    std::vector<std::pair<uint32_t, double>> paren;
+    for (auto& p : params) if (!p.bypass) paren.push_back({p.id, A[p.id]});
+    auto voorAan = voor;
+    voorAan[bp->id] = bp->max;
+    Instantie s;
+    s.zet(voorAan);
+    if (actiefLaden) s.activeer();
+    check(s.laad(blob("PBST", 1, (uint32_t)paren.size(), paren)), std::string("(d) blob zonder bypass (oudere build) laadt [") + modus + "]");
+    const auto w = s.waarden();
+    check(gelijk(w, A), "(d) waarden " + tekst(w) + " = verwacht " + tekst(A) + " (bypass naar zijn standaard)");
+    // actief geladen stond de bypass al aan: 10 ms terug overvloeien (480 samples op 48 kHz), daarna bit voor bit
+    const uint32_t vanaf = actiefLaden ? 480 : 0;
+    const auto geluid = s.speel(), ref = referentie(A);
+    bool zelfde = geluid.size() == ref.size();
+    for (size_t i = 0; zelfde && i < geluid.size(); ++i)
+      if ((i / (2 * BLOK)) * BLOK + (i % BLOK) >= vanaf && std::memcmp(&geluid[i], &ref[i], sizeof(float))) zelfde = false;
+    check(hoorbaar(geluid) && zelfde, "(d) het geluid na de load is vanaf sample " + std::to_string(vanaf) +
+                                          " bit voor bit dat van de verwachte waarden");
+    if (actiefLaden) check(!bitGelijk(geluid, ref), "(d) en daarvoor vloeit het over vanuit stilte");
+  }
+  {  // (d) een blob met de bypass aan
+    std::vector<std::pair<uint32_t, double>> paren;
+    auto verwacht = A;
+    verwacht[bp->id] = bp->max;
+    for (auto& p : params) paren.push_back({p.id, verwacht[p.id]});
+    Instantie s;
+    s.zet(voor);
+    if (actiefLaden) s.activeer();
+    check(s.laad(blob("PBST", 1, (uint32_t)paren.size(), paren)), std::string("(d) blob met de bypass aan laadt [") + modus + "]");
+    const auto w = s.waarden();
+    check(gelijk(w, verwacht), "(d) waarden " + tekst(w) + " = verwacht " + tekst(verwacht));
+    const auto geluid = s.speel();
+    // actief geladen: 10 ms overvloeien (480 samples op 48 kHz); vóór activate geladen: meteen stil
+    const uint32_t vanaf = actiefLaden ? 480 : 0;
+    check(stilVanaf(geluid, vanaf), "(d) met de bypass aan is het geluid stil vanaf sample " + std::to_string(vanaf));
+    if (actiefLaden) check(!stilVanaf(geluid, 0), "(d) en daarvoor vloeit het over (niet meteen stil)");
+    Instantie t;
+    check(t.laad(s.bewaar()) && gelijk(t.waarden(), verwacht), "(d) state.save daarna laadt in een nieuwe instantie met de bypass aan");
   }
 }
 
@@ -533,6 +598,7 @@ void toetsTekst() {
   // de kolom "standaard als tekst" van de tabel
   const std::map<std::string, std::string> tabel = {{"Noot", "100 %"}, {"Poort", "0 %"}, {"Filter", "900 Hz"}, {"Loslaten", "450 ms"}};
   for (auto& p : params) {
+    if (p.bypass) continue;  // niet in de tabel: hieronder
     auto it = tabel.find(p.naam);
     check(it != tabel.end(), "parameter " + p.naam + " staat in de tabel van SPEC.md");
     if (it == tabel.end()) continue;
@@ -586,6 +652,23 @@ void toetsTekst() {
     if (g.ok) check(ok && v == g.v, std::string("text_to_value(") + g.naam + ", \"" + g.t + "\") = " + (ok ? vb : "false"));
     else check(!ok, std::string("text_to_value(") + g.naam + ", \"" + g.t + "\") = false (onleesbaar)");
   }
+  // de bypass: "Uit"/"Aan"
+  if (const Param* bp = bypassParam()) {
+    struct Bt { double v; const char* t; };
+    for (const Bt& g : {Bt{0.0, "Uit"}, Bt{1.0, "Aan"}}) {
+      char t[256];
+      const bool ok = par->value_to_text(s.p, bp->id, g.v, t, sizeof t);
+      check(ok && !std::strcmp(t, g.t), std::string("value_to_text(Bypass, ") + (g.v ? "1" : "0") + ") = \"" + (ok ? t : "?") + "\", verwacht \"" + g.t + "\"");
+    }
+    const Van bv[] = {{"", "Aan", true, 1}, {"", "uit", true, 0}, {"", "on", true, 1}, {"", "Off", true, 0},
+                      {"", "1", true, 1}, {"", "0", true, 0}, {"", "abc", false, 0}, {"", "", false, 0}};
+    for (auto& g : bv) {
+      double v = NAN;
+      const bool ok = par->text_to_value(s.p, bp->id, g.t, &v);
+      if (g.ok) check(ok && v == g.v, std::string("text_to_value(Bypass, \"") + g.t + "\") = " + (ok ? std::to_string(v) : "false"));
+      else check(!ok, std::string("text_to_value(Bypass, \"") + g.t + "\") = false (onleesbaar)");
+    }
+  }
   // rondje: elke tekst die value_to_text maakt, leest text_to_value terug tot dezelfde tekst
   for (auto& p : params) {
     bool alles = true;
@@ -630,7 +713,8 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < s.par->count(s.p); ++i) {
       clap_param_info_t info;
       s.par->get_info(s.p, i, &info);
-      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
+      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value,
+                        (info.flags & CLAP_PARAM_IS_BYPASS) != 0});
     }
     check(gelijk(s.waarden(), standaarden()), "een verse instantie staat op de standaarden");
   }

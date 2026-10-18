@@ -8,6 +8,8 @@
 //             [--noten f [--midi]] noten op hun sample (instrument); f: per regel "sample aan|uit noot". Standaard als
 //                                 CLAP-noten, met --midi als MIDI-bytes (0x90/0x80): beide dialecten van de note port
 //             [--tempo bpm]       een transport dat speelt vanaf tel 0 op dit tempo (de sequencer volgt de host)
+//             [--kanalen 1|2]     kies de uitgang via audio-ports-config (vóór activate) en eis dat audio-ports hem dan
+//                                 meldt; de uitvoer-WAV krijgt zoveel kanalen. Zonder: zoveel als de invoer (hooguit 2)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -112,7 +114,7 @@ int main(int argc, char** argv) {
   // automatisering en noten in één lijst, op sample (een noot: id = -1 aan, -2 uit, waarde = noot)
   struct Auto { uint64_t sample; int64_t id; double waarde; };
   std::vector<Auto> automatie;
-  bool alsMidi = false; double tempo = 0;
+  bool alsMidi = false; double tempo = 0; uint32_t kanalenGevraagd = 0;
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -136,6 +138,10 @@ int main(int argc, char** argv) {
     }
     else if (a == "--midi") alsMidi = true;
     else if (a == "--tempo" && i + 1 < argc) tempo = std::atof(argv[++i]);
+    else if (a == "--kanalen" && i + 1 < argc) {
+      kanalenGevraagd = (uint32_t)std::atoi(argv[++i]);
+      if (kanalenGevraagd != 1 && kanalenGevraagd != 2) fout("--kanalen 1 of 2");
+    }
     else fout("onbekende optie " + a);
   }
 
@@ -197,10 +203,27 @@ int main(int argc, char** argv) {
   // een instrument heeft geen audio-ingang: dan geven we er ook geen
   auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
   const uint32_t nIn = ap ? ap->count(pl, true) : 1;
+  if (kanalenGevraagd) {  // de indeling kiezen zoals een CLAP-host: audio-ports-config, dan audio-ports opnieuw lezen
+    auto* apc = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+    if (!apc || !ap) fout("--kanalen: geen audio-ports-config of audio-ports");
+    bool gekozen = false;
+    for (uint32_t i = 0; i < apc->count(pl) && !gekozen; ++i) {
+      clap_audio_ports_config_t c{};
+      if (!apc->get(pl, i, &c) || c.input_port_count != nIn || c.output_port_count != 1 || !c.has_main_output) continue;
+      if (c.main_output_channel_count != kanalenGevraagd) continue;
+      if (!apc->select(pl, c.id)) fout("--kanalen: select weigert config " + std::to_string(c.id));
+      gekozen = true;
+    }
+    if (!gekozen) fout("--kanalen: geen audio-ports-config met " + std::to_string(kanalenGevraagd) + " uitgangskanalen");
+    clap_audio_port_info_t info{};
+    if (ap->count(pl, false) != 1 || !ap->get(pl, 0, false, &info) || info.channel_count != kanalenGevraagd)
+      fout("--kanalen: audio-ports meldt na select niet " + std::to_string(kanalenGevraagd) + " kanalen");
+  }
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
-  const uint32_t kan = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  const uint32_t kan = kanalenGevraagd ? kanalenGevraagd : ((uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size());
+  if (kan > in.k.size()) fout("de invoer-WAV heeft minder kanalen dan de uitgang");
   const size_t n = in.k[0].size();
   Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kan, std::vector<float>(n));
   std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));

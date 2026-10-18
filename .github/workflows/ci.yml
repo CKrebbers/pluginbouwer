@@ -1,4 +1,5 @@
-# CI van Toetsenpad: bouwen, alle validators, de null-test, het paneel en de presets (PROMPTS.md fase 0 tot en met 4). Het log is het bewijs; zet hier nooit een toets uit.
+# CI van Toetsenpad: bouwen, alle validators, de null-test, het paneel, de presets en de formaten (PROMPTS.md fase 0 tot en
+# met 5: stereo en mono, bypass, 44,1–192 kHz, blok 1..4096). Het log is het bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -8,6 +9,9 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: "0.4.1"
+  # fase 5: pluginval validate op alle samplerates en blokgroottes (valkuil 18: het pluginpad staat ervóór)
+  PV_SR: "44100,48000,88200,96000,176400,192000"
+  PV_BLOK: "1,64,512,1000,4096"
 
 jobs:
   linux:
@@ -42,22 +46,28 @@ jobs:
           echo "clap-validator exitcode: $status"
           grep -E "tests run, .* 0 failed" cv-schoon.log
           [ "$status" = 0 ] || exit $status
-          # fase 2 en 4: de param-, state- en preset-toetsen moeten echt draaien en slagen (SKIPPED telt niet)
+          # fase 2, 4 en 5: de param-, state-, preset- en layout-toetsen moeten echt draaien en slagen (SKIPPED telt niet)
           for t in param-set-events param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate param-fuzz-modulation \
                    param-conversions param-default-values state-invalid-empty state-invalid-random \
                    state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
-                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load \
+                   layout-audio-ports-config layout-configurable-audio-ports; do
             uitslag=$(awk -v t="$t" '$0 ~ "┌─ " t "$" {zoek=1} zoek && match($0, /└── (PASSED|FAILED|SKIPPED|WARNING)/) {u = substr($0, RSTART, RLENGTH); sub(/.* /, "", u); print u; exit}' cv-schoon.log)
             echo "clap-validator $t: ${uitslag:-niet gevonden}"
             [ "$uitslag" = PASSED ] || exit 1
           done
-      - name: pluginval strictness 10 (VST3, xvfb)
+      - name: pluginval strictness 10 (VST3, xvfb; 44,1–192 kHz, blok 1..4096)
         run: |
           status=0
-          xvfb-run -a "$HOME/pv/pluginval" validate --strictness-level 10 "build/plugins/PB Toetsenpad.vst3" > pv.log 2>&1 || status=$?
+          xvfb-run -a "$HOME/pv/pluginval" validate --strictness-level 10 "build/plugins/PB Toetsenpad.vst3" --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" > pv.log 2>&1 || status=$?
           cat pv.log
           echo "pluginval exitcode: $status"
-          [ "$status" = 0 ] && grep -q "^SUCCESS" pv.log
+          [ "$status" = 0 ] && grep -q "^SUCCESS" pv.log || exit 1
+          # fase 5: de VST3 biedt mono én stereo aan (configurable-audio-ports) en verwerkt ze allebei
+          grep -E "Named layouts: .*Mono.*Stereo|Named layouts: .*Stereo.*Mono" pv.log || { echo "FOUT: de VST3 biedt geen mono en stereo aan"; exit 1; }
+          grep -E "Layouts tested: [0-9]+, accepted by setBusesLayout: [0-9]+" pv.log
+          for sr in $(echo "$PV_SR" | tr , ' '); do grep -q "Testing with sample rate \[$sr\] and block size \[1\]" pv.log || { echo "FOUT: niet getoetst op $sr Hz, blok 1"; exit 1; }; done
+          echo "pluginval VST3: $(grep -c "Testing with sample rate" pv.log)× een samplerate/blokgrootte getoetst"
       - name: State-, tekst- en presettoets (pb-statetoets door het .clap)
         run: |
           sh gereedschap/presets-verwacht.sh presets | tee presets-verwacht.tsv
@@ -66,6 +76,12 @@ jobs:
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test, xvfb)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/PB Toetsenpad.vst3" "$HOME/pv/pluginval" vst3-linux
+      - name: Verwachte uitvoer bij andere samplerates en in mono (wasm/graaf.wasm; eerst testsignalen/ bit voor bit na)
+        run: node gereedschap/maak-sr.mjs uit/sr
+      - name: Null-test CLAP samplerates (44,1–192 kHz, stereo en mono, blok 1..4096, noten CLAP en MIDI, bypass)
+        run: sh gereedschap/ci-null.sh sr build
+      - name: Null-test VST3 samplerates (pluginval test met MIDI, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval-sr "$PWD/build/plugins/PB Toetsenpad.vst3" "$HOME/pv/pluginval" vst3-linux
 
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
@@ -95,6 +111,11 @@ jobs:
           $R "$P" $T/noten/in.wav $U/noten.wav --blok 3,128,1,4096,77 --noten $T/noten/noten.txt
           $R "$P" $T/noten/in.wav $U/midi.wav --blok 512 --noten $T/noten/noten.txt --midi
           $R "$P" $T/automatie/in.wav $U/auto.wav --blok 3,128,1,4096,77 --automatie $T/automatie/events.txt
+          # fase 5: mono en stereo, 44,1 en 192 kHz, blok 1 en 4096, en de bypass (id 5) aan en uit midden in een blok
+          printf "40000 5 1\n90000 5 0\n130000 5 1\n" > $U/bypass.txt
+          $R "$P" $T/noten/in.wav $U/mono-192k.wav --sr 192000 --kanalen 1 --blok 1 --noten $T/noten/noten.txt --automatie $U/bypass.txt
+          $R "$P" $T/noten/in.wav $U/stereo-192k.wav --sr 192000 --kanalen 2 --blok 4096 --noten $T/noten/noten.txt --midi --automatie $U/bypass.txt
+          $R "$P" $T/noten/in.wav $U/mono-44k.wav --sr 44100 --kanalen 1 --blok 3,128,1,4096,77 --noten $T/noten/noten.txt --midi --automatie $U/bypass.txt
           echo "RTSan: geen real-time-schending in process"
       - name: RTSan-kanarie (malloc in process; MOET falen)
         run: |
@@ -157,6 +178,8 @@ jobs:
           done
           # de naam van een preset moet in ClassInfo blijven (patches/clap-wrapper-auv2-eigen-presetnaam-in-classinfo.patch)
           if grep -q "Preset name is not retained" auval.log; then echo "FOUT: auval: Preset name is not retained in retrieved class data"; exit 1; fi
+          # fase 5: welke kanaalindelingen auval zag (pb-aurender eist mono en stereo verderop)
+          grep -n -i -E "channel|bypass" auval.log || true
       - name: Presets door de AU (pb-aupresets)
         run: |
           sh gereedschap/presets-verwacht.sh presets > presets-verwacht.tsv
@@ -178,18 +201,24 @@ jobs:
       - name: pluginval strictness 10, --rtcheck enabled (AU, --repeat 3)
         run: |
           status=0
-          "$PV" validate --strictness-level 10 --rtcheck enabled --repeat 3 "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" > pv-au.log 2>&1 || status=$?
+          "$PV" validate --strictness-level 10 --rtcheck enabled --repeat 3 "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" > pv-au.log 2>&1 || status=$?
           cat pv-au.log
           echo "pluginval AU exitcode: $status"
-          [ "$status" = 0 ] && grep -q "^SUCCESS" pv-au.log
+          [ "$status" = 0 ] && grep -q "^SUCCESS" pv-au.log || exit 1
           # fase 3: zonder --skip-gui-tests, en de editor moet er echt zijn (pluginval slaat de editortoetsen anders stil over)
           grep -q "Testing opening Editor with released processing" pv-au.log || { echo "FOUT: pluginval opende geen editor (AU)"; exit 1; }
           echo "pluginval AU: editor geopend ($(grep -c "Testing opening Editor" pv-au.log)×)"
+          # fase 5: de AU biedt mono én stereo aan (patch, valkuil 17), op alle samplerates en blokgroottes getoetst
+          grep -E "Named layouts: .*Mono.*Stereo|Named layouts: .*Stereo.*Mono" pv-au.log || { echo "FOUT: de AU biedt geen mono en stereo aan"; exit 1; }
+          for sr in $(echo "$PV_SR" | tr , ' '); do grep -q "Testing with sample rate \[$sr\] and block size \[1\]" pv-au.log || { echo "FOUT: niet getoetst op $sr Hz, blok 1"; exit 1; }; done
+          echo "pluginval AU: $(grep -c "Testing with sample rate" pv-au.log)× een samplerate/blokgrootte getoetst"
       - name: pluginval strictness 10, rtcheck (VST3 van een instrument, valkuil 22)
         run: |
-          sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" | tee pv-vst3.log
+          sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" | tee pv-vst3.log
           grep -q "Testing opening Editor with released processing" pv-vst3.log || { echo "FOUT: pluginval opende geen editor (VST3)"; exit 1; }
           echo "pluginval VST3: editor geopend ($(grep -c "Testing opening Editor" pv-vst3.log)×)"
+          grep -E "Named layouts: .*Mono.*Stereo|Named layouts: .*Stereo.*Mono" pv-vst3.log || { echo "FOUT: de VST3 biedt geen mono en stereo aan"; exit 1; }
+          for sr in $(echo "$PV_SR" | tr , ' '); do grep -q "Testing with sample rate \[$sr\] and block size \[1\]" pv-vst3.log || { echo "FOUT: niet getoetst op $sr Hz, blok 1"; exit 1; }; done
       - name: State-, tekst- en presettoets (pb-statetoets door het .clap, arm64)
         run: |
           sh gereedschap/presets-verwacht.sh presets > presets-verwacht.tsv
@@ -200,6 +229,16 @@ jobs:
         run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" "$PV" vst3-macos
       - name: Null-test AU (pluginval test)
         run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" "$PV" au-macos
+      - name: Verwachte uitvoer bij andere samplerates en in mono (wasm/graaf.wasm; eerst testsignalen/ bit voor bit na)
+        run: node gereedschap/maak-sr.mjs uit/sr
+      - name: Null-test CLAP samplerates (44,1–192 kHz, stereo en mono, blok 1..4096, noten CLAP en MIDI, bypass)
+        run: sh gereedschap/ci-null.sh sr build
+      - name: Null-test VST3 samplerates (pluginval test met MIDI)
+        run: sh gereedschap/ci-null.sh pluginval-sr "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" "$PV" vst3-macos
+      - name: Null-test AU samplerates (pluginval test met MIDI)
+        run: sh gereedschap/ci-null.sh pluginval-sr "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" "$PV" au-macos
+      - name: Null-test AU stereo en mono (pb-aurender; valkuil 17; noten als MIDI, knoppen, bypass)
+        run: sh gereedschap/ci-null.sh au-sr build/pb-aurender
       - name: Artefact klaarzetten (zelf gezipt, want een artefact bewaart geen rechten of symlinks)
         run: |
           mkdir -p artefact

@@ -1,8 +1,9 @@
 # Toetsenpad — de CLAP-plugin, en via clap-wrapper v0.16.0 de VST3 en AUv2 (make_clapfirst_plugins).
 #   cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (gereedschap/pb-render.cpp) en
-# build/pb-statetoets (gereedschap/pb-statetoets.cpp), en op macOS build/pb-paneel (gereedschap/pb-paneel.mm) en
-# build/pb-aupresets (gereedschap/pb-aupresets.cpp). De fabriekspresets komen uit presets/*.json (presets.cmake).
+# build/pb-statetoets (gereedschap/pb-statetoets.cpp), en op macOS build/pb-paneel (gereedschap/pb-paneel.mm),
+# build/pb-aupresets (gereedschap/pb-aupresets.cpp) en build/pb-aurender (gereedschap/pb-aurender.cpp). De
+# fabriekspresets komen uit presets/*.json (presets.cmake).
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "laagste macOS")
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
@@ -110,6 +111,13 @@ if (APPLE)
   add_executable(pb-aupresets "${PAKKET}/gereedschap/pb-aupresets.cpp")
   target_link_libraries(pb-aupresets PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
   set_target_properties(pb-aupresets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# --- pb-aurender: de geïnstalleerde AU in mono en stereo, op elke samplerate (fase 5, valkuil 17) -------------------
+if (APPLE)
+  add_executable(pb-aurender "${PAKKET}/gereedschap/pb-aurender.cpp")
+  target_link_libraries(pb-aurender PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-aurender PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
 
 # --- de RTSan-kanarie: dezelfde plugin met een malloc in process (valkuil 4); RTSan MOET hem vangen --------------
