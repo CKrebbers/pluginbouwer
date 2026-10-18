@@ -1,11 +1,11 @@
-# Negen punten in clap-wrapper v0.16.0 (en één in clap-validator, één in pluginval), klaar om te melden
+# Tien punten in clap-wrapper v0.16.0 (en één in clap-validator, één in pluginval), klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
 klaar om te plakken. De patches 0001–0004 gaan elk los schoon op v0.16.0, 0005 na 0004, 0006 na 0004 en 0005 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1 tot en met 9 (3, 8 en 9 hebben geen patch; 8 en 9 zijn van 18 okt, gevonden toen de Pluginbouwer
+issue 1 tot en met 10 (3, 8, 9 en 10 hebben geen patch; 10 is een vraag; 8 en 9 zijn van 18 okt, gevonden toen de Pluginbouwer
 instrumenten kreeg). Het punt voor clap-validator staat onderaan en gaat
 naar https://github.com/free-audio/clap-validator/issues/new, dat voor pluginval naar https://github.com/Tracktion/pluginval/issues/new. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
@@ -221,6 +221,23 @@ beat 0" from "the host has no beat position".
 **Fix** (no patch, one line): set the beat and the flag whenever `CallHostBeatAndTempo` succeeded, also for 0.0.
 
 Found while adding host tempo to a CLAP sequencer (macOS 15 arm64, an AudioToolbox host with `beatAndTempoProc`).
+
+---
+
+## Issue 10 — AUv2: plugin-initiated gestures notify the host on the audio thread (`NOTIFYDIRECT`) — question
+
+**What we see (by reading, not measured).** `src/wrapasauv2.cpp` defines `NOTIFYDIRECT`, so when the CLAP sends
+`CLAP_EVENT_PARAM_GESTURE_BEGIN` / `PARAM_VALUE` / `GESTURE_END` from `process` (a knob turned in the plugin's own UI),
+`onBeginEdit` / `onPerformEdit` / `onEndEdit` call `AUEventListenerNotify` and `Globals()->SetParameter` on the host's
+audio thread. The comment says the queued alternative (`_queueToUI`) does not work yet. (`_gesturedParameters` is
+reserved for 8192 entries, so its `push_back` should not allocate in practice.)
+
+**Why it may matter.** `pluginval --rtcheck` cannot see it: pluginval never turns a knob in the plugin's UI. Whether
+`AUEventListenerNotify` and `ausdk::AUElement::SetParameter` are real-time safe is not documented as far as we found.
+
+**Question**: is the audio-thread notification intended as the long-term design, and is it known to be real-time safe?
+
+Found by: an independent build session of the Pluginbouwer project (UI phase of an instrument).
 
 ---
 
