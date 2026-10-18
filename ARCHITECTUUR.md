@@ -49,6 +49,11 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
 - AU: `patches/clap-wrapper-auv2-presets.patch` leest dezelfde factory en geeft ze als factory presets
   (`GetPresets`, `NewFactoryPresetSet`). VST3 krijgt van clap-wrapper geen presetlijst.
 - Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
+  pluginval meldt dan "!!! WARNING: Current program is -1... Is this correct?": dat is zo bedoeld, geen fout.
+- clap-validator 0.4.1 laadt in `preset-discovery-load` maar één preset: hij bewaart de gevonden presets per locatie,
+  en alle providers delen de locatie (PLUGIN, nullptr). `pb-presettoets` laadt ze daarom allemaal zelf.
+- Een eigen presetnaam van de host (AU, presetnummer −1) moet in ClassInfo terugkomen; de presetpatch overschrijft
+  daarvoor ook `NewCustomPresetSet` (anders auval: "Preset name is not retained in retrieved class data").
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
