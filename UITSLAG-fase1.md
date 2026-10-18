@@ -24,7 +24,7 @@ Laatste CI-run met code (groen, alle drie de jobs): https://github.com/CKrebbers
     direct in het Ontwerp; actief: waarden klaarzetten + atomaire vlag, process/flush neemt ze over vóór de events van
     dat blok. Daarna `rescan(CLAP_PARAM_RESCAN_VALUES)` en (als actief) `request_flush`.
   - **params.flush** neemt klaargezette state over en past de events toe (zelfde `pasToe` als process).
-  - latency uit het Ontwerp (0), tail uit `staartSec()` (0,5 s standaard: loslaten 450 ms + 50 ms).
+  - latency uit het Ontwerp (0), tail uit `staartSec()` (in samples op de samplerate van activate).
 - `.github/workflows/ci.yml`:
   - linux: `ci-null.sh pluginval` op de VST3 (pluginval onder `xvfb-run -a`) en `ci-null.sh clap build`.
   - macos: `ci-null.sh clap build`, `ci-null.sh pluginval` op de geïnstalleerde VST3 en AU (absolute paden,
