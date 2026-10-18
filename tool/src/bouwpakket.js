@@ -608,6 +608,9 @@ ${inst ? `> Stereo- én mono-uitgang (audio-ports-config: 0 → 2 en 0 → 1; ee
 > en LEERPAD.md zegt wat Clay bij het openen doet (macOS 15: Privacy en beveiliging → "Open toch"; rechtsklik → Open
 > werkt daar niet meer). Zet \`BundleIsRelocatable\` op false in de component-plist (\`pkgbuild --analyze\`; de sleutel
 > ontbreekt soms: toevoegen, niet zetten), anders installeert Installer in een bestaande bundel elders op de schijf.
+> Het bewijs staat in \`PackageInfo\` van het pakket: geen \`<bundle>\` binnen \`<relocate>\`; pkgbuild schrijft altijd een
+> lege \`<relocate/>\`, dus toets niet op "geen relocate" (proef G1). Een lokbundel elders bewijst weinig:
+> \`lsregister\` registreert geen plugin-bundels (\`-10811\`).
 > postinstall: \`killall -9 AudioComponentRegistrar\`. Toets in een aparte job op een verse runner die niets bouwt:
 > installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan \`auval -strict\`.
 > Notarisatie alleen als optie in de docs, met de kosten.
