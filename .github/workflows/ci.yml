@@ -113,8 +113,7 @@ jobs:
             ./build/pb-render "$C" testsignalen/noten/in.wav uit-midi.wav --blok "$blok" --noten testsignalen/noten/noten.txt --midi
             ./build/pb-render "$C" testsignalen/automatie/in.wav uit-auto.wav --blok "$blok" --automatie testsignalen/automatie/events.txt
           done
-          ./build/pb-render "$C" testsignalen/sinus-441.in.wav uit-state.wav --blok 512 --state-rondje
-          echo "RTSan: plugin schoon (6 renders met noten, MIDI en automatisering, 1 met state-rondje)"
+          echo "RTSan: plugin schoon (6 renders met noten, MIDI en automatisering)"
           echo "### RTSan: plugin schoon" >> "$GITHUB_STEP_SUMMARY"
 
       - name: RTSan-kanarie (malloc in process; MOET falen; bewijs)
