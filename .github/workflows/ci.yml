@@ -216,7 +216,9 @@ jobs:
       - name: Ad-hoc signeren (gratis; geen Apple Developer-account nodig)
         run: |
           for b in build/plugins/*.clap build/plugins/*.vst3 build/plugins/*.component; do
-            codesign --force --deep --sign - "$b" && codesign --verify --verbose "$b"
+            # elk commando apart: met bash -e laat "a && b" een mislukte a stil door (proef G1, fase 5)
+            codesign --force --deep --sign - "$b"
+            codesign --verify --verbose "$b"
           done
       - name: Installeren in ~/Library/Audio/Plug-Ins en de AU-cache verversen
         run: |

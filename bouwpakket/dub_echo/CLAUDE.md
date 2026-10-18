@@ -75,7 +75,10 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
    `ci-null.sh pluginval` zet `$PV` zonder aanhalingstekens neer: `"xvfb-run -a …/pluginval"` werkt als pluginval-commando.
 21. **"Oneindig" bestaat niet in een AU**: CLAP meldt een oneindige staart als `INT32_MAX` of meer, en de AU van
    clap-wrapper deelt dat door de samplerate (op 48 kHz ±12 uur). Dat is goed genoeg; verwacht in Logic geen "oneindig".
-22. **Tekst ↔ waarde zonder locale**: `snprintf` en `strtod` volgen `LC_NUMERIC` van het proces, en dat zet de host.
+22. **Een toets midden in een CI-stap faalt niet op `a && b`**: GitHub draait `run:` met `bash -e`, en een mislukte `a`
+   in een `&&`-lijst laat de stap doorgaan. Een mislukte auval ging zo als groen door (proef G1). Zet elke controle
+   als eigen regel of schrijf `… || exit 1`.
+23. **Tekst ↔ waarde zonder locale**: `snprintf` en `strtod` volgen `LC_NUMERIC` van het proces, en dat zet de host.
    Komma vervangen door een punt en dan `strtod` breekt in een host met een komma-locale. Maak en lees de getallen zelf
    (gehele delen en decimalen), los van de locale (proef G2; clap-validator en pluginval vangen het niet).
 ## Hoe je weet dat het klopt

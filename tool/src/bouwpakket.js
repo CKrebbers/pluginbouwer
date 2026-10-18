@@ -93,6 +93,9 @@ Terugkoppeling: ${terugkoppeling ? 'ja — een kabel naar een eerdere knoop lees
 |---|---|---|---|---|---|---|---|
 ${p.join('\n')}
 
+- Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", \`CLAP_PARAM_IS_BYPASS\`. Ook dat id
+  verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
+  \`PARAMS\` (id ${c.params.length}), niet de bypass.
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
@@ -378,7 +381,10 @@ ${n + 1}. **Het bewijs staat in de samenvatting, niet in de staart van het log**
    \`ci-null.sh pluginval\` zet \`$PV\` zonder aanhalingstekens neer: \`"xvfb-run -a …/pluginval"\` werkt als pluginval-commando.
 ${n + 2}. **"Oneindig" bestaat niet in een AU**: CLAP meldt een oneindige staart als \`INT32_MAX\` of meer, en de AU van
    clap-wrapper deelt dat door de samplerate (op 48 kHz ±12 uur). Dat is goed genoeg; verwacht in Logic geen "oneindig".
-${n + 3}. **Tekst ↔ waarde zonder locale**: \`snprintf\` en \`strtod\` volgen \`LC_NUMERIC\` van het proces, en dat zet de host.
+${n + 3}. **Een toets midden in een CI-stap faalt niet op \`a && b\`**: GitHub draait \`run:\` met \`bash -e\`, en een mislukte \`a\`
+   in een \`&&\`-lijst laat de stap doorgaan. Een mislukte auval ging zo als groen door (proef G1). Zet elke controle
+   als eigen regel of schrijf \`… || exit 1\`.
+${n + 4}. **Tekst ↔ waarde zonder locale**: \`snprintf\` en \`strtod\` volgen \`LC_NUMERIC\` van het proces, en dat zet de host.
    Komma vervangen door een punt en dan \`strtod\` breekt in een host met een komma-locale. Maak en lees de getallen zelf
    (gehele delen en decimalen), los van de locale (proef G2; clap-validator en pluginval vangen het niet).
 `; })()}## Hoe je weet dat het klopt

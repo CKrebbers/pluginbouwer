@@ -47,6 +47,9 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
 | 9 | Ruis | 0 – 1 | — | 0 | 20 ms | glijden | De sis van de band in de echo; bij 1 zoals een echte bandrecorder, en hij stapelt in de herhalingen |
 
+- Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", `CLAP_PARAM_IS_BYPASS`. Ook dat id
+  verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
+  `PARAMS` (id 9), niet de bypass.
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.

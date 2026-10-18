@@ -45,6 +45,9 @@ Terugkoppeling: nee.
 | 3 | Filter | 100 – 8000 | Hz | 900 | 20 ms | glijden |  |
 | 4 | Loslaten | 10 – 4000 | ms | 450 | 20 ms | glijden |  |
 
+- Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", `CLAP_PARAM_IS_BYPASS`. Ook dat id
+  verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
+  `PARAMS` (id 4), niet de bypass.
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
