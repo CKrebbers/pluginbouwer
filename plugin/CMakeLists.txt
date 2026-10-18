@@ -4,7 +4,7 @@
 #
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (de CLAP-host van de null-test),
 # build/pb-statetoets (de state- en teksttoets van fase 2), build/pb-paneeltoets (het paneel, fase 3),
-# build/pb-presettoets (de fabriekspresets, fase 4) en op macOS build/pb-scherm (het Cocoa-paneel via de gui-extensie,
+# build/pb-presettoets (de fabriekspresets, fase 4), build/pb-formaattoets (mono/stereo, samplerates, bypass; fase 5) en op macOS build/pb-scherm (het Cocoa-paneel via de gui-extensie,
 # met schermafbeelding).
 cmake_minimum_required(VERSION 3.21)
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
@@ -189,6 +189,11 @@ add_executable(pb-presettoets toets/presettoets.cpp)
 target_include_directories(pb-presettoets PRIVATE ${CMAKE_BINARY_DIR}/gegenereerd)
 target_link_libraries(pb-presettoets PRIVATE clap ${CMAKE_DL_LIBS})
 set_target_properties(pb-presettoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# --- pb-formaattoets: de toets van fase 5 (kanaalindelingen, samplerates × blokgroottes, bypass), door het .clap ------
+add_executable(pb-formaattoets toets/formaattoets.cpp)
+target_link_libraries(pb-formaattoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-formaattoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # --- pb-paneeltoets: de toets van fase 3 (het paneel zonder venster, door het gebouwde .clap; schermafbeelding) -------
 add_executable(pb-paneeltoets toets/paneeltoets.cpp src/paneel.cpp ${PB_FONTS_CPP})

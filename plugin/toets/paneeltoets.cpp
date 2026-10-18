@@ -422,6 +422,7 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < n; ++i) {
       clap_param_info_t info;
       if (!in.params->get_info(in.pl, i, &info)) stop("get_info mislukt");
+      if (info.flags & CLAP_PARAM_IS_BYPASS) continue;  // de bypass (fase 5) is geen knop op het paneel
       ps.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
     }
     if (ps.size() != 4) stop("verwacht 4 parameters (Noot, Poort, Filter, Loslaten)");

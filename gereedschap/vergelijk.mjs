@@ -4,6 +4,9 @@
 //   node gereedschap/vergelijk.mjs --automatie <render.wav>  de render van pb-render --automatie (events midden in blokken)
 //   node gereedschap/vergelijk.mjs --noten <render.wav>      instrument: pb-render --noten (CLAP-noten of --midi)
 //   node gereedschap/vergelijk.mjs --hosttempo <render.wav>  instrument met sequencer: pb-render --tempo
+//   node gereedschap/vergelijk.mjs --paar <verwacht.wav> <render.wav> [label]
+//        twee bestanden (de verwachting van gereedschap/maak-verwacht.mjs op een andere samplerate of mono); ook het
+//        aantal kanalen, de samplerate en de lengte moeten gelijk zijn
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -108,6 +111,15 @@ if (process.argv[2]?.startsWith('--') && LOS[process.argv[2].slice(2)]) {
   const r = nullTest(leesWav(join(PAKKET, 'testsignalen', geval, 'verwacht.wav')).kanalen, leesWav(process.argv[3]).kanalen);
   const ok = r.piekDb <= GRENS_DB, f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
   console.log(`| ${process.argv[4] || label} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS** — ' + hint}`);
+  process.exit(ok ? 0 : 1);
+}
+if (process.argv[2] === '--paar') {
+  const [verwachtPad, renderPad, label] = process.argv.slice(3);
+  const v = leesWav(verwachtPad), g = leesWav(renderPad), f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
+  const vorm = v.kanalen.length === g.kanalen.length && v.sr === g.sr && v.kanalen[0].length === g.kanalen[0].length;
+  const r = nullTest(v.kanalen, g.kanalen), ok = vorm && r.piekDb <= GRENS_DB;
+  const anders = vorm ? '' : ` **VORM ANDERS**: verwacht ${v.kanalen.length} kanalen, ${v.sr} Hz, ${v.kanalen[0].length} samples; kreeg ${g.kanalen.length}, ${g.sr} Hz, ${g.kanalen[0].length}`;
+  console.log(`| ${label || renderPad} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${vorm && r.piekDb === -Infinity ? 'ja' : 'nee'} |${anders}${ok || !vorm ? '' : ' **BOVEN DE GRENS**'}`);
   process.exit(ok ? 0 : 1);
 }
 const map = process.argv[2];

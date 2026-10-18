@@ -13,6 +13,8 @@
 // Tekst (SPEC.md "Tekst ↔ waarde"): value_to_text van de standaard geeft precies de tekst uit de tabel en
 // text_to_value daarvan geeft de standaard terug; plus de voorbeelden uit de tabel en de grenzen.
 // params.flush buiten process: inactief en actief, de waarde komt aan in get_value en in de render.
+// Fase 5: de bypass (CLAP_PARAM_IS_BYPASS) is geen parameter uit SPEC.md; hij doet hier niet mee in de gevallen (een
+// omzeilde render is stil), alleen in de verwachte blob van save (als laatste id, waarde 0). pb-formaattoets toetst hem.
 //
 // Uitvoer: één regel per toets ("ok …" of "FOUT …"), aan het eind een samenvatting; exit 0 alleen als alles ok is.
 #include <clap/clap.h>
@@ -220,7 +222,8 @@ struct Param {
   std::string naam;
   double min, max, standaard;
 };
-std::vector<Param> ps;
+std::vector<Param> ps;            // de parameters uit SPEC.md (zonder de bypass)
+clap_id bypassId = CLAP_INVALID_ID;  // de bypass-parameter (fase 5), als die er is
 
 // de render na de toets: een noot aan in blok 0 en uit in blok 20 (het loslaten laat de Loslaten-tijd horen), 140
 // blokken (≈ 0,75 s); Poort staat in de waarden zelf op 0, dus zonder de noot is het stil
@@ -327,8 +330,9 @@ void stateToetsen() {
     Instantie a, b;
     a.flush(nieuw);
     const Blob s = a.bewaar();
-    toets(s == maakBlob("PBST", 1, std::vector<std::pair<uint32_t, double>>(nieuw.begin(), nieuw.end())),
-          "save schrijft \"PBST\", versie 1, aantal N, (id, waarde) little-endian");
+    std::vector<std::pair<uint32_t, double>> blob(nieuw.begin(), nieuw.end());
+    if (bypassId != CLAP_INVALID_ID) blob.push_back({bypassId, 0.0});  // de bypass als laatste, niet omzeild
+    toets(s == maakBlob("PBST", 1, blob), "save schrijft \"PBST\", versie 1, aantal N, (id, waarde) little-endian");
     toets(b.laad(s) && b.bewaar() == s, "rondje: save → load → save byte voor byte gelijk");
   }
 }
@@ -500,6 +504,11 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < n; ++i) {
       clap_param_info_t info;
       if (!in.params->get_info(in.pl, i, &info)) stop("get_info mislukt");
+      if (info.flags & CLAP_PARAM_IS_BYPASS) {
+        bypassId = info.id;
+        toets(in.waarde(info.id) == info.default_value, std::string(info.name) + " (bypass): een verse instantie staat op de standaard");
+        continue;
+      }
       ps.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
       toets(!(info.flags & CLAP_PARAM_IS_STEPPED), std::string(info.name) + ": continu (geen CLAP_PARAM_IS_STEPPED)");
       toets(in.waarde(info.id) == info.default_value, std::string(info.name) + ": een verse instantie staat op de standaard");

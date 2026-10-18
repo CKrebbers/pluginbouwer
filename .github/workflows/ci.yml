@@ -16,6 +16,14 @@
 # PASSED geven (preset-discovery-crawl, -descriptor-consistency, -load); pb-presettoets toetst preset-discovery en
 # preset-load door het .clap (Linux, macOS); elke presetnaam moet in de uitvoer van auval -strict -v staan (de AU leest
 # dezelfde factory via patches/clap-wrapper-auv2-presets.patch). Een samenvatting staat als laatste stap van macos.
+# Fase 5: stereo- én mono-uitgang (audio-ports-config, configurable-audio-ports, AU via de patch; valkuil 17), bypass
+# (CLAP_PARAM_IS_BYPASS), 44,1-192 kHz en blokgrootte 1..4096. De null-test draait op 44100, 48000, 88200, 96000, 176400
+# en 192000 Hz: CLAP via pb-render (stereo en mono, alle gevallen, automatisering, noten als CLAP en MIDI, blok 512,
+# wisselend, 1 en 4096), VST3 en AU via pluginval test (de gevallen en de noten als MIDI-bestand). De verwachting komt
+# uit wasm/graaf.wasm (gereedschap/maak-verwacht.mjs), die eerst testsignalen/ bit voor bit moet nadoen. pluginval
+# validate krijgt dezelfde samplerates en blokgroottes 512,1,64,4096, en zijn "Bus layout"-toetsen moeten mono en
+# stereo zien; auval moet de kanaalindelingen 0 -> 1 en 0 -> 2 melden. pb-formaattoets toetst indelingen, samplerates ×
+# blokgroottes en de bypass (bit voor bit: overvloeien, stilte, de DSP rekent door) door het .clap.
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -28,6 +36,10 @@ env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: 0.4.1
   NAAM: PB Toetsenpad
+  # fase 5: de samplerates en blokgroottes van pluginval validate (komma's) en van de null-test (spaties)
+  PV_SR: 44100,48000,88200,96000,176400,192000
+  PV_BLOK: 512,1,64,4096
+  NULL_SR: 44100 48000 88200 96000 176400 192000
 
 jobs:
   linux:
@@ -68,7 +80,7 @@ jobs:
         run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets pb-formaattoets
 
       - name: pb-render door het .clap (rookproef)
         run: |
@@ -94,30 +106,41 @@ jobs:
           for toets in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
                        state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds \
                        param-fuzz-sample-accurate param-set-events param-conversions param-default-values \
-                       preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
+                       preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load \
+                       layout-audio-ports-config layout-configurable-audio-ports process-varying-sample-rates \
+                       process-varying-block-sizes process-random-block-sizes; do
             uitslag=$(awk -v t="$toets" '$1==t {print $2}' clap-validator-uitslagen.txt | tail -1)
             echo "clap-validator $toets: ${uitslag:-niet gevonden}"
             [ "$uitslag" = PASSED ] || ontbreekt=1
           done
-          [ "$ontbreekt" -eq 0 ] || { echo "clap-validator: een state-, param- of preset-toets is niet PASSED"; exit 1; }
+          [ "$ontbreekt" -eq 0 ] || { echo "clap-validator: een state-, param-, preset-, layout- of process-toets is niet PASSED"; exit 1; }
           echo "### clap-validator: state-reproducibility (3), state-invalid (2), param-fuzz (3), param-set-events, param-conversions, param-default-values PASSED" >> "$GITHUB_STEP_SUMMARY"
           echo "### clap-validator: preset-discovery-crawl, preset-discovery-descriptor-consistency, preset-discovery-load PASSED" >> "$GITHUB_STEP_SUMMARY"
+          echo "### clap-validator: layout-audio-ports-config, layout-configurable-audio-ports, process-varying-sample-rates, process-varying-block-sizes, process-random-block-sizes PASSED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: pluginval strictness 10 op de VST3 onder xvfb (bewijs)
         run: |
           set +e
-          xvfb-run -a ~/pluginval/pluginval validate --strictness-level 10 "build/plugins/$NAAM.vst3" 2>&1 | tee pluginval-vst3.log
+          # valkuil 18: het pad vóór --sample-rates/--block-sizes
+          xvfb-run -a ~/pluginval/pluginval validate --strictness-level 10 "build/plugins/$NAAM.vst3" --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" 2>&1 | tee pluginval-vst3.log
           status=${PIPESTATUS[0]}
           set -e
           echo "pluginval VST3 Linux: exit $status, laatste regel: $(tail -1 pluginval-vst3.log)"
-          echo "### pluginval VST3 Linux (strictness 10): $(tail -1 pluginval-vst3.log)" >> "$GITHUB_STEP_SUMMARY"
-          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-vst3.log
+          echo "### pluginval VST3 Linux (strictness 10, $PV_SR Hz, blok $PV_BLOK): $(tail -1 pluginval-vst3.log)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-vst3.log || exit 1
+          sh gereedschap/bus-indeling.sh pluginval-vst3.log
 
       - name: Null-test CLAP door pb-render (blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI; bewijs)
         run: sh gereedschap/ci-null.sh clap build
 
       - name: Null-test VST3 Linux via pluginval test (bewijs)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/$NAAM.vst3" ~/pluginval/pluginval vst3-linux
+
+      - name: Null-test CLAP op alle samplerates, stereo en mono (fase 5; bewijs)
+        run: sh gereedschap/ci-null.sh sr build "$NULL_SR"
+
+      - name: Null-test VST3 Linux op alle samplerates via pluginval test, ook de noten (fase 5; bewijs)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval-sr "$PWD/build/plugins/$NAAM.vst3" ~/pluginval/pluginval vst3-linux "$NULL_SR"
 
       - name: State- en teksttoets door het .clap (pb-statetoets; bewijs)
         run: |
@@ -137,6 +160,12 @@ jobs:
           set -o pipefail
           ./build/pb-presettoets "build/plugins/$NAAM.clap" | tee presettoets.log
           echo "### $(tail -1 presettoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Formaattoets door het .clap (pb-formaattoets, mono/stereo, samplerates × blokgroottes, bypass; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-formaattoets "build/plugins/$NAAM.clap" | tee formaattoets.log
+          echo "### $(tail -1 formaattoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -177,8 +206,14 @@ jobs:
             ./build/pb-render "$C" testsignalen/automatie/in.wav uit-auto.wav --blok "$blok" --automatie testsignalen/automatie/events.txt
             ./build/pb-render "$C" testsignalen/noten/in.wav uit-state.wav --blok "$blok" --state-rondje --noten testsignalen/noten/noten.txt
           done
-          echo "RTSan: plugin schoon (8 renders met noten, MIDI, automatisering en state-rondje)"
-          echo "### RTSan: plugin schoon" >> "$GITHUB_STEP_SUMMARY"
+          # fase 5: mono, 44,1 en 192 kHz, blok 1 en 4096, en de bypass aan en uit midden in een blok (overvloeien)
+          printf '20003 1000 1\n60001 1000 0\n150007 1000 1\n' > bypass.txt
+          ./build/pb-render "$C" testsignalen/noten/in.wav uit-mono.wav --sr 192000 --kanalen 1 --blok 1 --noten testsignalen/noten/noten.txt
+          ./build/pb-render "$C" testsignalen/noten/in.wav uit-441.wav --sr 44100 --kanalen 2 --blok 4096 --noten testsignalen/noten/noten.txt --midi
+          ./build/pb-render "$C" testsignalen/noten/in.wav uit-bypass.wav --blok 3,128,1,4096,77 --noten testsignalen/noten/noten.txt --automatie bypass.txt
+          ./build/pb-render "$C" testsignalen/noten/in.wav uit-bypass-mono.wav --sr 96000 --kanalen 1 --blok 512 --noten testsignalen/noten/noten.txt --automatie bypass.txt
+          echo "RTSan: plugin schoon (12 renders met noten, MIDI, automatisering, state-rondje, mono, 44,1-192 kHz, blok 1 en 4096, bypass)"
+          echo "### RTSan: plugin schoon (ook mono, 44,1-192 kHz, blok 1 en 4096, bypass)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: RTSan-kanarie (malloc in process; MOET falen; bewijs)
         run: |
@@ -216,7 +251,7 @@ jobs:
         run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets pb-scherm -j 4
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets pb-formaattoets pb-scherm -j 4
 
       - name: Ad-hoc signeren
         run: |
@@ -258,30 +293,36 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           echo "### auval: $(grep -E 'AU VALIDATION' auval.log | tail -1)" >> "$GITHUB_STEP_SUMMARY"
-          [ "$status" -eq 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log
+          [ "$status" -eq 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log || exit 1
           # fase 4: elke presetnaam uit presets/*.json staat in de uitvoer van auval (de factory presets van de AU)
           sh gereedschap/presetnamen.sh presets > presetnamen.txt
           ontbreekt=0
           while IFS= read -r naam; do
             if grep -qF -- "$naam" auval.log; then echo "auval toont preset: $naam"; else echo "auval toont preset NIET: $naam"; ontbreekt=1; fi
           done < presetnamen.txt
-          [ -s presetnamen.txt ] && [ "$ontbreekt" -eq 0 ]
+          [ -s presetnamen.txt ] && [ "$ontbreekt" -eq 0 ] || exit 1
+          # fase 5: de AU biedt 0 -> 2 (stereo) en 0 -> 1 (mono) aan (patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch)
+          sh gereedschap/au-kanalen.sh auval.log
 
       - name: pluginval strictness 10 --rtcheck enabled op de AU, 3 keer (bewijs)
         run: |
           set +e
-          "$PV" validate --strictness-level 10 --rtcheck enabled --repeat 3 ~/Library/Audio/Plug-Ins/Components/"$NAAM".component 2>&1 | tee pluginval-au.log
+          # valkuil 18: het pad vóór --sample-rates/--block-sizes
+          "$PV" validate --strictness-level 10 --rtcheck enabled --repeat 3 ~/Library/Audio/Plug-Ins/Components/"$NAAM".component --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" 2>&1 | tee pluginval-au.log
           status=${PIPESTATUS[0]}
           set -e
           echo "pluginval AU: exit $status, laatste regel: $(tail -1 pluginval-au.log)"
           echo "pluginval AU, editor (fase 3, zonder --skip-gui-tests):"; grep -iE "editor" pluginval-au.log | sort | uniq -c || true
-          echo "### pluginval AU (strictness 10, rtcheck enabled, repeat 3): $(tail -1 pluginval-au.log)" >> "$GITHUB_STEP_SUMMARY"
-          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-au.log
+          echo "### pluginval AU (strictness 10, rtcheck enabled, repeat 3, $PV_SR Hz, blok $PV_BLOK): $(tail -1 pluginval-au.log)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-au.log || exit 1
+          sh gereedschap/bus-indeling.sh pluginval-au.log
 
       - name: pluginval strictness 10 op de VST3 via pluginval-rt.sh (valkuil 22; bewijs)
         run: |
-          sh gereedschap/pluginval-rt.sh "$PV" ~/Library/Audio/Plug-Ins/VST3/"$NAAM".vst3
-          echo "### pluginval VST3 macOS (strictness 10, pluginval-rt.sh): SUCCESS" >> "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          sh gereedschap/pluginval-rt.sh "$PV" ~/Library/Audio/Plug-Ins/VST3/"$NAAM".vst3 --sample-rates "$PV_SR" --block-sizes "$PV_BLOK" | tee pluginval-vst3.log
+          sh gereedschap/bus-indeling.sh pluginval-vst3.log
+          echo "### pluginval VST3 macOS (strictness 10, pluginval-rt.sh, $PV_SR Hz, blok $PV_BLOK): SUCCESS" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Null-test CLAP door pb-render, macOS arm64 (bewijs)
         run: sh gereedschap/ci-null.sh clap build
@@ -291,6 +332,15 @@ jobs:
 
       - name: Null-test AU via pluginval test (valkuil 1; bewijs)
         run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/$NAAM.component" "$PV" au
+
+      - name: Null-test CLAP op alle samplerates, stereo en mono, macOS arm64 (fase 5; bewijs)
+        run: sh gereedschap/ci-null.sh sr build "$NULL_SR"
+
+      - name: Null-test VST3 macOS op alle samplerates via pluginval test, ook de noten (fase 5; bewijs)
+        run: sh gereedschap/ci-null.sh pluginval-sr "$HOME/Library/Audio/Plug-Ins/VST3/$NAAM.vst3" "$PV" vst3-macos "$NULL_SR"
+
+      - name: Null-test AU op alle samplerates via pluginval test, ook de noten (fase 5; bewijs)
+        run: sh gereedschap/ci-null.sh pluginval-sr "$HOME/Library/Audio/Plug-Ins/Components/$NAAM.component" "$PV" au "$NULL_SR"
 
       - name: State- en teksttoets door het .clap, macOS arm64 (pb-statetoets; bewijs)
         run: |
@@ -311,6 +361,12 @@ jobs:
           ./build/pb-presettoets "build/plugins/$NAAM.clap" | tee presettoets.log
           echo "### $(tail -1 presettoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Formaattoets door het .clap, macOS arm64 (pb-formaattoets, mono/stereo, samplerates × blokgroottes, bypass; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-formaattoets "build/plugins/$NAAM.clap" | tee formaattoets.log
+          echo "### $(tail -1 formaattoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Het Cocoa-paneel via de gui-extensie, NSEvents en schermafbeelding (pb-scherm; bewijs)
         run: |
           set -o pipefail
@@ -325,7 +381,7 @@ jobs:
           name: macos-schermafbeelding
           path: schermafbeelding/
 
-      - name: Samenvatting auval en presets (valkuil 18; bewijs)
+      - name: Samenvatting auval, presets en formaten (valkuil 18; bewijs)
         if: always()
         run: |
           set +e
@@ -334,4 +390,9 @@ jobs:
           while IFS= read -r naam; do grep -F -- "$naam" auval.log | sed 's/^/  /' | sort -u; done < presetnamen.txt
           echo "presets: $(paste -sd ',' presetnamen.txt)"
           tail -1 presettoets.log
+          echo "auval, kanaalindelingen (fase 5):"
+          sh gereedschap/au-kanalen.sh auval.log
+          echo "pluginval AU, bus-indelingen (fase 5):"; sh gereedschap/bus-indeling.sh pluginval-au.log
+          echo "pluginval VST3 macOS, bus-indelingen (fase 5):"; sh gereedschap/bus-indeling.sh pluginval-vst3.log
+          tail -1 formaattoets.log
           exit 0

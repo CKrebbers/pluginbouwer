@@ -1,12 +1,13 @@
 #!/bin/sh
-# pluginval-rt.sh <pluginval> <plugin> — pluginval strictness 10 met --rtcheck relaxed, en dan zelf streng: elke
+# pluginval-rt.sh <pluginval> <plugin> [extra opties voor pluginval validate] — pluginval strictness 10 met --rtcheck relaxed, en dan zelf streng: elke
 # real-time-schending faalt, behalve die van pluginval's eigen VST3-host (juce::MidiEventList::addEvent alloceert als hij
 # MIDI naar een instrument stuurt; 18 okt, macOS-runner, geen frame van de plugin in de stack). Ook zonder schending moet
 # pluginval slagen.
 set -e
-PV="$1"; PLUGIN="$2"; LOG="${TMPDIR:-/tmp}/pluginval-rt.$$.log"
+PV="$1"; PLUGIN="$2"; shift 2; LOG="${TMPDIR:-/tmp}/pluginval-rt.$$.log"
 status=0
-$PV validate --strictness-level 10 --rtcheck relaxed "$PLUGIN" > "$LOG" 2>&1 || status=$?
+# valkuil 18: het pad vóór de extra opties (--sample-rates/--block-sizes slokken het anders op)
+$PV validate --strictness-level 10 --rtcheck relaxed "$PLUGIN" "$@" > "$LOG" 2>&1 || status=$?
 cat "$LOG"
 node -e "
   const t = require('fs').readFileSync('$LOG', 'utf8').split('\n');

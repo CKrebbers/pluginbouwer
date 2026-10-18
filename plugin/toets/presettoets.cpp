@@ -11,6 +11,7 @@
 // ontbrekende naam de standaard, ook als de instantie vooraf op andere waarden stond; daarna rescan en loaded (en
 // request_flush als actief). Actief klinkt de render bit voor bit als een instantie die dezelfde waarden via flush
 // kreeg. Een onbekende load key of een andere soort locatie: false, on_error, en er verandert niets.
+// Fase 5: een preset verandert de bypass (CLAP_PARAM_IS_BYPASS) niet; die blijft wat hij vóór het laden was.
 //
 // Uitvoer: één regel per toets ("ok …" of "FOUT …"), aan het eind een samenvatting; exit 0 alleen als alles ok is.
 #include <clap/clap.h>
@@ -185,6 +186,7 @@ struct Param {
   clap_id id;
   std::string naam;
   double min, max, standaard;
+  bool bypass;  // CLAP_PARAM_IS_BYPASS (fase 5)
 };
 std::vector<Param> params;
 
@@ -255,7 +257,7 @@ struct Instantie {
 std::vector<double> verwacht(const pb_presets::Preset& p) {
   std::vector<double> w;
   for (auto& q : params) {
-    double v = q.standaard;
+    double v = q.bypass ? q.min + 0.37 * (q.max - q.min) : q.standaard;  // de bypass blijft wat anders() zette
     for (int k = 0; k < p.aantal; ++k)
       if (q.naam == p.waarden[k].naam) v = p.waarden[k].waarde;
     w.push_back(v);
@@ -365,7 +367,8 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < t.par->count(t.pl); ++i) {
       clap_param_info_t info;
       if (!t.par->get_info(t.pl, i, &info)) stop("get_info mislukt");
-      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
+      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value,
+                        (info.flags & CLAP_PARAM_IS_BYPASS) != 0});
     }
   }
   for (int actief = 0; actief < 2; ++actief) {

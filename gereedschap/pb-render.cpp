@@ -8,6 +8,8 @@
 //             [--noten f [--midi]] noten op hun sample (instrument); f: per regel "sample aan|uit noot". Standaard als
 //                                 CLAP-noten, met --midi als MIDI-bytes (0x90/0x80): beide dialecten van de note port
 //             [--tempo bpm]       een transport dat speelt vanaf tel 0 op dit tempo (de sequencer volgt de host)
+//             [--kanalen 1|2]     kies vóór activate de audio-ports-config met zoveel kanalen op de hoofduitgang
+//                                 (mono of stereo); de uitvoer-WAV heeft het aantal kanalen van de uitgangspoort
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -112,7 +114,7 @@ int main(int argc, char** argv) {
   // automatisering en noten in één lijst, op sample (een noot: id = -1 aan, -2 uit, waarde = noot)
   struct Auto { uint64_t sample; int64_t id; double waarde; };
   std::vector<Auto> automatie;
-  bool alsMidi = false; double tempo = 0;
+  bool alsMidi = false; double tempo = 0; uint32_t kiesKanalen = 0;
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -136,6 +138,7 @@ int main(int argc, char** argv) {
     }
     else if (a == "--midi") alsMidi = true;
     else if (a == "--tempo" && i + 1 < argc) tempo = std::atof(argv[++i]);
+    else if (a == "--kanalen" && i + 1 < argc) kiesKanalen = (uint32_t)std::atoi(argv[++i]);
     else fout("onbekende optie " + a);
   }
 
@@ -196,16 +199,35 @@ int main(int argc, char** argv) {
     for (size_t b = a; b > 0 && automatie[b - 1].sample > automatie[b].sample; --b) std::swap(automatie[b - 1], automatie[b]);
   // een instrument heeft geen audio-ingang: dan geven we er ook geen
   auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
+  if (kiesKanalen) {  // mono of stereo: de audio-ports-config met zoveel kanalen op de hoofduitgang
+    auto* pc = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+    if (!pc) fout("--kanalen: geen audio-ports-config");
+    bool gekozen = false;
+    for (uint32_t i = 0; i < pc->count(pl) && !gekozen; ++i) {
+      clap_audio_ports_config_t c{};
+      if (pc->get(pl, i, &c) && c.has_main_output && c.main_output_channel_count == kiesKanalen)
+        gekozen = pc->select(pl, c.id);
+    }
+    if (!gekozen) fout("--kanalen: geen config met " + std::to_string(kiesKanalen) + " kanalen gekozen");
+  }
   const uint32_t nIn = ap ? ap->count(pl, true) : 1;
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
-  const uint32_t kan = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  // invoer: de kanalen van de WAV (hooguit 2); uitvoer: zoveel als de hoofduitgang heeft (of als de invoer)
+  const uint32_t kanIn = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  uint32_t kan = kanIn;
+  if (ap && ap->count(pl, false) > 0) {
+    clap_audio_port_info_t info{};
+    if (ap->get(pl, 0, false, &info) && info.channel_count >= 1 && info.channel_count <= 2) kan = info.channel_count;
+  }
+  if (kiesKanalen && kan != kiesKanalen) fout("--kanalen: de uitgangspoort heeft " + std::to_string(kan) + " kanalen");
   const size_t n = in.k[0].size();
   Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kan, std::vector<float>(n));
-  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
-  std::vector<float*> pi(kan), pu(kan);
-  for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
+  std::vector<std::vector<float>> bi(kanIn, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
+  std::vector<float*> pi(kanIn), pu(kan);
+  for (uint32_t c = 0; c < kanIn; ++c) pi[c] = bi[c].data();
+  for (uint32_t c = 0; c < kan; ++c) pu[c] = bu[c].data();
   Events blokEv; blokEv.ev.reserve(automatie.size());
   clap_input_events_t blokIn = {&blokEv, evSize, evGet};
   size_t volgende = 0;
@@ -214,8 +236,8 @@ int main(int argc, char** argv) {
   while (pos < n) {
     uint32_t m = blokken[bnr++ % blokken.size()];
     if (pos + m > n) m = (uint32_t)(n - pos);
-    for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
-    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
+    for (uint32_t c = 0; c < kanIn; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
+    clap_audio_buffer_t ai = {pi.data(), nullptr, kanIn, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
     // de events van dit blok, met hun tijd binnen het blok (buiten doeProcess opgebouwd: geen allocatie in RT)
     blokEv.ev.clear();
     while (volgende < automatie.size() && automatie[volgende].sample < pos + m) {
