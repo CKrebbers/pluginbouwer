@@ -1,0 +1,20 @@
+{
+  "name": "sweep-kwart",
+  "input": {
+    "audio": "../sweep-kwart.in.wav"
+  },
+  "reference": "../sweep-kwart.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Noot": 0.25,
+      "Poort": 0.25,
+      "Filter": 0.25,
+      "Loslaten": 0.25
+    }
+  },
+  "sample_rate": 48000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}

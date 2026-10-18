@@ -1,0 +1,89 @@
+{
+  "metingen": {},
+  "metingBlokken": {
+    "gemeten": "2026-10-15",
+    "machine": "Intel(R) Xeon(R) Processor @ 2.10GHz, linux x64, Node v22.22.0",
+    "methode": "WASM-ketenmotor, 10 s stereo 48 kHz, blok 128, beste van 5, min de lege keten",
+    "motorProcent": 0.16195322,
+    "blokken": {
+      "som": {
+        "cpuProcent": 0.06503739999999998
+      },
+      "versterker": {
+        "cpuProcent": 0.17812301
+      },
+      "tape": {
+        "cpuProcent": 0.58418121
+      },
+      "vertraging": {
+        "cpuProcent": 0.15204658999999998
+      },
+      "hoogdoor1": {
+        "cpuProcent": 0.08394179999999998
+      },
+      "laagdoor1": {
+        "cpuProcent": 0.14540023
+      },
+      "svf": {
+        "cpuProcent": 0.20504328
+      },
+      "biquad": {
+        "cpuProcent": 0.09234478999999997
+      },
+      "bandbeweging": {
+        "cpuProcent": 0.15835687999999998
+      },
+      "lfo": {
+        "cpuProcent": 0.11942597999999999
+      },
+      "mix": {
+        "cpuProcent": 0.10928087
+      },
+      "osc": {
+        "cpuProcent": 0.46925702999999996
+      },
+      "ruis": {
+        "cpuProcent": 0.20765085999999996
+      },
+      "sequencer": {
+        "cpuProcent": 0.14917923
+      },
+      "toetsen": {
+        "cpuProcent": 0.06705212999999997
+      },
+      "omhulling": {
+        "cpuProcent": 0.17347024
+      },
+      "snaar": {
+        "cpuProcent": 0.24540088
+      },
+      "trommel": {
+        "cpuProcent": 0.68896153
+      },
+      "vermenigvuldig": {
+        "cpuProcent": 0.21403877999999998
+      },
+      "galm": {
+        "cpuProcent": 2.26331412
+      },
+      "chorus": {
+        "cpuProcent": 0.6803603600000001
+      },
+      "compressor": {
+        "cpuProcent": 0.6289805700000001
+      },
+      "vergruizer": {
+        "cpuProcent": 0.18392306
+      },
+      "vouwer": {
+        "cpuProcent": 0.4362737199999999
+      },
+      "panner": {
+        "cpuProcent": 0.09569235999999998
+      },
+      "willekeur": {
+        "cpuProcent": 0.07558874
+      }
+    }
+  }
+}
