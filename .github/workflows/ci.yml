@@ -273,6 +273,8 @@ jobs:
             if grep -F -- "$naam" auval.log > /dev/null; then echo "auval toont preset: $naam"; else echo "auval mist preset: $naam"; fi
           done < presetnamen.txt | tee auval-presets.log
           if grep -q "^auval mist" auval-presets.log; then exit 1; fi
+          # een eigen presetnaam van de host moet in ClassInfo blijven (NewCustomPresetSet in clap-wrapper-auv2-presets.patch)
+          if grep -q "Preset name is not retained" auval.log; then echo "auval: presetnaam niet bewaard in ClassInfo"; exit 1; fi
           test "$(grep -c '^auval toont preset' auval-presets.log)" -eq "$(wc -l < presetnamen.txt)"
 
       - name: AU-preset-toets (factory presets van de .component laden, voor en na Initialize)
