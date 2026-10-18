@@ -1,4 +1,4 @@
-# CI van Toetsenpad: bouwen en alle validators (PROMPTS.md fase 0). Het log is het bewijs; zet hier nooit een toets uit.
+# CI van Toetsenpad: bouwen, alle validators en de null-test (PROMPTS.md fase 0 en 1). Het log is het bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -49,6 +49,10 @@ jobs:
           cat pv.log
           echo "pluginval exitcode: $status"
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv.log
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
+        run: sh gereedschap/ci-null.sh clap build
+      - name: Null-test VST3 (pluginval test, xvfb)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/PB Toetsenpad.vst3" "$HOME/pv/pluginval" vst3-linux
 
   rtsan:
     name: RTSan (clang 20, pb-render -fsanitize=realtime, kanarie)
@@ -141,6 +145,12 @@ jobs:
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv-au.log
       - name: pluginval strictness 10, rtcheck (VST3 van een instrument, valkuil 22)
         run: sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3"
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
+        run: sh gereedschap/ci-null.sh clap build
+      - name: Null-test VST3 (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" "$PV" vst3-macos
+      - name: Null-test AU (pluginval test)
+        run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" "$PV" au-macos
       - name: Artefact klaarzetten (zelf gezipt, want een artefact bewaart geen rechten of symlinks)
         run: |
           mkdir -p artefact
