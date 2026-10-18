@@ -1,7 +1,9 @@
 # design.md — frontpaneel van Toetsenpad
 
 Zelfde taal als de Pluginbouwer: hoeken 0, rand 2 px, harde schaduw (3 px 3 px 0), geen gradiënten, geen
-glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen.
+glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen. Beide staan niet op een Mac:
+bak ze in de plugin in (OFL, uit github.com/google/fonts; zet de licentie erbij). De naamtape groeit mee met de tekst
+(Silkscreen 14 px is ±10,6 px per teken), 6 px marge aan elke kant.
 
 | token | waarde | gebruik |
 |---|---|---|
