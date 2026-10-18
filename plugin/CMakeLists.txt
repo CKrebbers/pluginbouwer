@@ -77,3 +77,8 @@ if (PB_RTSAN)
   target_compile_options(pb-render PRIVATE -fsanitize=realtime)
   target_link_options(pb-render PRIVATE -fsanitize=realtime)
 endif()
+
+# de eigen toets van fase 2 (state-blobs met de hand, tekst ↔ waarde), door het gebouwde .clap
+add_executable(pb-statetoets toets/state_toets.cpp)
+target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
