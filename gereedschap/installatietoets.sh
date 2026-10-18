@@ -24,12 +24,15 @@ X=$(mktemp -d)/uit
 pkgutil --expand "$PKG" "$X"
 INFO=$(find "$X" -name PackageInfo | head -1)
 cat "$INFO"
-grep -q "<relocate" "$INFO" && faal "PackageInfo heeft een <relocate> (BundleIsRelocatable niet false)"
-grep -q 'postinstall' "$INFO" || faal "PackageInfo noemt geen postinstall"
+# pkgbuild schrijft altijd <relocate/>; een relocatable bundel staat erin als <relocate><bundle id=…/></relocate>
+voor_info=$fout
+grep -q "<relocate/>" "$INFO" || faal "PackageInfo heeft geen lege <relocate/>"
+sed -n '/<relocate>/,/<\/relocate>/p' "$INFO" | grep -q "<bundle" && faal "PackageInfo noemt een relocatable bundel (BundleIsRelocatable niet false)"
+grep -q '<postinstall file=' "$INFO" || faal "PackageInfo noemt geen postinstall"
 for b in "$NAAM.component" "$NAAM.vst3" "$NAAM.clap"; do
-  grep -qF "$b\"" "$INFO" || faal "PackageInfo noemt de bundel $b niet"
+  grep -qF "Plug-Ins/" "$INFO" && grep -qF "$b\"" "$INFO" || faal "PackageInfo noemt de bundel $b niet"
 done
-echo "installatietoets: PackageInfo zonder <relocate>, met postinstall en alle drie de bundels"
+[ "$fout" -eq "$voor_info" ] && echo "installatietoets: PackageInfo met een lege <relocate/> (geen bundel relocatable), met postinstall en alle drie de bundels"
 
 echo "== eerste installatie"
 sudo installer -pkg "$PKG" -target / 2>&1 | tee installatie-1.log
@@ -41,7 +44,7 @@ echo "== tweede installatie, met een kopie van de AU elders op de schijf en de A
 ELDERS="$HOME/Elders/$NAAM.component"
 mkdir -p "$HOME/Elders"
 ditto "$L/Components/$NAAM.component" "$ELDERS"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$ELDERS" || true
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$ELDERS" 2>&1 || true
 voor=$(cd "$ELDERS" && find . -type f -exec shasum {} + | sort | shasum)
 BIN=$(find "$L/Components/$NAAM.component/Contents/MacOS" -type f | head -1)
 [ -n "$BIN" ] || faal "geen binary in de AU"
