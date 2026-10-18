@@ -43,7 +43,8 @@ Een fabriekspreset is `presets/<sleutel>.json`: `{ naam, uitleg, waarden: { <par
 state-blob). Bak ze bij het bouwen in het binary (CMake maakt er een tabel van; een onbekende naam of een waarde buiten
 het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen JSON-lezer in de plugin.
 - CLAP: `preset-discovery` met locaties van soort `CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN` en `preset-load`. Laden =
-  hetzelfde pad als state.load (ontbrekende namen naar hun standaard), daarna rescan en `loaded`.
+  hetzelfde pad als state.load (ontbrekende namen uit `PARAMS` naar hun standaard; de bypass hoort daar niet bij en blijft
+  staan, want wie een gebypaste plugin een preset geeft wil hem niet ineens horen), daarna rescan en `loaded`.
 - Per preset een eigen provider met een container van één (zie valkuil 15: clap-validator loopt vast op een container
   met meer presets).
 - AU: `patches/clap-wrapper-auv2-presets.patch` leest dezelfde factory en geeft ze als factory presets

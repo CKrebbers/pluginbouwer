@@ -2038,7 +2038,8 @@ Een fabriekspreset is \`presets/<sleutel>.json\`: \`{ naam, uitleg, waarden: { <
 state-blob). Bak ze bij het bouwen in het binary (CMake maakt er een tabel van; een onbekende naam of een waarde buiten
 het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen JSON-lezer in de plugin.
 - CLAP: \`preset-discovery\` met locaties van soort \`CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN\` en \`preset-load\`. Laden =
-  hetzelfde pad als state.load (ontbrekende namen naar hun standaard), daarna rescan en \`loaded\`.
+  hetzelfde pad als state.load (ontbrekende namen uit \`PARAMS\` naar hun standaard; de bypass hoort daar niet bij en blijft
+  staan, want wie een gebypaste plugin een preset geeft wil hem niet ineens horen), daarna rescan en \`loaded\`.
 - Per preset een eigen provider met een container van één (zie valkuil 15: clap-validator loopt vast op een container
   met meer presets).
 - AU: \`patches/clap-wrapper-auv2-presets.patch\` leest dezelfde factory en geeft ze als factory presets
@@ -2398,8 +2399,10 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 **Prompt**
 ${inst ? `> Stereo- én mono-uitgang (audio-ports-config: 0 → 2 en 0 → 1; een instrument heeft geen ingang), bypass zoals de host
 > het wil (naar stilte), 44,1–192 kHz, blokgrootte 1..4096. Breid de CI-matrix uit (samplerates in de null-test${np ? ', ook de noten' : ''}).
+> Mono = de DSP met één kanaal (kanaal 0), geen (L+R)/2; de verwachte uitvoer komt van de WASM met één kanaal.
 > Lees valkuil 17 (elk formaat kiest zijn kanalen anders).` : `> Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
-> CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
+> CI-matrix uit (samplerates in de null-test). Mono = de DSP met één kanaal (kanaal 0), geen (L+R)/2; de verwachte
+> uitvoer komt van de WASM met één kanaal. Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
 > lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
 > stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
 > formaat kiest zijn kanalen anders).`} De verwachte uitvoer bij andere samplerates maak je met \`wasm/graaf.wasm\` (die

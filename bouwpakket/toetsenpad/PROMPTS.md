@@ -75,6 +75,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 **Prompt**
 > Stereo- én mono-uitgang (audio-ports-config: 0 → 2 en 0 → 1; een instrument heeft geen ingang), bypass zoals de host
 > het wil (naar stilte), 44,1–192 kHz, blokgrootte 1..4096. Breid de CI-matrix uit (samplerates in de null-test, ook de noten).
+> Mono = de DSP met één kanaal (kanaal 0), geen (L+R)/2; de verwachte uitvoer komt van de WASM met één kanaal.
 > Lees valkuil 17 (elk formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met `wasm/graaf.wasm` (die
 > doet `testsignalen/` eerst bit voor bit na). Bypass: `CLAP_PARAM_IS_BYPASS`, de DSP rekent door, 10 ms overvloeien,
 > en ook de droge invoer door `pb::uitvoer` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).

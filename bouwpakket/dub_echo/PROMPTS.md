@@ -72,7 +72,8 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ## Fase 5 — formaten compleet
 **Prompt**
 > Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
-> CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
+> CI-matrix uit (samplerates in de null-test). Mono = de DSP met één kanaal (kanaal 0), geen (L+R)/2; de verwachte
+> uitvoer komt van de WASM met één kanaal. Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
 > lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
 > stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
 > formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met `wasm/graaf.wasm` (die
