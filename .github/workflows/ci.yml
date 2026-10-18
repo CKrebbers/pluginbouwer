@@ -24,6 +24,11 @@
 # validate krijgt dezelfde samplerates en blokgroottes 512,1,64,4096, en zijn "Bus layout"-toetsen moeten mono en
 # stereo zien; auval moet de kanaalindelingen 0 -> 1 en 0 -> 2 melden. pb-formaattoets toetst indelingen, samplerates ×
 # blokgroottes en de bypass (bit voor bit: overvloeien, stilte, de DSP rekent door) door het .clap.
+# Fase 6: het installatiepakket (gereedschap/maak-pkg.sh: pkgbuild, ad-hoc gesigneerde AU, VST3 en CLAP naar
+# /Library/Audio/Plug-Ins/{Components,VST3,CLAP}, BundleIsRelocatable false, postinstall killall -9
+# AudioComponentRegistrar; het .pkg zelf blijft ongesigneerd). De job installatie toetst het op een verse runner die
+# niets bouwt (gereedschap/installatietoets.sh): twee keer installeren (install, dan upgrade), plek, eigenaar en
+# handtekening van alle drie, dan auval -strict op de geïnstalleerde AU.
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -260,6 +265,17 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "build/plugins/$NAAM.$b"
           done
 
+      - name: Installatiepakket maken (fase 6; pkgbuild, BundleIsRelocatable false, postinstall)
+        run: |
+          VERSIE=$(sed -nE 's/^project\(toetsenpad VERSION ([0-9.]+).*/\1/p' plugin/CMakeLists.txt)
+          [ -n "$VERSIE" ] || { echo "geen versie in plugin/CMakeLists.txt"; exit 1; }
+          sh gereedschap/maak-pkg.sh build/plugins "$NAAM" "$VERSIE" "pakket/PB-Toetsenpad-$VERSIE.pkg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installatiepakket
+          path: pakket/
+
       - name: Installeren in ~/Library/Audio/Plug-Ins
         run: |
           P=~/Library/Audio/Plug-Ins
@@ -395,4 +411,58 @@ jobs:
           echo "pluginval AU, bus-indelingen (fase 5):"; sh gereedschap/bus-indeling.sh pluginval-au.log
           echo "pluginval VST3 macOS, bus-indelingen (fase 5):"; sh gereedschap/bus-indeling.sh pluginval-vst3.log
           tail -1 formaattoets.log
+          exit 0
+
+  installatie:
+    # fase 6: een verse runner die niets bouwt; alleen het .pkg uit de job macos (en node voor de twee hulpscripts)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-installatiepakket
+          path: pakket
+
+      - name: Installeren, twee keer, plek en handtekening (gereedschap/installatietoets.sh; bewijs)
+        run: |
+          set -o pipefail
+          ls -la pakket
+          PKG=$(find pakket -name "*.pkg" | head -1)
+          [ -n "$PKG" ] || { echo "geen .pkg in het artefact"; exit 1; }
+          sw_vers
+          sh gereedschap/installatietoets.sh "$PKG" "$NAAM" | tee installatietoets.log
+          echo "### $(tail -1 installatietoets.log)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: auval -strict op de geïnstalleerde AU in /Library (bewijs)
+        run: |
+          # de registrar scant na de postinstall opnieuw; geef hem even
+          for i in 1 2 3 4 5 6 7 8 9 10; do auval -a | grep -q "PTgg" && break; sleep 3; done
+          auval -a | grep -E "PTgg|Vrve" || { echo "auval -a kent de AU niet"; exit 1; }
+          set +e
+          auval -strict -v aumu PTgg Vrve 2>&1 | tee auval.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "### auval na installatie (macOS $(sw_vers -productVersion)): $(grep -E 'AU VALIDATION' auval.log | tail -1)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log || exit 1
+          sh gereedschap/presetnamen.sh presets > presetnamen.txt
+          ontbreekt=0
+          while IFS= read -r naam; do
+            if grep -qF -- "$naam" auval.log; then echo "auval toont preset: $naam"; else echo "auval toont preset NIET: $naam"; ontbreekt=1; fi
+          done < presetnamen.txt
+          [ -s presetnamen.txt ] && [ "$ontbreekt" -eq 0 ] || exit 1
+          sh gereedschap/au-kanalen.sh auval.log
+
+      - name: Samenvatting installatie (valkuil 18; bewijs)
+        if: always()
+        run: |
+          set +e
+          grep -E "installer:" installatie-1.log installatie-2.log
+          grep -E "^installatietoets:" installatietoets.log
+          echo "auval: $(grep -E 'AU VALIDATION' auval.log | tail -1)"
           exit 0

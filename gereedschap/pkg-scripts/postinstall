@@ -1,0 +1,7 @@
+#!/bin/sh
+# postinstall van het installatiepakket (fase 6, valkuil 5): AudioComponentRegistrar opnieuw laten scannen, anders ziet
+# Logic (en auval) de nieuwe of bijgewerkte AU niet meteen. Draait als root. Faalt nooit: draait de registrar niet,
+# dan geeft killall 1 en dat mag de installatie niet laten mislukken.
+echo "PB Toetsenpad postinstall: killall -9 AudioComponentRegistrar"
+killall -9 AudioComponentRegistrar 2>/dev/null || true
+exit 0
