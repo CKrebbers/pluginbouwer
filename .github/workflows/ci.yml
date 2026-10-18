@@ -274,7 +274,8 @@ jobs:
       - name: Paneel door het gesigneerde .clap (pb-paneel; venster, muis, schermafbeeldingen; fase 3)
         run: |
           mkdir -p schermafbeeldingen
-          build/pb-paneel "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" "$PWD/schermafbeeldingen"
+          build/pb-paneel "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" "$PWD/schermafbeeldingen" \
+            plugin/lettertypen/Silkscreen-Regular.ttf
           ls -la schermafbeeldingen
 
       - uses: actions/upload-artifact@v4

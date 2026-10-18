@@ -1,6 +1,6 @@
 // pb-paneel — toets van fase 3 op macOS, door het gebouwde .clap: het paneel in een echt venster.
 //
-//   pb-paneel <plugin.clap> <uitmap>
+//   pb-paneel <plugin.clap> <uitmap> <Silkscreen-Regular.ttf>
 //
 // Een kleine CLAP-host met de gui-extensie: laadt het .clap (dlopen), maakt het paneel (Cocoa, ingebed), zet het in
 // een NSWindow en
@@ -8,7 +8,9 @@
 //   - schrijft schermafbeeldingen (PNG) in <uitmap>: frontpaneel.png (beginmaat), frontpaneel-560x220.png (de maat
 //     van de mockup) en frontpaneel-bediend.png (na bedienen en een verandering door de host);
 //   - leest pixels terug: tape, paneel, harde schaduw, groef en spoor waar de mockup ze heeft, tekst in label en
-//     waarde, de breedte van het naamlabel (Silkscreen geladen), een andere boog na een verandering door de host en
+//     waarde, de breedte van het naamlabel (= Silkscreen 14 px + 12, zelf gemeten uit het lettertype in de repo; met
+//     Menlo zou hij smaller zijn: zo is te zien dat het ingebedde lettertype echt geladen is), een andere boog na een
+//     verandering door de host en
 //     de tape-boog van de gekozen knop;
 //   - bedient het met gesimuleerde muisevents (mouseDown/Dragged/Up naar de view, zoals AppKit ze geeft): slepen,
 //     Shift, dubbelklik; de wijzigingen moeten via de host lopen: request_flush, dan GESTURE_BEGIN/PARAM_VALUE/
@@ -16,6 +18,7 @@
 //   - sluit het paneel midden in een gebaar (GESTURE_END volgt) en maakt het een paar keer opnieuw.
 // Exitcode 0 = alles groen; anders 1, met per mislukte controle een regel "MISLUKT".
 #import <Cocoa/Cocoa.h>
+#import <CoreText/CoreText.h>
 #include <clap/clap.h>
 #include <dlfcn.h>
 
@@ -160,11 +163,58 @@ void muis(NSEventType t, double x, double y, int klikken = 1, bool shift = false
   else [v mouseUp:e];
 }
 
+// de view getekend in een sRGB-bitmap (8 bit RGBA, op de schaal van het scherm): het paneel tekent in sRGB, dus de
+// pixels zijn de kleuren van design.md zonder omrekening naar de kleurruimte van het scherm, en de PNG is sRGB
 NSBitmapImageRep* foto() {
   NSView* v = ouder;
-  NSBitmapImageRep* r = [v bitmapImageRepForCachingDisplayInRect:[v bounds]];
-  [v cacheDisplayInRect:[v bounds] toBitmapImageRep:r];
+  const NSRect b = [v bounds];
+  const CGFloat s = [venster backingScaleFactor] > 0 ? [venster backingScaleFactor] : 1;
+  NSBitmapImageRep* r = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                  pixelsWide:(NSInteger)std::lround(b.size.width * s)
+                                                                  pixelsHigh:(NSInteger)std::lround(b.size.height * s)
+                                                               bitsPerSample:8
+                                                             samplesPerPixel:4
+                                                                    hasAlpha:YES
+                                                                    isPlanar:NO
+                                                              colorSpaceName:NSCalibratedRGBColorSpace
+                                                                 bytesPerRow:0
+                                                                bitsPerPixel:32] autorelease];
+  r = [r bitmapImageRepByRetaggingWithColorSpace:[NSColorSpace sRGBColorSpace]];
+  [r setSize:b.size];
+  [v cacheDisplayInRect:b toBitmapImageRep:r];
   return r;
+}
+
+// de breedte van een tekst in een lettertypebestand (px)
+double tekstBreedte(const std::string& ttf, const char* reserve, double px, const char* tekst) {
+  CTFontRef f = nullptr;
+  if (!ttf.empty()) {
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(nullptr, (const UInt8*)ttf.c_str(), (CFIndex)ttf.size(), false);
+    CFArrayRef d = url ? CTFontManagerCreateFontDescriptorsFromURL(url) : nullptr;
+    if (d && CFArrayGetCount(d) > 0)
+      f = CTFontCreateWithFontDescriptor((CTFontDescriptorRef)CFArrayGetValueAtIndex(d, 0), px, nullptr);
+    if (d) CFRelease(d);
+    if (url) CFRelease(url);
+  } else {
+    CFStringRef n = CFStringCreateWithCString(nullptr, reserve, kCFStringEncodingUTF8);
+    f = CTFontCreateWithName(n, px, nullptr);
+    CFRelease(n);
+  }
+  if (!f) return -1;
+  CFStringRef t = CFStringCreateWithCString(nullptr, tekst, kCFStringEncodingUTF8);
+  const void* k[] = {kCTFontAttributeName};
+  const void* w[] = {f};
+  CFDictionaryRef attr = CFDictionaryCreate(nullptr, k, w, 1, &kCFTypeDictionaryKeyCallBacks,
+                                            &kCFTypeDictionaryValueCallBacks);
+  CFAttributedStringRef as = CFAttributedStringCreate(nullptr, t, attr);
+  CTLineRef regel = CTLineCreateWithAttributedString(as);
+  const double b = CTLineGetTypographicBounds(regel, nullptr, nullptr, nullptr);
+  CFRelease(regel);
+  CFRelease(as);
+  CFRelease(attr);
+  CFRelease(t);
+  CFRelease(f);
+  return b;
 }
 
 bool schrijf(NSBitmapImageRep* r, const std::string& pad) {
@@ -173,14 +223,14 @@ bool schrijf(NSBitmapImageRep* r, const std::string& pad) {
 }
 
 struct Rgb { int r, g, b; };
-// de kleur onder punt (x, y) van het venster (punten, y omlaag), in sRGB
+// de kleur onder punt (x, y) van het venster (punten, y omlaag): de ruwe sRGB-waarden uit foto()
 Rgb pixel(NSBitmapImageRep* r, double x, double y) {
   const double s = (double)[r pixelsWide] / [ouder bounds].size.width;
-  NSColor* c = [[r colorAtX:(NSInteger)std::floor(x * s) y:(NSInteger)std::floor(y * s)]
-      colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-  if (!c) return {-1, -1, -1};
-  return {(int)std::lround([c redComponent] * 255), (int)std::lround([c greenComponent] * 255),
-          (int)std::lround([c blueComponent] * 255)};
+  const NSInteger px = (NSInteger)std::floor(x * s), py = (NSInteger)std::floor(y * s);
+  if (px < 0 || py < 0 || px >= [r pixelsWide] || py >= [r pixelsHigh]) return {-1, -1, -1};
+  NSUInteger p[4] = {0, 0, 0, 0};
+  [r getPixel:p atX:px y:py];
+  return {(int)p[0], (int)p[1], (int)p[2]};
 }
 bool lijkt(Rgb a, Rgb b, int tol = 10) {
   return std::abs(a.r - b.r) <= tol && std::abs(a.g - b.g) <= tol && std::abs(a.b - b.b) <= tol;
@@ -220,9 +270,10 @@ void controleKleur(NSBitmapImageRep* r, NSPoint p, Rgb c, const std::string& wat
 
 int main(int argc, char** argv) {
   @autoreleasepool {
-    if (argc < 3) fout("gebruik: pb-paneel <plugin.clap> <uitmap>");
+    if (argc < 4) fout("gebruik: pb-paneel <plugin.clap> <uitmap> <Silkscreen-Regular.ttf>");
     std::string pad = argv[1];
     const std::string uitmap = argv[2];
+    const std::string silkscreen = argv[3];
     std::string lib = pad;
     {  // een .clap is op macOS een bundle: de code staat in Contents/MacOS/<naam zonder .clap>
       std::string naam = pad.substr(pad.find_last_of('/') + 1);
@@ -324,15 +375,20 @@ int main(int argc, char** argv) {
                                              std::to_string(label) + " px) en waarde (" + std::to_string(waard) +
                                              " px)");
     }
-    {  // het naamlabel is zo breed als de tekst + 12 px; met Silkscreen 14 px is dat ±129 (de mockup)
+    {  // het naamlabel is zo breed als de naam in Silkscreen 14 px + 12 px
       int rechts = -1;
       for (int x = 100; x < 250; ++x)
         if (!lijkt(pixel(r, x + 0.5, 20.5), TAPE)) {
           rechts = x;
           break;
         }
-      controle(rechts >= 24 + 122 && rechts <= 24 + 136, "naamlabel " + std::to_string(rechts - 24) +
-                                                             " px breed (mockup 129; Silkscreen geladen)");
+      const double ws = tekstBreedte(silkscreen, nullptr, 14, "PB TOETSENPAD") + 12;
+      const double wm = tekstBreedte("", "Menlo", 14, "PB TOETSENPAD") + 12;
+      controle(ws > 0 && std::fabs(ws - wm) > 4, "Silkscreen (" + g(ws) + " px) en Menlo (" + g(wm) +
+                                                     " px) zijn te onderscheiden aan de breedte van het label");
+      controle(std::fabs((rechts - 24) - ws) <= 2, "naamlabel " + std::to_string(rechts - 24) +
+                                                       " px breed: de naam in Silkscreen 14 px + 12 (" + g(ws) +
+                                                       "; de mockup heeft 129): het ingebedde lettertype is geladen");
       const int tekst = tel(r, 30, 22, rechts - 34, 16, false);
       controle(tekst >= 40, "naam in het label: " + std::to_string(tekst) + " px in paneelkleur");
     }
