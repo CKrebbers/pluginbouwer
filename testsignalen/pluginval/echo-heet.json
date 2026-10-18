@@ -1,0 +1,25 @@
+{
+  "name": "echo-heet",
+  "input": {
+    "audio": "../echo-heet.in.wav"
+  },
+  "reference": "../echo-heet.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Tijd": 0.125,
+      "Terugkoppeling": 0.75,
+      "Toon": 0.125,
+      "Laag weg": 0.0625,
+      "Resonantie": 0.25,
+      "Verzadiging": 0.5,
+      "Haperen": 0.5,
+      "Mix": 0.75,
+      "Ruis": 0.5
+    }
+  },
+  "sample_rate": 48000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "metingen": {
+    "lineair": {
+      "maxDb": 0.0006146022068449976,
+      "maxGraad": 0.005037079492264391
+    },
+    "referentie-gewoon": {
+      "piekDb": -180.61799739838872,
+      "rmsDb": -226.37767034668065
+    },
+    "referentie-heet": {
+      "piekDb": -162.55619765854985,
+      "rmsDb": -206.63499805096816
+    },
+    "harmonischen": {
+      "wasm": {
+        "H3": -15.97427210651066,
+        "H5": -30.50758913363621,
+        "H2": -28.949497335695956
+      },
+      "ideaal": {
+        "H3": -15.703395337271616,
+        "H5": -29.82642280419364,
+        "H2": -28.885522554259076
+      }
+    },
+    "aliasingBlok": {
+      "f0": 5000.244140625,
+      "driveDb": 12,
+      "naief": -28.14528879096244,
+      "adaa": -33.53421738196583,
+      "ideaal": -150.66097835847097
+    },
+    "aliasingKeten": {
+      "f0": 2000.244140625,
+      "driveDb": 12,
+      "toon": 3000,
+      "wasm": -142.80474185652454,
+      "ideaal": -152.68411697708524,
+      "toonOpen5kHz": {
+        "wasm": -58.952477777423155,
+        "ideaal": -150.93835465098852
+      }
+    },
+    "stabiliteit": {
+      "combinaties": 324,
+      "hoogstePiek": 5.094638347625732,
+      "zelfoscillatieRmsDb": [
+        -25.08571631317907,
+        4.91379386775011
+      ]
+    },
+    "staart": [
+      {
+        "terugkoppeling": 0.3,
+        "gemeldS": 2.0404527640584176,
+        "gemetenS": 1.5954791666666668
+      },
+      {
+        "terugkoppeling": 0.8,
+        "gemeldS": 9.6818357030912,
+        "gemetenS": 7.238729166666666
+      },
+      {
+        "terugkoppeling": 0.95,
+        "gemeldS": 41.107525839642555,
+        "gemetenS": 26.242958333333334
+      }
+    ],
+    "imd": {
+      "wasm": -4.2680759572625595,
+      "ideaal": -4.32621901503288,
+      "verschilDb": 0.05814305777032036
+    }
+  },
+  "metingBlokken": {
+    "gemeten": "2026-10-15",
+    "machine": "Intel(R) Xeon(R) Processor @ 2.10GHz, linux x64, Node v22.22.0",
+    "methode": "WASM-ketenmotor, 10 s stereo 48 kHz, blok 128, beste van 5, min de lege keten",
+    "motorProcent": 0.16195322,
+    "blokken": {
+      "som": {
+        "cpuProcent": 0.06503739999999998
+      },
+      "versterker": {
+        "cpuProcent": 0.17812301
+      },
+      "tape": {
+        "cpuProcent": 0.58418121
+      },
+      "vertraging": {
+        "cpuProcent": 0.15204658999999998
+      },
+      "hoogdoor1": {
+        "cpuProcent": 0.08394179999999998
+      },
+      "laagdoor1": {
+        "cpuProcent": 0.14540023
+      },
+      "svf": {
+        "cpuProcent": 0.20504328
+      },
+      "biquad": {
+        "cpuProcent": 0.09234478999999997
+      },
+      "bandbeweging": {
+        "cpuProcent": 0.15835687999999998
+      },
+      "lfo": {
+        "cpuProcent": 0.11942597999999999
+      },
+      "mix": {
+        "cpuProcent": 0.10928087
+      },
+      "osc": {
+        "cpuProcent": 0.46925702999999996
+      },
+      "ruis": {
+        "cpuProcent": 0.20765085999999996
+      },
+      "sequencer": {
+        "cpuProcent": 0.14917923
+      },
+      "toetsen": {
+        "cpuProcent": 0.06705212999999997
+      },
+      "omhulling": {
+        "cpuProcent": 0.17347024
+      },
+      "snaar": {
+        "cpuProcent": 0.24540088
+      },
+      "trommel": {
+        "cpuProcent": 0.68896153
+      },
+      "vermenigvuldig": {
+        "cpuProcent": 0.21403877999999998
+      },
+      "galm": {
+        "cpuProcent": 2.26331412
+      },
+      "chorus": {
+        "cpuProcent": 0.6803603600000001
+      },
+      "compressor": {
+        "cpuProcent": 0.6289805700000001
+      },
+      "vergruizer": {
+        "cpuProcent": 0.18392306
+      },
+      "vouwer": {
+        "cpuProcent": 0.4362737199999999
+      },
+      "panner": {
+        "cpuProcent": 0.09569235999999998
+      },
+      "willekeur": {
+        "cpuProcent": 0.07558874
+      }
+    }
+  }
+}

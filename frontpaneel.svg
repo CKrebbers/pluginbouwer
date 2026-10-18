@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="732" height="220" viewBox="0 0 732 220">
+  <style>text{font-family:'IBM Plex Mono',monospace;font-size:11px;fill:#e7e5dd;text-anchor:middle;font-variant-numeric:tabular-nums}
+  .n{font-family:Silkscreen,monospace;font-size:14px;fill:#232629;text-anchor:start}.w{fill:#e7e5dd}
+  .knop{fill:#232629;stroke:#e7e5dd;stroke-width:2}.wijzer{stroke:#e7e5dd;stroke-width:2}
+  .spoor0{fill:none;stroke:#3a3e42;stroke-width:3}.spoor{fill:none;stroke:#40cbda;stroke-width:3}</style>
+  <rect x="3" y="3" width="726" height="214" fill="#0d0e0f"/>
+  <rect x="0" y="0" width="726" height="214" fill="#232629" stroke="#e7e5dd" stroke-width="2"/>
+  <rect x="24" y="18" width="111" height="24" fill="#f2c200"/>
+  <text x="30" y="35" class="n">PB DUB-ECHO</text>
+  <g transform="translate(62 130)"><title>Tijd</title>
+    <text y="-34" class="l">Tijd</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -17.75 -13.00" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-11.29" y2="-8.27" class="wijzer"/>
+    <text y="44" class="w">375 ms</text></g>
+  <g transform="translate(138 130)"><title>Terugkoppeling</title>
+    <text y="-34" class="l">Terug</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -9.99 -19.60" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-6.36" y2="-12.47" class="wijzer"/>
+    <text y="44" class="w">50 %</text></g>
+  <g transform="translate(214 130)"><title>Toon</title>
+    <text y="-34" class="l">Toon</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -21.00 -6.55" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-13.37" y2="-4.17" class="wijzer"/>
+    <text y="44" class="w">3,00 kHz</text></g>
+  <g transform="translate(290 130)"><title>Laag weg</title>
+    <text y="-34" class="l">Laag weg</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -20.26 8.58" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-12.89" y2="5.46" class="wijzer"/>
+    <text y="44" class="w">100 Hz</text></g>
+  <g transform="translate(366 130)"><title>Resonantie</title>
+    <text y="-34" class="l">Resonantie</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -19.24 10.68" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-12.24" y2="6.79" class="wijzer"/>
+    <text y="44" class="w">Q 0,71</text></g>
+  <g transform="translate(442 130)"><title>Verzadiging</title>
+    <text y="-34" class="l">Verzadiging</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -20.33 -8.42" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-12.93" y2="-5.36" class="wijzer"/>
+    <text y="44" class="w">6,0 dB</text></g>
+  <g transform="translate(518 130)"><title>Haperen</title>
+    <text y="-34" class="l">Haperen</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -20.33 -8.42" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-12.93" y2="-5.36" class="wijzer"/>
+    <text y="44" class="w">25 %</text></g>
+  <g transform="translate(594 130)"><title>Mix</title>
+    <text y="-34" class="l">Mix</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -12.22 -18.29" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-7.78" y2="-11.64" class="wijzer"/>
+    <text y="44" class="w">38 %</text></g>
+  <g transform="translate(670 130)"><title>Ruis</title>
+    <text y="-34" class="l">Ruis</text>
+    <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -15.56 15.56" class="spoor"/>
+    <circle r="16" class="knop"/><line x1="0" y1="0" x2="-9.90" y2="9.90" class="wijzer"/>
+    <text y="44" class="w">0 %</text></g>
+</svg>
