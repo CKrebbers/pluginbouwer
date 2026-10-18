@@ -307,8 +307,10 @@ jobs:
           # fase 4: elke presetnaam uit presets/ staat in de uitvoer (de AU geeft ze als factory presets)
           python3 gereedschap/presets-lijst.py presets --namen > presetnamen.txt
           test -s presetnamen.txt
-          echo "--- presets in de uitvoer van auval"
-          while IFS= read -r naam; do
-            grep -nF -- "$naam" auval.log || { echo "FOUT: preset '$naam' staat niet in de uitvoer van auval"; exit 1; }
-            echo "auval toont preset: $naam"
-          done < presetnamen.txt
+          # auval -v zet ze onder "HAS FACTORY PRESETS" als "ID:   0    Name: <naam>", in de volgorde van presets/
+          awk '/HAS FACTORY PRESETS/{f=1; next} f && /^ *ID: /{sub(/^ *ID: *[0-9]+ +Name: /, ""); print; next} f{exit}' \
+            auval.log > auval-presets.txt
+          echo "--- factory presets volgens auval"
+          cat auval-presets.txt
+          diff presetnamen.txt auval-presets.txt || { echo "FOUT: de factory presets van auval zijn niet die uit presets/"; exit 1; }
+          while IFS= read -r naam; do echo "auval toont preset: $naam"; done < presetnamen.txt
