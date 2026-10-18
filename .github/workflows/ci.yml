@@ -145,10 +145,18 @@ jobs:
           [ "$status" = 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log || exit 1
           # fase 4: elke fabriekspreset uit presets/ staat in de uitvoer van auval
           grep -n -i "preset" auval.log || true
+          grep -q "^HAS FACTORY PRESETS" auval.log || { echo "FOUT: auval meldt geen factory presets"; exit 1; }
           for f in presets/*.json; do
             naam=$(jq -r .naam "$f")
-            if grep -F -q -- "$naam" auval.log; then echo "auval toont preset \"$naam\" ($f)"; else echo "FOUT: preset \"$naam\" ($f) staat niet in de uitvoer van auval"; exit 1; fi
+            # zoals auval ze toont: "    ID:   0    Name: Helder"
+            if grep -E "^ *ID: +[0-9]+ +Name: " auval.log | sed -E 's/^ *ID: +[0-9]+ +Name: //' | grep -F -x -q -- "$naam"; then
+              echo "auval toont preset \"$naam\" ($f)"
+            else
+              echo "FOUT: preset \"$naam\" ($f) staat niet in de presetlijst van auval"; exit 1
+            fi
           done
+          # de naam van een preset moet in ClassInfo blijven (patches/clap-wrapper-auv2-eigen-presetnaam-in-classinfo.patch)
+          if grep -q "Preset name is not retained" auval.log; then echo "FOUT: auval: Preset name is not retained in retrieved class data"; exit 1; fi
       - name: Presets door de AU (pb-aupresets)
         run: |
           sh gereedschap/presets-verwacht.sh presets > presets-verwacht.tsv

@@ -8,7 +8,7 @@
 //   - als verse instantie op "Untitled" (−1) staan, niet op preset 0 (ARCHITECTUUR.md "Presets"), op de standaarden;
 //   - bij het zetten van kAudioUnitProperty_PresentPreset, vóór én na Initialize, precies de waarden van die preset
 //     tonen (ontbrekende namen hun standaard) en PresentPreset dat nummer en die naam geven;
-//   - in ClassInfo de naam van de preset bewaren, en die ClassInfo laadt in een nieuwe instantie tot dezelfde waarden;
+//   - in ClassInfo de naam van de preset bewaren (ook van een eigen preset van de host, nummer −1), en die ClassInfo laadt in een nieuwe instantie tot dezelfde waarden;
 //   - een onbekend presetnummer weigeren zonder iets te veranderen.
 // Exitcode 0 = alles groen; elke mislukte controle staat als "FOUT" in de uitvoer.
 #include <AudioToolbox/AudioToolbox.h>
@@ -265,6 +265,23 @@ int main(int argc, char** argv) {
       check(geladen && waarden(b, ps) == waarden(a, ps), "AU: die ClassInfo laadt in een nieuwe instantie tot " + tekst(waarden(b, ps)));
       if (plist) CFRelease(plist);
     }
+    // een eigen preset van de host (nummer < 0): de naam gaat mee in ClassInfo (auval: "Preset name is not retained")
+    AUPreset eigen = {-1, CFSTR("Eigen klank")};
+    const OSStatus es = AudioUnitSetProperty(a, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &eigen, sizeof eigen);
+    CFPropertyListRef plist2 = nullptr;
+    UInt32 psz2 = sizeof plist2;
+    std::string enaam = "?";
+    if (es == noErr && AudioUnitGetProperty(a, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist2, &psz2) == noErr && plist2) {
+      if (CFGetTypeID(plist2) == CFDictionaryGetTypeID()) {
+        const void* n = CFDictionaryGetValue((CFDictionaryRef)plist2, CFSTR(kAUPresetNameKey));
+        if (n && CFGetTypeID(n) == CFStringGetTypeID()) enaam = utf8((CFStringRef)n);
+      }
+      CFRelease(plist2);
+    }
+    check(huidige(a, &nr, &naam) && nr == -1 && naam == "Eigen klank" && enaam == "Eigen klank",
+          "AU: een eigen preset (-1, \"Eigen klank\") staat in PresentPreset (" + std::to_string(nr) + " \"" + naam +
+              "\") en in ClassInfo (\"" + enaam + "\")");
+
     // een onbekend nummer: geweigerd, niets veranderd
     const auto w0 = waarden(a, ps);
     SInt32 nr0 = 0;

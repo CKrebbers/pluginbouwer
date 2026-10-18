@@ -1,0 +1,27 @@
+Herkomst: proef G3 (tak proef/g3, fase 4, 18 okt 2026), door een vers Claude Code-gesprek gemaakt. auval -strict gaf
+"WARNING: Preset name is not retained in retrieved class data": een eigen preset van de host (PresentPreset met nummer
+< 0) kwam niet in ClassInfo, want SaveState schrijft _current_program_name. Hangt niet af van de andere patches.
+
+diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
+--- a/src/detail/auv2/auv2_base_classes.h
++++ b/src/detail/auv2/auv2_base_classes.h
+@@ -362,6 +362,19 @@
+   bool initializeClapDesc();
+ 
+  public:
++  // a custom preset from the host (kAudioUnitProperty_PresentPreset with a number < 0): its name is what the next
++  // SaveState (ClassInfo) carries, like the name of a factory preset (auval: "Preset name is not retained")
++  OSStatus NewCustomPresetSet(const AUPreset &inNewCustomPreset) override
++  {
++    const OSStatus status = AUBase::NewCustomPresetSet(inNewCustomPreset);
++    if (status == noErr && inNewCustomPreset.presetName)
++    {
++      if (_current_program_name) CFRelease(_current_program_name);
++      _current_program_name = CFStringCreateCopy(nullptr, inNewCustomPreset.presetName);
++    }
++    return status;
++  }
++
+   // the very very reduced state machine
+   OSStatus Initialize() override;
+   OSStatus Start() override;
