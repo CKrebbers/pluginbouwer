@@ -1,12 +1,13 @@
-# Zeven punten in clap-wrapper v0.16.0 (en één in clap-validator), klaar om te melden
+# Negen punten in clap-wrapper v0.16.0 (en één in clap-validator, één in pluginval), klaar om te melden
 
 Deze sessie mag in free-audio/clap-wrapper geen issue openen en niet forken (alleen eigen repos). Alles hieronder is
 klaar om te plakken. De patches 0001–0004 gaan elk los schoon op v0.16.0, 0005 na 0004, 0006 na 0004 en 0005 (= hun `main` op 17 okt 2026, commit 1cca996); in de
 Pluginbouwer staan ze in `plugin/patches/` en is CI ermee groen.
 
 **Zelf doen (±3 minuten):** open https://github.com/free-audio/clap-wrapper/issues/new, plak de titel en de tekst van
-issue 1 tot en met 7 (3 heeft geen patch). Het punt voor clap-validator staat onderaan en gaat
-naar https://github.com/free-audio/clap-validator/issues/new. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
+issue 1 tot en met 9 (3, 8 en 9 hebben geen patch; 8 en 9 zijn van 18 okt, gevonden toen de Pluginbouwer
+instrumenten kreeg). Het punt voor clap-validator staat onderaan en gaat
+naar https://github.com/free-audio/clap-validator/issues/new, dat voor pluginval naar https://github.com/Tracktion/pluginval/issues/new. Een PR is optioneel: fork op GitHub, pas de patch toe (`git apply <patch>`), push, en
 gebruik de tekst onder "Fix" als PR-beschrijving.
 
 ---
@@ -180,6 +181,49 @@ Needed independently by two build sessions.
 
 ---
 
+## Issue 8 — VST3: a note port with the MIDI dialect adds 2080 "MIDI/controller" parameters that are not saved in the state
+
+**What happens.** A CLAP instrument whose note port lists `CLAP_NOTE_DIALECT_MIDI` in `supported_dialects` gets, in the
+VST3, 16 × 130 extra parameters for `IMidiMapping` (`ClapAsVst3::checkMIDIDialectSupport` sets `_useIMidiMapping`;
+`Vst3Parameter::create(bus, channel, cc, id)` with `stepCount = 127`). Their values are not part of the state, so
+`pluginval --strictness-level 10` fails "Discrete parameter state restoration" on all 16 program-change parameters:
+
+```
+!!! Test 1 failed: MIDI/controller has a different value after restoring the same state -- Expected value within 0.0001 of: 0.440613, Actual value: 0.840613
+… (16 of 16)
+```
+
+**Why it matters.** Any CLAP synth that accepts raw MIDI fails pluginval as VST3, and hosts list 2080 parameters
+called "controller". Declaring only `CLAP_NOTE_DIALECT_CLAP` avoids it (notes still arrive as CLAP note events).
+
+**Proposal** (no patch): flag these proxy parameters `kIsHidden` and not `kCanAutomate` (they are a MIDI mapping, not
+plugin state), or keep their last value in the VST3 state. We have not checked whether pluginval skips hidden
+parameters.
+
+Tested on Linux x86_64 with pluginval v2.0.0-beta3 (the VST3 under xvfb).
+
+---
+
+## Issue 9 — AUv2: `CLAP_TRANSPORT_HAS_BEATS_TIMELINE` is missing when the host's beat is exactly 0
+
+**What happens.** In `src/detail/auv2/process.cpp` the transport gets its beat position only `if (data._beat)`:
+
+```cpp
+if (data._AUbeatAndTempoValid) {
+  if (data._tempo != 0.0) { _transport.tempo = data._tempo; _transport.flags |= CLAP_TRANSPORT_HAS_TEMPO; }
+  if (data._beat) { _transport.song_pos_beats = doubleToBeatTime(data._beat); _transport.flags |= CLAP_TRANSPORT_HAS_BEATS_TIMELINE; }
+}
+```
+
+At the start of a song (beat 0.0) a plugin therefore sees no beat timeline in the first block, and cannot tell "at
+beat 0" from "the host has no beat position".
+
+**Fix** (no patch, one line): set the beat and the flag whenever `CallHostBeatAndTempo` succeeded, also for 0.0.
+
+Found while adding host tempo to a CLAP sequencer (macOS 15 arm64, an AudioToolbox host with `beatAndTempoProc`).
+
+---
+
 ## clap-validator 0.4.1 — `begin_preset()` deadlocks on the second preset of a container
 
 Paste at https://github.com/free-audio/clap-validator/issues/new (patch: `../clap-validator-0001-begin-preset-deadlock.patch`).
@@ -201,3 +245,31 @@ rustc 1.97); it has not yet been run against a plugin with a multi-preset contai
 Workaround used meanwhile: one provider per preset, each a container of one (valid CLAP, but unusual for hosts).
 Found independently by three build sessions of the Pluginbouwer project (each hit the 45 s timeout with a container of
 five presets). Side effect of the workaround: `preset-discovery-load` only keeps the result of the last provider.
+
+---
+
+## pluginval v2.0.0-beta3 — `--rtcheck enabled` flags an allocation in pluginval's own VST3 host when it sends MIDI
+
+Paste at https://github.com/Tracktion/pluginval/issues/new.
+
+**What happens.** `pluginval validate --strictness-level 10 --rtcheck enabled` on a VST3 instrument (an event input bus)
+fails in "Audio processing" on the first block, with no frame of the plugin in the stack:
+
+```
+Real-time violation: intercepted call to real-time unsafe function realloc in real-time context! Stack trace:
+  wrap_realloc
+   juce::MidiEventList::addEvent(Steinberg::Vst::Event&)
+    juce::MidiEventList::processMidiMessage<...VST3PluginInstanceHeadless::associateWith...>
+     juce::VST3PluginInstanceHeadless::associateWith(Steinberg::Vst::ProcessData&, juce::MidiBuffer&)
+      juce::VST3PluginInstanceHeadless::processAudio<float>(...)
+       AudioProcessingTest::runAudioProcessingTest(...)
+```
+
+The host's event list grows inside the checked real-time region, so every VST3 instrument fails `--rtcheck enabled`.
+The AU of the same plugin passes.
+
+**Proposal**: reserve the `MidiEventList` before processing starts, or exclude the host's own event conversion from the
+real-time region. Workaround used meanwhile: `--rtcheck relaxed` plus a script that fails on any violation whose
+calling frame is not `juce::MidiEventList::addEvent`.
+
+Tested on macOS 15 arm64 (GitHub Actions), pluginval v2.0.0-beta3.
