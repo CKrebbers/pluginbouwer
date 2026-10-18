@@ -91,3 +91,34 @@ Uit ref/referentie/RAPPORT.md (eerst ABX): bandbeweging als snelheid ε(t) los v
 (0,15 % RMS, flutter 7,7 Hz) voor haperen 0,25; een kleine even term voor H2; een blok bandruis (−61 dBFS, brom + sis).
 Bandhysterese (Jiles-Atherton zoals CHOWTape; zie TWEEDE-MENING.md: vervorming bij zachte niveaus en niveau-afhankelijke fase die
 onze tanh mist; eerst een ABX-toets of het in de dub-echo hoorbaar is).
+
+## Vervolg — plan van 18 okt 2026 (volgorde, wie, stopcriterium)
+Stand: alles wat zonder Clay kon is gedaan (pakket v3, zes patches, referentiemeting, upstream klaargezet). Eén meting ontbreekt
+waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas breder (klank, instrument).
+
+1. **Logic (Clay, ~20 min).** Niet de kale schil uit main, maar de plugin die een verse sessie uit het pakket bouwde: die heeft
+   paneel, presets, mono, bypass en een installatiepakket. Download `macos-pkg` van run 122 op proef/f3
+   (https://github.com/CKrebbers/pluginbouwer/actions/runs/39048545213), installeer (Privacy en beveiliging → "Open toch"),
+   haal eerst een oude kopie uit `~/Library/Audio/Plug-Ins` weg. Dan de checklist van fase 7 in PROMPTS.md. Stop: elk punt
+   groen, of een lijst van wat afwijkt. Elke afwijking wordt een valkuil in het pakket en zo nodig een patch (ik).
+2. **PR 1 (geluid-maken) in main (Clay beslist, ik voer uit).** Via `integratie/geluid-maken`: CI groen, het artifact draait
+   het al. Zonder deze stap maakt de tool op main geen geluid en kan het pakket geen instrument exporteren. Daarna: TASKS
+   herschikken (F = geluid maken, G = pakket), pakket en tool opnieuw maken met de motor van 15 blokken.
+3. **Pakket v3 bewijzen (ik, verse sessies; begint zodra Clay "ga" zegt).** v3 draagt 18 valkuilen en 6 patches die nog nooit
+   samen door een vers gesprek zijn gegaan. Eén keten (proef/f4), fase 0–6, pass@1. Stop: elke fase de eerste push groen;
+   elke extra ronde is een gat in het pakket en wordt gedicht. Kosten: ~7 sessies in plaats van 21.
+4. **De klank: eerst ABX, dan pas bouwen (ik bouw de ABX in de tool, Clay luistert).** Drie kandidaten uit
+   ref/referentie/RAPPORT.md, elk als A/B in de tab ABX: (a) bandbeweging als snelheid los van de delaytijd, Akai als ijkpunt
+   voor haperen 0,25; (b) Jiles-Atherton plus een kleine even term voor H2; (c) een blok bandruis. Alleen wat Clay blind
+   onderscheidt gaat de DSP in. Per kandidaat die erin gaat: referentie opnieuw meten, verwachte uitvoer vernieuwen,
+   null-test en harmonischen-toets groen. Niets tegelijk: één kandidaat per ronde.
+5. **Instrument als plugin (ik; na stap 2).** CLAP note ports, AU-type `aumu`, MIDI naar de toetsen-knoop; de sequencer op
+   het hosttempo. Dan pass@3 met een instrumentontwerp: het pakket is nu alleen op een effect bewezen. Stop: een instrument
+   uit de tool speelt in Logic op een MIDI-spoor, null-test instrument tegen WASM bit voor bit.
+6. **Upstream (Clay plakt, 5 min; ik volg op).** upstream/clap-wrapper/LEESMIJ.md: zeven punten clap-wrapper, één
+   clap-validator. Komt er antwoord, dan pas ik de patches aan en kijk bij de volgende clap-wrapper welke kunnen vervallen.
+7. **Niets weggooien.** De proeftakken (proef/e*, f*) en de onderzoekstak blijven staan: ze zijn het bewijs. Wel een index in
+   README (welke tak wat bewijst), zodat niemand ze hoeft te openen om dat te weten.
+
+Volgorde en waarom: 1 vóór alles (het bewijs waar het om gaat); 2 vóór 3 en 5 (een instrument in het pakket vraagt de motor);
+3 en 4 lopen naast elkaar en vragen Clay niets dan luisteren; 5 is de eerste nieuwe bouw en komt pas na 1–3.
