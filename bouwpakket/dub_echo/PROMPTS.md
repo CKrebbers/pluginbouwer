@@ -1,4 +1,4 @@
-# PROMPTS — Dub-echo (v3 (17 okt 2026))
+# PROMPTS — Dub-echo (v3 (17 okt 2026; instrument 18 okt))
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
 Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de

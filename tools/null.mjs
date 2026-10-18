@@ -8,10 +8,9 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, render, uitNorm, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
-import { toetsgevallen, maakInvoer, automatieGeval } from '../tool/src/testsignalen.js';
+import { toetsgevallen, maakInvoer, automatieGeval, notenGeval, heeftSequencer, HOSTTEMPO } from '../tool/src/testsignalen.js';
 import { ARCHETYPEN } from '../tool/src/archetypen.js';
 import * as SPEC from '../tests/lib/fft.mjs';
-import { NOTEN, notenAlsEvents } from '../tests/lib/noten.mjs';
 
 const GRENS_DB = -90;
 const [, , opdracht, a1, a2] = process.argv;
@@ -47,6 +46,11 @@ export function statistisch(a, b, sr) {
   return { bandDb: slechtstBand, omhullendeDb: slechtstOmh };
 }
 
+function archetypeHeeftIngang(naam) {
+  const a = ARCHETYPEN.find((x) => x.id === naam.replace(/^keten_/, ''));
+  return !a || a.knopen.some((k) => k.type === 'in');
+}
+
 const ontwerpNaam = (opdracht === 'vergelijk' || opdracht === 'automatie' ? a2 : a1) || 'pijplijn_biquad';
 const o = opdracht === 'gelijk' ? null : laadOntwerp(ontwerpNaam);
 const map = join(ROOT, 'testsignalen', ontwerpNaam);
@@ -80,30 +84,30 @@ if (opdracht === 'maak') {
   schrijfWav(join(map, 'automatie', 'in.wav'), a.invoer, a.sr);
   writeFileSync(join(map, 'automatie', 'events.txt'), a.tekst);
   schrijfWav(join(map, 'automatie', 'verwacht.wav'), render(o, a.invoer, { sr: a.sr, blok: 128, events: a.events }), a.sr);
-  // instrument: noten en hosttempo (zie bovenaan)
-  const kop = readFileSync(join(ROOT, 'dsp', 'ontwerpen', `${ontwerpNaam}.h`), 'utf8');
-  const def = (n) => { const m = kop.match(new RegExp(`#define ${n} (\\S+)`)); return m ? m[1] : null; };
+  // instrument: noten en hosttempo (zie bovenaan; de gevallen staan in tool/src/testsignalen.js, voor tool en pakket)
   const extra = [];
+  // au-gevallen.txt: de gewone gevallen voor host/au-proef (instrument), met parameternamen: pluginval's AU-host meldt
+  // een tempo (JUCE: 120 bpm zonder playhead), en een sequencer volgt dat; au-proef rendert zonder host-callbacks.
+  rmSync(join(map, 'au-gevallen.txt'), { force: true });
+  if (!archetypeHeeftIngang(ontwerpNaam)) writeFileSync(join(map, 'au-gevallen.txt'),
+    [['geval', 'sr', ...o.params.map((p) => p.naam)].join('\t'), ...index.map((g) => [g.naam, g.sr, ...o.params.map((p, i) => g.waarden[i])].join('\t'))].join('\n') + '\n');
   for (const d of ['noten', 'hosttempo']) rmSync(join(map, d), { recursive: true, force: true });
-  if (def('PB_NOTEN')) {
-    const sr = 48000, n = sr * 6, stil = [new Float32Array(n), new Float32Array(n)];
-    // oneven plekken, zodat de noten midden in blokken van 128, 512 en de wisselende reeks vallen
-    const noten = NOTEN.map(([t, wat, nn]) => [Math.round(t * sr) + 37, wat, nn]);
-    const events = notenAlsEvents(o.e, noten, Number(def('PB_NOOT_PARAM')), Number(def('PB_POORT_PARAM')));
-    mkdirSync(join(map, 'noten'), { recursive: true });
-    writeFileSync(join(map, 'noten', 'noten.txt'), noten.map((x) => x.join(' ')).join('\n') + '\n');
-    schrijfWav(join(map, 'noten', 'in.wav'), stil, sr);
-    schrijfWav(join(map, 'noten', 'verwacht.wav'), render(o, stil, { sr, blok: 128, events }), sr);
-    extra.push(`noten (${noten.length})`);
-  }
   const archetype = ARCHETYPEN.find((x) => x.id === ontwerpNaam.replace(/^keten_/, ''));
-  if (o.e.pb_transport && archetype?.knopen.some((k) => k.type === 'sequencer')) {
-    const sr = 48000, n = sr * 6, stil = [new Float32Array(n), new Float32Array(n)];
+  const ng = archetype && notenGeval(archetype);
+  if (ng) {
+    mkdirSync(join(map, 'noten'), { recursive: true });
+    writeFileSync(join(map, 'noten', 'noten.txt'), ng.tekst);
+    schrijfWav(join(map, 'noten', 'in.wav'), ng.invoer, ng.sr);
+    schrijfWav(join(map, 'noten', 'verwacht.wav'), render(o, ng.invoer, { sr: ng.sr, blok: 128, events: ng.events }), ng.sr);
+    extra.push(`noten (${ng.noten.length})`);
+  }
+  if (archetype && heeftSequencer(archetype) && o.e.pb_transport) {
+    const sr = 48000, stil = [new Float32Array(sr * 6), new Float32Array(sr * 6)];
     mkdirSync(join(map, 'hosttempo'), { recursive: true });
     schrijfWav(join(map, 'hosttempo', 'in.wav'), stil, sr);
-    schrijfWav(join(map, 'hosttempo', 'verwacht.wav'), render(o, stil, { sr, blok: 128, tempo: 140 }), sr);
-    writeFileSync(join(map, 'hosttempo', 'tempo.txt'), '140\n');
-    extra.push('hosttempo (140 bpm)');
+    schrijfWav(join(map, 'hosttempo', 'verwacht.wav'), render(o, stil, { sr, blok: 128, tempo: HOSTTEMPO }), sr);
+    writeFileSync(join(map, 'hosttempo', 'tempo.txt'), `${HOSTTEMPO}\n`);
+    extra.push(`hosttempo (${HOSTTEMPO} bpm)`);
   }
   console.log(`${index.length} gevallen en automatie (${a.events.length} events)${extra.length ? ', ' + extra.join(', ') : ''} in ${map}`);
 } else if (opdracht === 'gelijk') {

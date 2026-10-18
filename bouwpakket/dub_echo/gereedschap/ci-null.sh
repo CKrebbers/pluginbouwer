@@ -1,7 +1,8 @@
 #!/bin/sh
 # ci-null.sh — de null-test van het bouwpakket in CI (en lokaal).
 #   sh gereedschap/ci-null.sh clap <build-dir>                          pb-render door het .clap (blok 512, wisselend, state-rondje,
-#                                                                       en automatisering met events midden in blokken)
+#                                                                       en automatisering met events midden in blokken; een
+#                                                                       instrument ook noten (CLAP en MIDI) en/of hosttempo)
 #   sh gereedschap/ci-null.sh pluginval <plugin> "<pluginval>" <label>  pluginval test (VST3/AU): render opnemen, meten, poort
 # Verwacht <build-dir>/pb-render (uit gereedschap/pb-render.cpp) en <build-dir>/plugins/*.clap; of zet CLAP=… en PB_RENDER=….
 set -e
@@ -31,6 +32,29 @@ if [ "$SOORT" = clap ]; then
       "$RENDER" "$CLAPPAD" "$T/automatie/in.wav" "$UIT/blok-$blok.wav" --blok "$blok" --automatie "$T/automatie/events.txt"
       { echo "### Null-test CLAP automatisering, blok $blok ($(uname -m))"; echo; node "$PAKKET/gereedschap/vergelijk.mjs" --automatie "$UIT/blok-$blok.wav" || true; echo; } | tee /dev/stderr | som
       node "$PAKKET/gereedschap/vergelijk.mjs" --automatie "$UIT/blok-$blok.wav" > /dev/null
+    done
+  fi
+  # instrument: noten op hun sample, als CLAP-noten en als MIDI-bytes, en het transport van de host
+  los() {  # los <geval> <render> <label>
+    { node "$PAKKET/gereedschap/vergelijk.mjs" "--$1" "$2" "$3" || true; } | tee /dev/stderr | som
+    node "$PAKKET/gereedschap/vergelijk.mjs" "--$1" "$2" "$3" > /dev/null
+  }
+  if [ -f "$T/noten/noten.txt" ] || [ -f "$T/hosttempo/tempo.txt" ]; then
+    UIT="$PAKKET/uit/clap-instrument"; mkdir -p "$UIT"
+    { echo "### Null-test CLAP instrument ($(uname -m))"; echo; echo "| render | piek | RMS | bit voor bit |"; echo "|---|---|---|---|"; } | tee /dev/stderr | som
+  fi
+  if [ -f "$T/noten/noten.txt" ]; then
+    for blok in 512 3,128,1,4096,77; do
+      "$RENDER" "$CLAPPAD" "$T/noten/in.wav" "$UIT/noten-$blok.wav" --blok "$blok" --noten "$T/noten/noten.txt"
+      los noten "$UIT/noten-$blok.wav" "noten (CLAP), blok $blok"
+      "$RENDER" "$CLAPPAD" "$T/noten/in.wav" "$UIT/midi-$blok.wav" --blok "$blok" --noten "$T/noten/noten.txt" --midi
+      los noten "$UIT/midi-$blok.wav" "noten (MIDI), blok $blok"
+    done
+  fi
+  if [ -f "$T/hosttempo/tempo.txt" ]; then
+    for blok in 512 3,128,1,4096,77; do
+      "$RENDER" "$CLAPPAD" "$T/hosttempo/in.wav" "$UIT/tempo-$blok.wav" --blok "$blok" --tempo "$(cat "$T/hosttempo/tempo.txt")"
+      los hosttempo "$UIT/tempo-$blok.wav" "hosttempo, blok $blok"
     done
   fi
 elif [ "$SOORT" = pluginval ]; then

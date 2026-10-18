@@ -2,6 +2,8 @@
 // render door het gebouwde binary. Staat los: alleen Node, geen andere bestanden dan testsignalen/ en wasm/.
 //   node gereedschap/vergelijk.mjs <map met renders>      exit 1 als iets boven de grens komt
 //   node gereedschap/vergelijk.mjs --automatie <render.wav>  de render van pb-render --automatie (events midden in blokken)
+//   node gereedschap/vergelijk.mjs --noten <render.wav>      instrument: pb-render --noten (CLAP-noten of --midi)
+//   node gereedschap/vergelijk.mjs --hosttempo <render.wav>  instrument met sequencer: pb-render --tempo
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -95,15 +97,21 @@ function standaardRender(invoer, sr) {
   return uit;
 }
 
-if (process.argv[2] === '--automatie') {
-  // node gereedschap/vergelijk.mjs --automatie <render.wav>: pb-render --automatie tegen testsignalen/automatie/verwacht.wav
-  const r = nullTest(leesWav(join(PAKKET, 'testsignalen', 'automatie', 'verwacht.wav')).kanalen, leesWav(process.argv[3]).kanalen);
+const LOS = {
+  automatie: ['automatie (events midden in blokken)', 'splitst de plugin het blok bij elk event (header.time)?'],
+  noten: ['noten (op hun sample)', 'doet de schil bij elke noot precies wat ARCHITECTUUR.md "Noten" zegt (Noot en Poort op de sample van de noot)?'],
+  hosttempo: ['hosttempo (transport van de host)', 'krijgt het Ontwerp per blok zetTransport met het tempo uit clap_event_transport?'],
+};
+if (process.argv[2]?.startsWith('--') && LOS[process.argv[2].slice(2)]) {
+  // node gereedschap/vergelijk.mjs --<geval> <render.wav> [label]: één render tegen testsignalen/<geval>/verwacht.wav
+  const geval = process.argv[2].slice(2), [label, hint] = LOS[geval];
+  const r = nullTest(leesWav(join(PAKKET, 'testsignalen', geval, 'verwacht.wav')).kanalen, leesWav(process.argv[3]).kanalen);
   const ok = r.piekDb <= GRENS_DB, f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
-  console.log(`| automatie (events midden in blokken) | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS** — splitst de plugin het blok bij elk event (header.time)?'}`);
+  console.log(`| ${process.argv[4] || label} | ${f(r.piekDb)} | ${f(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS** — ' + hint}`);
   process.exit(ok ? 0 : 1);
 }
 const map = process.argv[2];
-if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders> | --automatie <render.wav>'); process.exit(2); }
+if (!map) { console.error('gebruik: node gereedschap/vergelijk.mjs <map met renders> | --automatie|--noten|--hosttempo <render.wav>'); process.exit(2); }
 const gevallen = JSON.parse(readFileSync(join(PAKKET, 'testsignalen', 'gevallen.json'), 'utf8'));
 let mis = 0;
 console.log('| geval | piek | RMS | bit voor bit |\n|---|---|---|---|');

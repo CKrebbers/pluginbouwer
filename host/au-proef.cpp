@@ -273,6 +273,25 @@ static int instrumentProef(AudioComponent comp, const string& tmap, const string
     info += buf + parametersJson(p) + ",";
     printf("AU (instrument) geladen: latency %.6f s, TailTime %.3f s, %u ingangen, %zu parameters\n", lat, tail, (unsigned)nIn, p.infoVan.size());
   }
+  // de gewone gevallen (au-gevallen.txt: geval, sr, dan per parameter de waarde), zonder host-callbacks: pluginval's
+  // AU-host meldt een tempo, en een sequencer volgt dat; hier speelt hij op zijn eigen Tempo-knop zoals de WASM
+  if (bestaat(tmap + "/au-gevallen.txt")) {
+    ifstream gf(tmap + "/au-gevallen.txt"); string regel; getline(gf, regel);
+    vector<string> kop; { stringstream ss(regel); string t; while (getline(ss, t, '\t')) kop.push_back(t); }
+    size_t aantal = 0;
+    while (getline(gf, regel)) {
+      if (regel.empty()) continue;
+      vector<string> v; { stringstream ss(regel); string t; while (getline(ss, t, '\t')) v.push_back(t); }
+      const string naam = v[0]; const uint32_t gsr = (uint32_t)strtoul(v[1].c_str(), nullptr, 10);
+      Wav in = leesWav(tmap + "/" + naam + ".in.wav");
+      Plug p(comp, gsr, true);   // waarden vóór Initialize, zoals de effectproef (patch params-voor-init)
+      for (size_t i = 2; i < kop.size() && i < v.size(); ++i) p.zet(kop[i], strtof(v[i].c_str(), nullptr));
+      p.init();
+      schrijfWav(uit + "/geval-" + naam + ".wav", p.render(in.k, 512, [](size_t) {}), gsr);
+      ++aantal;
+    }
+    printf("gevallen: %zu zonder host-callbacks\n", aantal);
+  }
   // noten als MIDI, op hun sample in het blok; blok 512 en 64
   struct Noot { uint64_t smp; bool aan; int n; };
   vector<Noot> noten;

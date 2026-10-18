@@ -50,8 +50,9 @@ jobs:
         run: |
           sh dsp/bouw-wasm.sh graaf
           for o in dub_echo toetsenpad acidlijn; do node tools/keten-header.mjs "$o"; done
-          node tools/bouwpakket.mjs dub_echo
-          git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/dub_echo/dsp bouwpakket/dub_echo/testsignalen bouwpakket/dub_echo/wasm bouwpakket/dub_echo/gereedschap
+          for o in dub_echo toetsenpad; do node tools/bouwpakket.mjs "$o"; done
+          git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/
+          test -z "$(git status --porcelain bouwpakket/ dsp/ testsignalen/)" || { git status --porcelain bouwpakket/ dsp/ testsignalen/; exit 1; }
           git diff --stat --exit-code testsignalen/
       - name: De tool (tool/index.html) in Chrome — laden, meten, horen, export = de testsignalen van CI
         run: |
@@ -91,8 +92,10 @@ jobs:
           cargo install --locked --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" clap-validator
           clap-validator validate build/plugins/*.clap
       - name: Droogtest van het bouwpakket (zijn eigen gereedschap op deze build)
-        if: matrix.ontwerp == 'keten_dub_echo'
-        run: CLAP="$(ls -d $PWD/build/plugins/*.clap)" PB_RENDER=$PWD/build/pb-render sh bouwpakket/dub_echo/gereedschap/ci-null.sh clap /tmp
+        if: matrix.ontwerp == 'keten_dub_echo' || matrix.ontwerp == 'keten_toetsenpad'
+        run: |
+          P=$(echo ${{ matrix.ontwerp }} | sed 's/^keten_//')
+          CLAP="$(ls -d $PWD/build/plugins/*.clap)" PB_RENDER=$PWD/build/pb-render sh bouwpakket/$P/gereedschap/ci-null.sh clap /tmp
       - name: pluginval ophalen
         run: |
           curl -fsSL --retry 3 -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
@@ -238,9 +241,23 @@ jobs:
       - name: pluginval strictness 10 met rtcheck (AU), 3× (een race in SetParameter sloeg 1 op de 3 runs toe)
         run: $PV validate --strictness-level 10 --rtcheck enabled --repeat 3 ~/Library/Audio/Plug-Ins/Components/*.component
       - name: pluginval strictness 10 met rtcheck (VST3)
-        run: $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
+        run: |
+          # een instrument krijgt MIDI van pluginval, en pluginval's eigen VST3-host alloceert dan (juce::MidiEventList::addEvent):
+          # relaxed, en tools/pluginval-rt.sh faalt op elke andere schending
+          if grep -q '^#define PB_INSTRUMENT 1' dsp/ontwerpen/${{ matrix.ontwerp }}.h; then
+            sh tools/pluginval-rt.sh "$PV" ~/Library/Audio/Plug-Ins/VST3/*.vst3
+          else
+            $PV validate --strictness-level 10 --rtcheck enabled ~/Library/Audio/Plug-Ins/VST3/*.vst3
+          fi
       - name: Null-test AU (pluginval test, blok 512)
-        run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos ${{ matrix.ontwerp }}
+        run: |
+          # een sequencer volgt het tempo van de host, en pluginval's AU-host meldt er een (JUCE: 120 bpm zonder playhead):
+          # dan is de WASM zonder transport geen verwachting. Die gevallen rendert host/au-proef zonder host-callbacks.
+          if [ -f testsignalen/${{ matrix.ontwerp }}/hosttempo/tempo.txt ]; then
+            echo "### Null-test au-macos: via host/au-proef (de sequencer volgt pluginval's tempo)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/Components/*.component)" "$PV" au-macos ${{ matrix.ontwerp }}
+          fi
       - name: Null-test VST3 (pluginval test, blok 512)
         run: sh tools/ci-null.sh pluginval "$(ls -d ~/Library/Audio/Plug-Ins/VST3/*.vst3)" "$PV" vst3-macos ${{ matrix.ontwerp }}
       - name: AU zoals in een DAW (host/au-proef) — automatisering, zelfoscillatie, staart, state, bypass

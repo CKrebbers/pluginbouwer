@@ -130,6 +130,13 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   de noten ook als MIDI).
 - **AU-transport op tel 0**: clap-wrapper zet `HAS_BEATS_TIMELINE` niet als de beat precies 0 is (`if (data._beat)`). De
   sequencer herankert daarom alleen bij een sprong van meer dan ¾ zestiende; tempo komt altijd door.
+- **pluginval rtcheck op een VST3-instrument**: pluginval's eigen VST3-host alloceert als hij MIDI stuurt (`realloc` ←
+  `juce::MidiEventList::addEvent`, geen frame van de plugin). `tools/pluginval-rt.sh` draait `--rtcheck relaxed` en faalt
+  zelf op elke andere schending; effecten en de AU houden `--rtcheck enabled`.
+- **pluginval's AU-host meldt een tempo** (JUCE zonder playhead: 120 bpm): de acidlijn volgt dat, dus `pluginval test` op de
+  AU is daar geen null-test. Die gevallen rendert `host/au-proef` zonder host-callbacks (`au-gevallen.txt`).
+- **Een instrument heeft geen in-place-paar**: `in_place_pair` = `CLAP_INVALID_ID`, anders faalt clap-validator
+  (process-audio-basic-in-place, layout-audio-ports-config).
 - **Noten in de null-test**: de verwachting zijn parameter-events (Noot via de WASM-export `pb_t_exp`, Poort 1/0) die
   precies doen wat `speel()` in de schil doet (tests/lib/noten.mjs). Verander je `pb_noten.h`, verander dat mee.
 

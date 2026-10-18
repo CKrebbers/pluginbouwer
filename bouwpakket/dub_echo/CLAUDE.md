@@ -9,7 +9,7 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
   De plugin moet bit voor bit klinken als de WASM van de tool; de verwachte uitvoer in `testsignalen/` komt daaruit.
 - Compileer `dsp/` met `-ffp-contract=off -fno-fast-math -fno-math-errno` (ook op macOS met Apple clang).
 - Stack: CLAP-first (`clap/clap.h`), en **clap-wrapper v0.16.0** (MIT) via CMake `make_clapfirst_plugins` voor VST3 en
-  AUv2 (`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON`). AU-codes: maker `Vrve`, subtype `PDca` (staan ook als
+  AUv2 (`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON`). AU-codes: maker `Vrve`, subtype `PDca`, type `aufx` (staan ook als
   #define in `dsp/ontwerpen/keten_dub_echo.h`).
 - Geen betaalde diensten of licenties. Ad-hoc signeren (`codesign --sign -`) is genoeg voor Clay's eigen Mac.
 

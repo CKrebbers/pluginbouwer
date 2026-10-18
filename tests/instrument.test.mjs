@@ -28,7 +28,7 @@ test('codegen: zonder ingang = instrument (aumu), met toetsen = noten op Noot en
 
 test('noten: A3 (57) is verhouding 1, een octaaf hoger 2, legato terug naar de noot eronder', () => {
   const o = laadOntwerp('keten_toetsenpad');
-  const ev = notenAlsEvents(o.e, [[0, 'aan', 57], [10, 'aan', 69], [20, 'uit', 69], [30, 'uit', 57]], 0, 1);
+  const ev = notenAlsEvents([[0, 'aan', 57], [10, 'aan', 69], [20, 'uit', 69], [30, 'uit', 57]], 0, 1);
   assert.deepEqual(ev.map(([s, i]) => [s, i]), [[0, 0], [0, 1], [10, 0], [10, 1], [20, 0], [20, 1], [30, 1]]);
   assert.equal(ev[0][2], 1);
   assert.ok(Math.abs(ev[2][2] - 2) < 1e-15, `69: ${ev[2][2]}`);
@@ -46,7 +46,7 @@ function goertzel(y, van, tot, f) {
 test('noten: stil vóór de eerste noot, en de toon volgt de toets (220 Hz bij 57, 261,6 Hz bij 60)', () => {
   const o = laadOntwerp('keten_toetsenpad');
   const noten = NOTEN.map(([t, w, n]) => [Math.round(t * SR) + 37, w, n]);
-  const [y] = render(o, stil(2), { blok: 128, events: notenAlsEvents(o.e, noten, 0, 1) });
+  const [y] = render(o, stil(2), { blok: 128, events: notenAlsEvents(noten, 0, 1) });
   let piek = 0; for (let i = 0; i < 0.1 * SR; i++) piek = Math.max(piek, Math.abs(y[i]));
   assert.ok(piek < 1e-6, `vóór de eerste noot: ${piek}`);
   const db = (a, b) => 10 * Math.log10(a / b);
@@ -58,7 +58,7 @@ test('noten: stil vóór de eerste noot, en de toon volgt de toets (220 Hz bij 5
 
 test('noten en hosttempo zijn blokgrootte-onafhankelijk (bit voor bit, ook met events midden in een blok)', () => {
   const t = laadOntwerp('keten_toetsenpad');
-  const ev = notenAlsEvents(t.e, NOTEN.map(([s, w, n]) => [Math.round(s * SR) + 37, w, n]), 0, 1);
+  const ev = notenAlsEvents(NOTEN.map(([s, w, n]) => [Math.round(s * SR) + 37, w, n]), 0, 1);
   const r = (blok) => render(t, stil(5), { blok, events: ev });
   assert.equal(nullTest(r(128), r([3, 128, 1, 4096, 77])).piekDb, -Infinity);
   const a = laadOntwerp('keten_acidlijn');

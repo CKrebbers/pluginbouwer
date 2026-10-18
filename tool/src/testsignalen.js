@@ -1,6 +1,7 @@
 // testsignalen.js — de toetsgevallen van een ontwerp (invoer + genormaliseerde parameters) en WAV-bytes.
 // Eén bron voor tools/null.mjs (Node) en de exportknop van de tool (browser): dezelfde invoer, dezelfde verwachting.
 import { sinus, ruis, sweep, stukjes, impuls, stereo } from './signalen.js';
+import { exp_ } from './wiskunde.js';
 
 const lang = (x, sec, sr) => { const y = new Float32Array(Math.round(sec * sr)); y.set(x.subarray(0, Math.min(x.length, y.length))); return y; };
 const MAKERS = {
@@ -61,6 +62,47 @@ export function wavBytes(kanalen, sr) {
   return new Uint8Array(b);
 }
 
+// ---- instrument (18 okt): noten en het tempo van de host ----------------------------------------------------------------
+// De noten van het notengeval (seconden, aan/uit, noot): legato (een tweede toets terwijl de eerste vastzit), loslaten
+// naar de noot eronder, buiten het bereik van de toon-knop (30 en 90: de parameter klemt), en twee keer dezelfde toets.
+export const NOTEN = [[0.1, 'aan', 57], [0.6, 'uit', 57], [0.8, 'aan', 60], [1.0, 'aan', 64], [1.3, 'uit', 64], [1.6, 'uit', 60],
+  [1.9, 'aan', 30], [2.3, 'uit', 30], [2.5, 'aan', 90], [2.8, 'aan', 69], [3.0, 'uit', 90], [3.4, 'uit', 69],
+  [3.7, 'aan', 62], [3.71, 'aan', 62], [4.2, 'uit', 62]];
+export const HOSTTEMPO = 140;
+// Wat de schil (plugin/src/plugin.cpp, noot/speel met pb::NootStapel uit dsp/pb_noten.h) bij elke noot doet, als
+// parameter-events: bovenste noot → Noot = exp_((n − 57)/12 · ln 2) en Poort 1; geen noot meer → Poort 0. Een stapel
+// van hooguit 16 (de oudste valt eraf). exp_ is bit voor bit pb_math.h (tests/math.test.mjs).
+export function notenAlsEvents(noten, nootParam, poortParam) {
+  const stapel = [], events = [];
+  for (const [smp, wat, n] of noten) {
+    const j = stapel.indexOf(n); if (j >= 0) stapel.splice(j, 1);
+    if (wat === 'aan') { if (stapel.length === 16) stapel.shift(); stapel.push(n); }
+    if (stapel.length) {
+      const top = stapel[stapel.length - 1];
+      events.push([smp, nootParam, exp_((top - 57) / 12 * Math.LN2)], [smp, poortParam, 1]);
+    } else events.push([smp, poortParam, 0]);
+  }
+  return events;
+}
+// Welke parameters de noten krijgen (zoals tool/src/codegen.js PB_NOOT_PARAM/PB_POORT_PARAM), of null zonder noten.
+export function notenParams(ontwerp) {
+  if (ontwerp.knopen.some((k) => k.type === 'in')) return null;
+  const t = ontwerp.knopen.find((k) => k.type === 'toetsen');
+  if (!t) return null;
+  const noot = ontwerp.parameters.findIndex((p) => p.knoop === t.id && p.knop === 'toon');
+  const poort = ontwerp.parameters.findIndex((p) => p.knoop === t.id && p.knop === 'poort');
+  return noot >= 0 && poort >= 0 ? { noot, poort } : null;
+}
+export const heeftSequencer = (ontwerp) => ontwerp.knopen.some((k) => k.type === 'sequencer');
+// het notengeval: 6 s stilte als invoer, de noten op oneven samples (midden in blokken van 128, 512 en de wisselende reeks)
+export function notenGeval(ontwerp) {
+  const p = notenParams(ontwerp);
+  if (!p) return null;
+  const sr = 48000, n = sr * 6, invoer = [new Float32Array(n), new Float32Array(n)];
+  const noten = NOTEN.map(([t, wat, nn]) => [Math.round(t * sr) + 37, wat, nn]);
+  return { sr, invoer, noten, tekst: noten.map((x) => x.join(' ')).join('\n') + '\n', events: notenAlsEvents(noten, p.noot, p.poort) };
+}
+
 // pluginval-config voor één geval (docs/Acceptance testing.md van pluginval); de referentie is de WASM-render
 export function pluginvalConfig(g, paramNamen, grensDb = -90) {
   return {
@@ -90,5 +132,17 @@ export function maakTestsignalen(e, rij, params, ontwerp, { terugkoppeling = fal
   bestanden['testsignalen/automatie/in.wav'] = wavBytes(a.invoer, a.sr);
   bestanden['testsignalen/automatie/events.txt'] = a.tekst;
   bestanden['testsignalen/automatie/verwacht.wav'] = wavBytes(render(e, rij, a.invoer, { sr: a.sr, blok: 128, events: a.events }).uit, a.sr);
+  const ng = notenGeval(ontwerp);
+  if (ng) {
+    bestanden['testsignalen/noten/in.wav'] = wavBytes(ng.invoer, ng.sr);
+    bestanden['testsignalen/noten/noten.txt'] = ng.tekst;
+    bestanden['testsignalen/noten/verwacht.wav'] = wavBytes(render(e, rij, ng.invoer, { sr: ng.sr, blok: 128, events: ng.events }).uit, ng.sr);
+  }
+  if (heeftSequencer(ontwerp) && !ontwerp.knopen.some((k) => k.type === 'in')) {
+    const sr = 48000, stil = [new Float32Array(sr * 6), new Float32Array(sr * 6)];
+    bestanden['testsignalen/hosttempo/in.wav'] = wavBytes(stil, sr);
+    bestanden['testsignalen/hosttempo/tempo.txt'] = `${HOSTTEMPO}\n`;
+    bestanden['testsignalen/hosttempo/verwacht.wav'] = wavBytes(render(e, rij, stil, { sr, blok: 128, tempo: HOSTTEMPO }).uit, sr);
+  }
   return bestanden;
 }

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './lib/pb.mjs';
 import { compileer, volgorde } from '../tool/src/keten.js';
-import { DUB_ECHO } from '../tool/src/archetypen.js';
+import { DUB_ECHO, TOETSENPAD, ACIDLIJN } from '../tool/src/archetypen.js';
 import { maakTestsignalen } from '../tool/src/testsignalen.js';
 import { renderKeten } from '../tool/src/meten.js';
 import { zip } from '../tool/src/zip.js';
@@ -14,12 +14,14 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-test('testsignalen van de tool = testsignalen van de CI (byte voor byte)', () => {
+// ook voor de instrumenten: noten/ en hosttempo/ komen uit de tool even goed als uit tools/null.mjs
+for (const ontwerp of [DUB_ECHO, TOETSENPAD, ACIDLIJN]) test(`testsignalen van de tool = testsignalen van de CI (byte voor byte): ${ontwerp.id}`, () => {
   const e = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(join(ROOT, 'dsp/wasm/motor/graaf.wasm'))), {}).exports;
-  const c = compileer(DUB_ECHO);
-  const best = maakTestsignalen(e, c.rij, c.params, DUB_ECHO, { terugkoppeling: volgorde(DUB_ECHO).terug.length > 0, render: renderKeten });
+  const c = compileer(ontwerp);
+  const best = maakTestsignalen(e, c.rij, c.params, ontwerp, { terugkoppeling: volgorde(ontwerp).terug.length > 0, render: renderKeten });
+  if (ontwerp !== DUB_ECHO) assert.ok(Object.keys(best).some((p) => /\/(noten|hosttempo)\//.test(p)), 'een instrument zonder noten- of tempogeval');
   for (const [pad, inhoud] of Object.entries(best)) {
-    const ci = readFileSync(join(ROOT, 'testsignalen', 'keten_dub_echo', pad.replace('testsignalen/', '')));
+    const ci = readFileSync(join(ROOT, 'testsignalen', `keten_${ontwerp.id}`, pad.replace('testsignalen/', '')));
     assert.ok(Buffer.from(inhoud).equals(ci), `${pad} verschilt`);
   }
 });

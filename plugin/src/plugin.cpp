@@ -143,7 +143,8 @@ bool poortInfo(const clap_plugin_t* p, uint32_t index, bool isIn, clap_audio_por
   info->flags = CLAP_AUDIO_PORT_IS_MAIN;
   info->channel_count = s->kanalen;
   info->port_type = s->kanalen == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
-  info->in_place_pair = 0;  // in-place is veilig: per sample per kanaal eerst lezen, dan schrijven
+  // in-place is veilig: per sample per kanaal eerst lezen, dan schrijven. Een instrument heeft geen ingang om mee te paren.
+  info->in_place_pair = INSTRUMENT ? CLAP_INVALID_ID : 0;
   return true;
 }
 const clap_plugin_audio_ports_t AUDIO_PORTS = {poortenAantal, poortInfo};

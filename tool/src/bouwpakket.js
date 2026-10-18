@@ -3,8 +3,14 @@
 // exportknop van de tool. De teksten zijn het product: een vers gesprek krijgt ALLEEN dit pakket.
 import { compileer, BIB, latentie, volgorde } from './keten.js';
 import { ketenHeader, auSubtype } from './codegen.js';
+import { notenParams, heeftSequencer, HOSTTEMPO, NOTEN } from './testsignalen.js';
 
-const PROMPT_VERSIE = 'v3 (17 okt 2026)';
+// Een ontwerp zonder ingang is een instrument (AU aumu). Met een toetsen-knoop speelt het noten; met een sequencer volgt
+// het het tempo van de host. De teksten hieronder kiezen daarop; een effect krijgt precies de teksten van v3.
+const isInstrument = (o) => !o.knopen.some((k) => k.type === 'in');
+const auType = (o) => (isInstrument(o) ? 'aumu' : 'aufx');
+
+const PROMPT_VERSIE = 'v3 (17 okt 2026; instrument 18 okt)';
 
 const fmt = (x, d = 2) => (x === undefined || x === null || Number.isNaN(x) ? '—' : (Math.abs(x) === Infinity ? (x < 0 ? '−∞' : '∞') : Number(x).toFixed(d)).replace('-', '−').replace('.', ','));
 
@@ -65,7 +71,8 @@ getoetst wordt.
 ${ontwerp.uitleg}
 
 ## Doelgeluid
-${ontwerp.doelgeluid || `**Nog niet vastgelegd.** Er is (nog) geen referentieopname van een echte tape-echo. Tot die er is, toetst
+${ontwerp.doelgeluid || (isInstrument(ontwerp) ? `**Geen referentieopname.** Een instrument uit de tool: de plugin toetst tegen zijn eigen ontwerp
+(null-test, ook met noten${heeftSequencer(ontwerp) ? ' en het tempo van de host' : ''}), niet tegen een bestaand apparaat.` : `**Nog niet vastgelegd.** Er is (nog) geen referentieopname van een echte tape-echo. Tot die er is, toetst
 de plugin alleen tegen zijn eigen ontwerp (null-test) en tegen de theorie; "klinkt als een tape-echo" is niet bewezen.
 Wat Clay kan leveren: een opname van een tape-echo (droog en nat, zelfde fragment), met de instellingen erbij.
 
@@ -73,7 +80,7 @@ Over het voorbeeld (Roland RE-201): één opneemkop, drie weergavekoppen, de ech
 (Repeat Rate), intensity = terugkoppeling, bass/treble op de echo. **Niet bevestigd**: tijden in ms, bandsnelheid,
 kopafstanden, wow/flutter-getallen. Gezocht (15 okt 2026): websearch op service notes en specificaties; het
 service-handboek staat op archive.org ("Roland_RE-101_RE-201_Service_Manual") en ManualsLib (999287), maar die waren
-vanuit de bouwomgeving niet te openen. De bereiken hieronder zijn ontwerpkeuzes, geen RE-201-waarden.`}
+vanuit de bouwomgeving niet te openen. De bereiken hieronder zijn ontwerpkeuzes, geen RE-201-waarden.`)}${instrumentSpec(ontwerp)}
 
 ## Keten (uitvoervolgorde per sample)
 ${ketenTekst(ontwerp, c)}
@@ -108,7 +115,7 @@ ${c.params.map((q, i) => `| ${i + 1} | ${q.naam} | ${kortLabel(ontwerp.parameter
 | staart | gemeld aan de host | ${terugkoppeling ? 'oneindig bij een lusversterking ≥ 1, anders tot −90 dB (formule in pb_graaf.h staartSec)' : '50 ms'} |
 | geheugen | vooraf, nooit in process | vertragingslijnen op de hoogste samplerate van activate |
 
-## Toleranties (per meting, met reden)
+${isInstrument(ontwerp) ? tolerantiesInstrument(ontwerp, m) : `## Toleranties (per meting, met reden)
 | meting | grens | reden | gemeten |
 |---|---|---|---|
 | null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | de opdracht van de Pluginbouwer; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | ${m.null ?? 'bit voor bit (CLAP, VST3, AU; Linux en macOS)'} |
@@ -124,10 +131,40 @@ ${c.params.map((q, i) => `| ${i + 1} | ${q.naam} | ${kortLabel(ontwerp.parameter
 Ter informatie (geen eis): aliasing van de saturatie los bij 5 kHz/12 dB: naïef ${m.aliasingBlok ? fmt(m.aliasingBlok.naief, 1) : '—'} dB, ADAA
 ${m.aliasingBlok ? fmt(m.aliasingBlok.adaa, 1) : '—'} dB; met de toon helemaal open ${m.aliasingKeten?.toonOpen5kHz ? fmt(m.aliasingKeten.toonOpen5kHz.wasm, 1) : '—'} dB. Daar is 2× oversampling de
 volgende stap als het hoorbaar is.
-
+`}
 ## Validators (CI, het log is het bewijs)
-pluginval strictness 10 (AU en VST3; met \`--rtcheck enabled\` op macOS), auval -strict, clap-validator, RTSan met een
+pluginval strictness 10 (AU en VST3; met \`--rtcheck enabled\` op macOS), auval -strict${isInstrument(ontwerp) ? ' (type \`aumu\`)' : ''}, clap-validator, RTSan met een
 kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+`;
+}
+
+// SPEC: wat een instrument anders doet dan een effect (leeg voor een effect)
+function instrumentSpec(ontwerp) {
+  if (!isInstrument(ontwerp)) return '';
+  const np = notenParams(ontwerp), c = compileer(ontwerp);
+  const t = `
+
+## Instrument
+- **Geen audio-ingang.** Eén stereo-uitgang (en mono, fase 5). CLAP-features \`instrument\` en \`synthesizer\`, AU-type
+  \`aumu\` (staat als \`PB_AU_TYPE\` in \`dsp/ontwerpen/keten_${ontwerp.id}.h\`, met \`PB_INSTRUMENT\`). De keten heeft geen
+  ingangsknoop; geef \`verwerk\` een stille invoer (of de nulbuffer van de host), het Ontwerp leest hem niet.
+${np ? `- **Noten.** Eén note port (ingang), alleen het CLAP-dialect (valkuil 19). Noot-aan en noot-uit (CLAP-noten, en
+  MIDI-bytes 0x90/0x80 die de AU-wrapper doorgeeft) worden op hun sample de parameters **${c.params[np.noot].naam}** (index ${np.noot}) en
+  **${c.params[np.poort].naam}** (index ${np.poort}): zie ARCHITECTUUR.md "Noten" voor de precieze regel. Die twee blijven ook gewone
+  parameters (automatiseerbaar), maar een noot verandert de waarde die de host ziet niet.` : ''}
+${heeftSequencer(ontwerp) ? `- **Tempo van de host.** De sequencer speelt op het tempo uit het transport van de host (\`clap_event_transport\`,
+  per blok); zonder transport op zijn eigen Tempo-knop. Zie ARCHITECTUUR.md "Transport".` : ''}`;
+  return t.replace(/\n+$/, '').replace(/\n\n(?=\n)/g, '\n');
+}
+function tolerantiesInstrument(ontwerp, m) {
+  const np = notenParams(ontwerp);
+  return `## Toleranties (per meting, met reden)
+| meting | grens | reden | gemeten |
+|---|---|---|---|
+| null-test browser (WASM) vs gebouwd binary, per testsignaal | piek ≤ −90 dBFS | de opdracht van de Pluginbouwer; in de praktijk 0 (bit voor bit) door de regels van CLAUDE.md | ${m.null ?? 'bit voor bit (CLAP, VST3, AU; Linux en macOS) in de repo van de Pluginbouwer'} |
+${np ? `| noten (${NOTEN.length} noten, legato, buiten bereik, dubbel) als CLAP-noten én als MIDI, blok 512 en wisselend | piek ≤ −90 dBFS | een noot hoort op zijn sample; een verschil is een noot op het verkeerde moment of de verkeerde toon | bit voor bit in de repo |
+` : ''}${heeftSequencer(ontwerp) ? `| hosttempo ${HOSTTEMPO} bpm (de Tempo-knop staat anders) | piek ≤ −90 dBFS | de sequencer volgt de host, niet zijn knop | bit voor bit in de repo |
+` : ''}
 `;
 }
 
@@ -185,13 +222,53 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
   (\`GetPresets\`, \`NewFactoryPresetSet\`). VST3 krijgt van clap-wrapper geen presetlijst.
 - Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
 
-## Determinisme (waarom browser en plugin gelijk zijn)
+${architectuurInstrument(ontwerp)}## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: \`pb_math.h\` (alleen + − × ÷ sqrt floor). Vlaggen \`-ffp-contract=off\`, geen \`-ffast-math\`.
 - Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.
 - Denormals: de DSP poetst ze zelf weg; invoer wordt op de bits getest (\`pb::invoer\`).
 - Smoothers springen bij de eerste sample na activate/reset: het maakt niet uit of de host parameters vóór of na
   activate zet.
 `;
+}
+
+function architectuurInstrument(ontwerp) {
+  if (!isInstrument(ontwerp)) return '';
+  const np = notenParams(ontwerp), c = compileer(ontwerp);
+  let t = `## Instrument
+- Geen audio-ingang: \`audio-ports\` meldt 0 ingangen en 1 uitgang; \`audio-ports-config\` (fase 5) alleen stereo en mono
+  uitgang. \`verwerk(in, uit, k, n)\` krijgt een invoer van nullen (één vaste stille buffer per kanaal, gereserveerd in
+  activate): de keten leest hem niet, maar de pointers moeten geldig zijn.
+- CLAP-features \`CLAP_PLUGIN_FEATURE_INSTRUMENT\` en \`CLAP_PLUGIN_FEATURE_SYNTHESIZER\`; clap-wrapper maakt er met
+  \`AUV2_INSTRUMENT_TYPE aumu\` een AU-instrument van (CMake, \`make_clapfirst_plugins\`).
+`;
+  if (np) t += `
+## Noten
+Gebruik \`dsp/pb_noten.h\` (gegeven): \`pb::NootStapel\` (monofoon, legato, hooguit 16 vastgehouden toetsen) en
+\`pb::nootVerhouding(n)\` = 2^((n − 57)/12) via \`pb_math.h\`. De verwachte uitvoer in \`testsignalen/noten/\` rekent precies
+dit, dus wijk er niet van af:
+1. Bij elk noot-event (op zijn sample, het blok wordt daar gesplitst zoals bij een parameter-event):
+   noot-aan → \`stapel.aan(key)\`, noot-uit → \`stapel.uit(key)\`, \`CLAP_EVENT_NOTE_CHOKE\` → \`stapel.leeg()\`; een key
+   buiten 0..127 negeren (geen stap 2).
+2. Daarna altijd: is er een bovenste noot \`n = stapel.boven()\` (≥ 0), dan
+   \`zetParam(${np.noot}, nootVerhouding(n))\` en daarna \`zetParam(${np.poort}, 1.0)\`; anders alleen \`zetParam(${np.poort}, 0.0)\`.
+   (${c.params[np.noot].naam} = index ${np.noot}, ${c.params[np.poort].naam} = index ${np.poort}; dit zijn indexen in \`PARAMS\`, geen id's.)
+3. MIDI-bytes (\`CLAP_EVENT_MIDI\`, de AU-wrapper geeft ze zo door): \`0x9n\` met velocity > 0 = noot-aan, \`0x8n\` of \`0x9n\`
+   met velocity 0 = noot-uit, \`0xBn\` CC 120 of 123 = stapel leeg en dan stap 2.
+4. Velocity speelt geen rol. De noot zet de parameterspiegel NIET (de host ziet de knopwaarde, niet de laatste noot); state
+   bewaart dus geen noot. \`reset\` maakt de stapel leeg (na \`ontwerp.reset()\`).
+5. Note port: één ingang, \`supported_dialects = CLAP_NOTE_DIALECT_CLAP\`, \`preferred_dialect = CLAP_NOTE_DIALECT_CLAP\`
+   (valkuil 19). De null-test speelt de noten ook als MIDI-bytes: stap 3 moet dus ook werken.
+`;
+  if (heeftSequencer(ontwerp)) t += `
+## Transport
+\`graaf_ontwerp.h\` heeft \`zetTransport(bpm, beat, speelt)\` (\`PB_HEEFT_TRANSPORT\`). Roep hem aan het begin van ELK process
+aan, vóór de events: met een transport met \`CLAP_TRANSPORT_HAS_TEMPO\` →
+\`zetTransport(tempo, HAS_BEATS_TIMELINE ? song_pos_beats / CLAP_BEATTIME_FACTOR : 0, IS_PLAYING && HAS_BEATS_TIMELINE)\`;
+zonder transport of zonder tempo → \`zetTransport(0, 0, false)\` (de sequencer valt terug op zijn Tempo-knop). De motor
+herankert de sequencer alleen bij een sprong van meer dan ¾ zestiende, zodat de uitvoer blokgrootte-onafhankelijk blijft.
+De null-test \`testsignalen/hosttempo/\` speelt op ${HOSTTEMPO} bpm vanaf tel 0 (\`pb-render --tempo ${HOSTTEMPO}\`).
+`;
+  return t + '\n';
 }
 
 export function claudeMd(ontwerp) {
@@ -206,7 +283,7 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
   De plugin moet bit voor bit klinken als de WASM van de tool; de verwachte uitvoer in \`testsignalen/\` komt daaruit.
 - Compileer \`dsp/\` met \`-ffp-contract=off -fno-fast-math -fno-math-errno\` (ook op macOS met Apple clang).
 - Stack: CLAP-first (\`clap/clap.h\`), en **clap-wrapper v0.16.0** (MIT) via CMake \`make_clapfirst_plugins\` voor VST3 en
-  AUv2 (\`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON\`). AU-codes: maker \`Vrve\`, subtype \`${auSubtype(ontwerp.id)}\` (staan ook als
+  AUv2 (\`CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES=ON\`). AU-codes: maker \`Vrve\`, subtype \`${auSubtype(ontwerp.id)}\`, type \`${auType(ontwerp)}\` (staan ook als
   #define in \`dsp/ontwerpen/keten_${ontwerp.id}.h\`).
 - Geen betaalde diensten of licenties. Ad-hoc signeren (\`codesign --sign -\`) is genoeg voor Clay's eigen Mac.
 
@@ -263,7 +340,21 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 18. **pluginval v2 op de opdrachtregel**: bij \`validate\` staat het pluginpad vóór \`--sample-rates\`/\`--block-sizes\` (die
    lijsten slokken anders het pad op); \`pluginval test\` lost een relatief pad op tegen de map van zijn config: geef
    absolute paden. De GitHub-tools geven van een job alleen de laatste 5000 logregels: zet bewijsstappen achteraan.
-## Hoe je weet dat het klopt
+${isInstrument(ontwerp) ? `19. **Note port alleen in het CLAP-dialect.** Met \`CLAP_NOTE_DIALECT_MIDI\` erbij maakt clap-wrapper v0.16.0 in de VST3
+   16 × 130 "MIDI/controller"-parameters (IMidiMapping) die niet in de state staan: pluginval "Discrete parameter state
+   restoration" faalt erop. De AU-wrapper geeft CC's toch als \`CLAP_EVENT_MIDI\` door, dus lees MIDI-bytes wel.
+20. **Een instrument heeft geen audio-ingang**, ook niet in de AU: een host (of je eigen AU-toets) die een stream-formaat
+   op de input-scope zet, krijgt een fout. pb-render en pluginval geven geen invoer mee als de plugin 0 ingangen meldt.
+21. **AU-transport op tel 0**: clap-wrapper zet \`CLAP_TRANSPORT_HAS_BEATS_TIMELINE\` niet als de beat precies 0 is (\`if
+   (data._beat)\`); het tempo komt wel door. Reken daar niet op een plek in de maat in het eerste blok.
+22. **pluginval \`--rtcheck enabled\` op een VST3-instrument faalt in pluginval zelf**: zijn VST3-host alloceert als hij MIDI
+   stuurt (\`realloc\` ← \`juce::MidiEventList::addEvent\`, geen frame van de plugin). Draai die stap met
+   \`sh gereedschap/pluginval-rt.sh <pluginval> <plugin.vst3>\`: \`--rtcheck relaxed\`, en het script faalt zelf op elke
+   andere schending. Zet rtcheck niet gewoon uit; de AU houdt \`--rtcheck enabled\`.
+23. **pluginval's AU-host meldt een tempo** (JUCE zonder playhead: 120 bpm). Een sequencer die het hosttempo volgt, klinkt
+   in \`pluginval test\` op de AU dus anders dan de WASM zonder transport: toets die gevallen in een eigen AU-host zonder
+   host-callbacks. (Zonder sequencer speelt het niet.)
+` : ''}## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in \`VERSLAG.md\`; zet een toets nooit uit om groen te worden.
 `;
@@ -369,6 +460,7 @@ export function leerpad(ontwerp) {
 export function promptsMd(ontwerp, { uitslagen = {} } = {}) {
   const id = ontwerp.id, au = auSubtype(id);
   const u = (f) => uitslagen[f] ? uitslagen[f] : 'nog niet getoetst';
+  const inst = isInstrument(ontwerp), np = notenParams(ontwerp), seq = heeftSequencer(ontwerp);
   return `# PROMPTS — ${ontwerp.naam} (${PROMPT_VERSIE})
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
@@ -380,13 +472,13 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 **Prompt**
 > Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "${ontwerp.naam}": een CLAP-plugin in
 > \`plugin/\` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit \`patches/\`, in naamvolgorde) voor VST3 en AUv2
-> (\`make_clapfirst_plugins\`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker \`Vrve\`, subtype \`${au}\`, type \`aufx\`). De plugin gebruikt het Ontwerp uit
-> \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
+> (\`make_clapfirst_plugins\`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker \`Vrve\`, subtype \`${au}\`, type \`${auType(ontwerp)}\`). De plugin gebruikt het Ontwerp uit
+> \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase ${inst ? 'is het een instrument zonder audio-ingang (SPEC.md "Instrument": 0 ingangen, 1 stereo-uitgang, features instrument en synthesizer, AU-type `aumu` via `AUV2_INSTRUMENT_TYPE`) en schrijft process stilte' : 'geeft process de invoer door'} (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, \`gereedschap/pb-render\`
 > gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
-> installeren in ~/Library/Audio/Plug-Ins, \`killall -9 AudioComponentRegistrar\`, \`auval -strict -v aufx ${au} Vrve\`,
-> pluginval strictness 10 met \`--rtcheck enabled\` op AU (met \`--repeat 3\`) en VST3, de plugins als artefact
+> installeren in ~/Library/Audio/Plug-Ins, \`killall -9 AudioComponentRegistrar\`, \`auval -strict -v ${auType(ontwerp)} ${au} Vrve\`,
+> pluginval strictness 10 met \`--rtcheck enabled\` op AU (met \`--repeat 3\`) en VST3${inst ? ' (de VST3 van een instrument via `gereedschap/pluginval-rt.sh`, valkuil 22)' : ''}, de plugins als artefact
 > \`macos-keten_${id}\`; een artefactnaam mag geen \`:\` \`/\` \`*\` \`?\` \`"\` \`<\` \`>\` \`|\` bevatten, zet de matrixnaam dus niet ongefilterd in de naam). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
@@ -401,10 +493,13 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > ARCHITECTUUR.md. Voeg aan CI de null-test toe: \`sh gereedschap/ci-null.sh clap <build>\` (pb-render, blok 512,
 > wisselende blokken, state-rondje) en \`sh gereedschap/ci-null.sh pluginval <plugin> <pluginval> <label>\` voor de VST3
 > (Linux en macOS) en de AU (macOS). Verander \`dsp/\` en \`testsignalen/\` niet. Als een render "gelijk aan de
-> standaardwaarden" zegt: lees valkuil 1.
+> standaardwaarden" zegt: lees valkuil 1.${inst ? `
+> Dit is een instrument: geef \`verwerk\` een stille invoer (ARCHITECTUUR.md "Instrument").${np ? ` Bouw de note port en de noten
+> precies zoals ARCHITECTUUR.md "Noten" (\`dsp/pb_noten.h\` is gegeven; valkuil 19). \`ci-null.sh clap\` speelt dan ook
+> \`testsignalen/noten/\` (als CLAP-noten en als MIDI-bytes, blok 512 en wisselend).` : ''}${seq ? ` Geef het Ontwerp per blok het transport
+> van de host (ARCHITECTUUR.md "Transport"); \`ci-null.sh clap\` speelt dan ook \`testsignalen/hosttempo/\`.` : ''}` : ''}
 
-**Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit), de statistische toets (zelfoscillatie)
-binnen 1 dB, en de validators van fase 0 nog groen.
+**Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit)${np ? ', ook de noten (CLAP en MIDI)' : ''}${seq ? ', ook het hosttempo' : ''}, ${inst ? '' : 'de statistische toets (zelfoscillatie)\nbinnen 1 dB, '}en de validators van fase 0 nog groen.
 **Uitslag**: ${u('1')}
 
 ---
@@ -440,11 +535,13 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 ---
 ## Fase 5 — formaten compleet
 **Prompt**
-> Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
+${inst ? `> Stereo- én mono-uitgang (audio-ports-config: 0 → 2 en 0 → 1; een instrument heeft geen ingang), bypass zoals de host
+> het wil (naar stilte), 44,1–192 kHz, blokgrootte 1..4096. Breid de CI-matrix uit (samplerates in de null-test${np ? ', ook de noten' : ''}).
+> Lees valkuil 17 (elk formaat kiest zijn kanalen anders).` : `> Mono én stereo (audio-ports-config), bypass zoals de host het wil, 44,1–192 kHz, blokgrootte 1..4096. Breid de
 > CI-matrix uit (samplerates in de null-test). Let op bij mono in-place: de DSP schrijft per sample eerst kanaal 0;
 > lees je beide DSP-ingangen uit één hostbuffer die ook uitgang 0 is, kopieer de invoer dan eerst. Drie indelingen:
 > stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2, Logic biedt die aan op een monospoor). Lees valkuil 17 (elk
-> formaat kiest zijn kanalen anders). De verwachte uitvoer bij andere samplerates maak je met \`wasm/graaf.wasm\` (die
+> formaat kiest zijn kanalen anders).`} De verwachte uitvoer bij andere samplerates maak je met \`wasm/graaf.wasm\` (die
 > doet \`testsignalen/\` eerst bit voor bit na). Bypass: \`CLAP_PARAM_IS_BYPASS\`, de DSP rekent door, 10 ms overvloeien,
 > en ook de droge invoer door \`pb::uitvoer\` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
@@ -466,7 +563,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 **Uitslag**: ${u('6')}
 
 ---
-## Fase 7 — test in Logic (checklist voor Clay)
+${inst ? fase7Instrument(ontwerp, np, seq) : `## Fase 7 — test in Logic (checklist voor Clay)
 - [ ] Plug-in Manager: PB ${ontwerp.naam} "geslaagd" (na LEERPAD.md "Installeren").
 - [ ] Op een audiospoor laden; geluid gaat erdoor; knoppen doen wat SPEC.md zegt.
 - [ ] Een knop automatiseren (Tijd van langzaam naar snel): de toon glijdt, geen tikken.
@@ -475,7 +572,21 @@ binnen 1 dB, en de validators van fase 0 nog groen.
       loopt door na het einde van de regio. (De plugin meldt een andere staart niet actief met \`tail.changed\`; de
       host vraagt hem op bij de bounce. Stopt de echo te vroeg, dan is dit de plek.)
 - [ ] Project bewaren, Logic sluiten, opnieuw openen: alle knoppen staan waar ze stonden.
-`;
+`}`;
+}
+
+function fase7Instrument(ontwerp, np, seq) {
+  const c = compileer(ontwerp);
+  return `## Fase 7 — test in Logic (checklist voor Clay)
+- [ ] Plug-in Manager: PB ${ontwerp.naam} "geslaagd" (na LEERPAD.md "Installeren"), bij de instrumenten (AU Instruments → Varve).
+- [ ] Een nieuw spoor "Software-instrument", PB ${ontwerp.naam} als instrument.${np ? `
+- [ ] Spelen met het keyboard (of Musical Typing, Cmd+K): elke toets klinkt, de toon klopt (A onder de middelste C = 220 Hz).
+- [ ] Legato: houd een toets vast, druk een tweede, laat de tweede los: de toon gaat terug naar de eerste zonder nieuwe aanslag.
+- [ ] Een MIDI-regio afspelen, ook op een ander tempo: noten op tijd, geen hangende noot na stop.` : ''}${seq ? `
+- [ ] Het projecttempo veranderen (bijv. 100 en 140 bpm) en afspelen: het patroon volgt het tempo van Logic.` : ''}
+- [ ] Een knop automatiseren (${c.params.find((p, i) => !np || (i !== np.noot && i !== np.poort))?.naam ?? c.params[0].naam}): geen tikken.
+- [ ] Bouncen met de staart (Bestand → Bounce, "Include Audio Tail"): het loslaten klinkt uit tot het einde.
+- [ ] Project bewaren, Logic sluiten, opnieuw openen: alle knoppen staan waar ze stonden.`;
 }
 
 // Alle bestanden van het pakket. bronnen = { 'dsp/pb_math.h': tekst, … } (de tool bakt ze in, Node leest ze);
@@ -515,6 +626,7 @@ export const PAKKET_BRONNEN = {
   'dsp/pb_math.h': 'dsp/pb_math.h', 'dsp/pb_core.h': 'dsp/pb_core.h', 'dsp/pb_biquad.h': 'dsp/pb_biquad.h',
   'dsp/pb_delay.h': 'dsp/pb_delay.h', 'dsp/pb_svf.h': 'dsp/pb_svf.h', 'dsp/pb_tape.h': 'dsp/pb_tape.h',
   'dsp/pb_graaf.h': 'dsp/pb_graaf.h', 'dsp/pb_bronnen.h': 'dsp/pb_bronnen.h', 'dsp/graaf_ontwerp.h': 'dsp/graaf_ontwerp.h',
+  'dsp/pb_noten.h': 'dsp/pb_noten.h',
   'dsp/pb_wasm.cpp': 'dsp/pb_wasm.cpp', 'dsp/bouw-wasm.sh': 'dsp/bouw-wasm.sh',
   'host/pb-render.cpp': 'gereedschap/pb-render.cpp',
   'tools/pakket/ci-null.sh': 'gereedschap/ci-null.sh',
@@ -526,4 +638,5 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch': 'patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch',
   'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
+  'tools/pluginval-rt.sh': 'gereedschap/pluginval-rt.sh',
 };

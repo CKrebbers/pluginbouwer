@@ -15,7 +15,9 @@ export function laadKeten(e, rij, sr) {
 }
 // events: [[sample, index, waarde], …]; elk event geldt vanaf zijn sample (zoals een CLAP-event). gebeurtenissen is
 // dezelfde lijst onder de naam van de instrumentkant (een toets indrukken en loslaten: Noot en Poort).
-export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128, events = [], gebeurtenissen = [] } = {}) {
+// tempo: een transport dat speelt vanaf tel 0 op dit tempo (zoals pb-render --tempo), bij elk deelblok gezet met de
+// plek als clap_beattime afgerond, zoals een host hem doorgeeft.
+export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 128, events = [], gebeurtenissen = [], tempo = 0 } = {}) {
   events = [...events, ...gebeurtenissen].sort((a, b) => a[0] - b[0]);
   const h = laadKeten(e, rij, sr);
   try {
@@ -25,6 +27,7 @@ export function renderKeten(e, rij, invoer, { sr = 48000, waarden = {}, blok = 1
       while (ev < events.length && events[ev][0] <= pos) { e.pg_zet(h, events[ev][1], events[ev][2]); ev++; }
       const grens = Math.min(n, (Math.floor(pos / blok) + 1) * blok, ev < events.length ? events[ev][0] : n);
       const m = grens - pos;
+      if (tempo > 0) { const F = 2 ** 31; e.pg_transport(h, tempo, Math.floor(pos / sr * tempo / 60 * F + 0.5) / F, 1); }
       for (let c = 0; c < k; c++) new Float32Array(e.memory.buffer, e.pg_in(h, c), m).set(invoer[c].subarray(pos, pos + m));
       e.pg_verwerk(h, k, m);
       for (let c = 0; c < k; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pg_uit(h, c), m), pos);

@@ -9,6 +9,7 @@
 //   bypass      met BypassEffect aan is de uitgang de ingang (na 10 ms overvloeien)
 // Een instrument (au-proef aumu …, 18 okt) heeft andere poorten; zijn testsignalen maakt tools/null.mjs maak:
 //   ingang      de AU heeft geen audio-ingang
+//   gevallen    de gewone testsignalen (au-gevallen.txt) zonder host-callbacks: null ≤ −90 dBFS tegen de WASM
 //   noten       de noten van testsignalen/<ontwerp>/noten als MIDI, blok 512 en 64: null ≤ −90 dBFS tegen de WASM
 //   hosttempo   het tempo via de host-callbacks: null ≤ −90 dBFS tegen de WASM met hetzelfde transport
 //   state       als hierboven
@@ -86,6 +87,10 @@ if (opdracht === 'maak') {
       const r = nullTest(leesWav(verwacht).kanalen, leesWav(pad).kanalen);
       poort(naam, r.piekDb <= GRENS_DB, `piek ${fmtDb(r.piekDb)}`);
     };
+    if (existsSync(join(tmap, 'au-gevallen.txt'))) {
+      const namen = readFileSync(join(tmap, 'au-gevallen.txt'), 'utf8').trim().split('\n').slice(1).map((r) => r.split('\t')[0]);
+      for (const naam of namen) tegen(`${naam} (zonder transport, blok 512)`, join(tmap, `${naam}.verwacht.wav`), join(a1, `geval-${naam}.wav`));
+    }
     if (existsSync(join(tmap, 'noten', 'noten.txt')))
       for (const blok of [512, 64]) tegen(`noten als MIDI (blok ${blok})`, join(tmap, 'noten', 'verwacht.wav'), join(a1, `noten-${blok}.wav`));
     if (existsSync(join(tmap, 'hosttempo', 'tempo.txt')))
