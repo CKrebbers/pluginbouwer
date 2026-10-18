@@ -122,7 +122,7 @@ De AU kon ik lokaal niet toetsen. Dat de AU-null-test met MIDI-noten in één ke
   dat de bypass niet tot de parameters uit SPEC.md hoort.
 - **Wat Logic doet met de bypass** van een AU-instrument (zijn eigen bypass of onze parameter) kon ik niet toetsen. Dat
   staat als punt in LEERPAD.md, voor fase 7.
-- **Mono van de AU** is in CI getoetst via auval ("1 Channel Test" en de kanaalindelingen) en via pluginval
+- **Mono van de AU** is in CI getoetst via auval (de gemelde kanaalindelingen) en via pluginval
   "Bus layout processing" (process op mono). De null-test van de AU draait alleen stereo, omdat `pluginval test` geen
   kanaalindeling kan kiezen. Mono als null-test is er voor CLAP (bit voor bit tegen de WASM met 1 kanaal).
 - **LEERPAD.md** heeft een kapotte kop: regel 29 is " (niet nodig om te bouwen)" zonder `##`. Die stond er al vóór
