@@ -29,3 +29,13 @@ In Logic staan ze in het presetmenu bovenin het pluginvenster; een verse plugin 
  (niet nodig om te bouwen)
 - Wat een null-test is: twee renders van elkaar aftrekken; stilte = gelijk.
 - Een terugkoppeling: hoe de lusversterking (terugkoppeling × filter × saturatie) bepaalt of hij uitsterft of doorgaat.
+
+## Mono, stereo en bypass (fase 5)
+- **Mono of stereo**: in Logic kies je bij een nieuw spoor "Software-instrument" de uitgang (Mono of Stereo) vóór je
+  PB Toetsenpad laadt; beide werken. Mono is het linkerkanaal van de stereo-uitvoer (de chorus en galm spreiden dan
+  niet meer over links en rechts).
+- **Bypass**: de plugin heeft een eigen parameter "Bypass" (Aan/Uit) die VST3- en CLAP-hosts voor hun bypassknop
+  gebruiken: de plugin rekent dan door en vloeit in 10 ms over naar stilte, en bij weer aanzetten hoor je meteen wat hij
+  op dat moment speelt. Logic heeft voor AU-instrumenten een eigen bypass (de aan/uit-knop van de plugin-slot); wat
+  Logic dan doet, bepaalt Logic zelf. Probeer het in fase 7: geen tik bij aan- en uitzetten.
+- **Samplerate**: 44,1 tot 192 kHz klinken hetzelfde (in CI bit voor bit nagerekend tegen de tool).
