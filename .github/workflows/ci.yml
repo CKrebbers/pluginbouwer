@@ -1,4 +1,4 @@
-# CI van het bouwpakket Dub-echo (fase 0–5): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
+# CI van het bouwpakket Dub-echo (fase 0–6): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
 # stap "Bewijs" die de uitslagen samenvat (de GitHub-tools geven alleen de laatste 5000 regels van een job: valkuil 18).
 name: ci
 
@@ -265,6 +265,19 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$b"
           done
 
+      - name: Installatiepakket maken (pkgbuild, BundleIsRelocatable false, postinstall; fase 6)
+        run: |
+          set -o pipefail
+          mkdir -p pakket
+          sh gereedschap/maak-pkg.sh build/plugins "$PWD/pakket/PB-Dub-echo.pkg" "$(sed -n 's/^project(dub_echo VERSION \([0-9.]*\).*/\1/p' plugin/CMakeLists.txt)" 2>&1 | tee maak-pkg.log
+
+      - name: Installatiepakket (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installatiepakket
+          path: pakket/PB-Dub-echo.pkg
+          if-no-files-found: error
+
       - name: Installeren in ~/Library/Audio/Plug-Ins
         run: |
           P=~/Library/Audio/Plug-Ins
@@ -425,6 +438,7 @@ jobs:
       - name: Bewijs
         if: always()
         run: |
+          echo "== installatiepakket =="; grep -aE "bundels|BundleIsRelocatable|^maak-pkg|^FOUT|pkgbuild: (Wrote|error)" maak-pkg.log || echo "(geen uitslag)"
           echo "== auval =="; grep -E "AU VALIDATION|Tail Time|FAIL|WARNING" auval.log || echo "(geen uitslag)"
           echo "   presets in auval:"; cat auval-presets.log || echo "(geen uitslag)"
           echo "   regels van auval met een presetnaam:"; grep -F -f presetnamen.txt auval.log || echo "(geen)"
@@ -450,3 +464,99 @@ jobs:
             grep -aE "^\| " null-matrix-$m.log | grep -avE "\| ja \||^\| render|^\|---" || echo "   (geen)"
             grep -aE "^matrix " null-matrix-$m.log || echo "(geen eindregel)"
           done
+
+  installeren:
+    name: macOS installatiepakket op een verse runner (installer twee keer, plek, handtekening, auval)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      # niets bouwen en niets uitchecken: alleen het .pkg uit de macos-job
+      - name: Installatiepakket ophalen
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-installatiepakket
+          path: pakket
+
+      - name: Pakket bekijken (ongesigneerd, geen bundel in relocate)
+        run: |
+          ls -la pakket
+          pkgutil --check-signature pakket/PB-Dub-echo.pkg | tee pakket.log || true
+          pkgutil --expand pakket/PB-Dub-echo.pkg uitgepakt
+          cat uitgepakt/PackageInfo | tee -a pakket.log
+          echo "bundels in relocate: $(xmllint --xpath 'count(//relocate/bundle)' uitgepakt/PackageInfo)" | tee -a pakket.log
+          test "$(xmllint --xpath 'count(//relocate/bundle)' uitgepakt/PackageInfo)" = 0
+          # schone runner: nog niets van ons op de schijf
+          for d in /Library/Audio/Plug-Ins ~/Library/Audio/Plug-Ins; do
+            if ls "$d"/*/"PB Dub-echo".* > /dev/null 2>&1; then echo "FOUT: runner is niet schoon ($d)"; exit 1; fi
+          done
+          echo "runner schoon" | tee -a pakket.log
+
+      - name: Lokbundel elders op de schijf (Installer mag hem niet verplaatsen of overschrijven)
+        run: |
+          pkgutil --expand-full pakket/PB-Dub-echo.pkg vol
+          mkdir -p /Users/Shared/elders
+          ditto "vol/Payload/Components/PB Dub-echo.component" "/Users/Shared/elders/PB Dub-echo.component"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Users/Shared/elders/PB Dub-echo.component" || true
+          echo lok > "/Users/Shared/elders/PB Dub-echo.component/Contents/lok.txt"
+          shasum -a 256 "/Users/Shared/elders/PB Dub-echo.component/Contents/MacOS/PB Dub-echo" | tee lok-voor.txt
+
+      - name: Installeren, eerste keer (install)
+        run: |
+          set -o pipefail
+          sudo installer -pkg pakket/PB-Dub-echo.pkg -target / 2>&1 | tee installeer-1.log
+          grep -q "The install was successful" installeer-1.log
+          if grep -qi "upgrad" installeer-1.log; then echo "FOUT: eerste installatie meldt upgrade"; exit 1; fi
+
+      - name: Installeren, tweede keer (upgrade)
+        run: |
+          set -o pipefail
+          sudo installer -pkg pakket/PB-Dub-echo.pkg -target / 2>&1 | tee installeer-2.log
+          grep -q "The upgrade was successful" installeer-2.log
+
+      - name: Plek en handtekening van alle drie
+        run: |
+          set -eo pipefail
+          P=/Library/Audio/Plug-Ins
+          : > plek.log
+          for b in "$P/Components/PB Dub-echo.component" "$P/VST3/PB Dub-echo.vst3" "$P/CLAP/PB Dub-echo.clap"; do
+            test -d "$b" || { echo "FOUT: ontbreekt: $b" | tee -a plek.log; exit 1; }
+            codesign --verify --deep --strict --verbose=2 "$b" 2>&1 | tee -a plek.log
+            codesign -dv "$b" 2>&1 | grep -E "^(Identifier|Signature)=" | tee -a plek.log
+            codesign -dv "$b" 2>&1 | grep -q "^Signature=adhoc"
+            echo "eigenaar: $(stat -f '%Su:%Sg %Sp' "$b")" | tee -a plek.log
+            echo "ok: $b (ad-hoc gesigneerd)" | tee -a plek.log
+          done
+          # de lokbundel elders is niet aangeraakt en er staat niets in ~/Library
+          test -f "/Users/Shared/elders/PB Dub-echo.component/Contents/lok.txt"
+          shasum -a 256 -c lok-voor.txt
+          if ls ~/Library/Audio/Plug-Ins/*/"PB Dub-echo".* > /dev/null 2>&1; then echo "FOUT: iets in ~/Library"; exit 1; fi
+          echo "lokbundel elders onaangeroerd" | tee -a plek.log
+          pkgutil --pkg-info nl.varve.pluginbouwer.dub-echo.pkg | tee -a plek.log
+          pkgutil --files nl.varve.pluginbouwer.dub-echo.pkg | grep -E '\.(component|vst3|clap)$' | tee -a plek.log
+          grep -i "relocat" /var/log/install.log | tail -5 || echo "install.log: niets over relocatie"
+
+      - name: postinstall draaide (AudioComponentRegistrar)
+        run: |
+          grep -E "postinstall|AudioComponentRegistrar" /var/log/install.log | tail -10 | tee postinstall.log || true
+          auval -a | grep -i "Vrve" | tee -a postinstall.log
+
+      - name: auval -strict
+        run: |
+          status=0
+          auval -strict -v aufx PDca Vrve > auval.log 2>&1 || status=$?
+          cat auval.log
+          echo "exitcode: $status"
+          test "$status" -eq 0
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+          # de AU die auval laadt, komt uit /Library (de lokbundel is van dezelfde AU)
+          grep -iE "Plug-Ins/Components|elders" auval.log || true
+
+      - name: Bewijs
+        if: always()
+        run: |
+          echo "== pakket =="; grep -E "Status|bundels in relocate|runner schoon|FOUT" pakket.log || echo "(geen uitslag)"
+          echo "== installatie 1 =="; grep -E "installer: (Installing|Upgrading)|The (install|upgrade) was|FOUT" installeer-1.log || echo "(geen uitslag)"
+          echo "== installatie 2 =="; grep -E "installer: (Installing|Upgrading)|The (install|upgrade) was|FOUT" installeer-2.log || echo "(geen uitslag)"
+          echo "== plek en handtekening =="; cat plek.log || echo "(geen uitslag)"
+          echo "== postinstall =="; cat postinstall.log || echo "(geen uitslag)"
+          echo "== auval =="; grep -E "AU VALIDATION|FAIL|WARNING|Tail Time" auval.log || echo "(geen uitslag)"
