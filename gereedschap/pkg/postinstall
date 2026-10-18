@@ -1,0 +1,6 @@
+#!/bin/sh
+# postinstall van PB Toetsenpad.pkg (fase 6): de AU-registry opnieuw laten lezen, anders zien auval en Logic de nieuwe
+# AU niet meteen (valkuil 5). Draait niet erg als hij er niet is.
+killall -9 AudioComponentRegistrar 2>/dev/null || true
+echo "PB Toetsenpad postinstall: AudioComponentRegistrar herstart"
+exit 0

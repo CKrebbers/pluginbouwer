@@ -14,6 +14,8 @@
 #           testsignalen/ bit voor bit nadoet); null-test-matrix door het .clap (pb-render), de AU (pb-au-render, eigen
 #           AU-host) en de VST3/AU (pluginval test); pluginval validate op alle samplerates en blokgroottes; de
 #           layout-toetsen van clap-validator moeten PASSED zijn; auval toont de kanaalindelingen [0, 1] en [0, 2]
+#   fase 6: het installatiepakket (gereedschap/maak-pkg.sh, artefact macos-pkg); job installatie: op een verse runner
+#           die niets bouwt twee keer installeren (install, dan upgrade), plek en handtekening, auval -strict
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -244,6 +246,18 @@ jobs:
             codesign --verify --verbose "$b"
           done
 
+      - name: Installatiepakket (pkgbuild; ongesigneerd, BundleIsRelocatable false, postinstall; fase 6)
+        run: |
+          mkdir -p pakket
+          sh gereedschap/maak-pkg.sh build/plugins "pakket/PB Toetsenpad.pkg"
+          ls -la pakket
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: pakket/
+          if-no-files-found: error
+
       - name: Artefact inpakken (ditto bewaart rechten en symlinks)
         run: |
           mkdir -p artefact
@@ -369,3 +383,19 @@ jobs:
 
       - name: Null-test CLAP-matrix (pb-render; alle samplerates, stereo en mono, blok 1, 4096 en wisselend; fase 5)
         run: sh gereedschap/ci-null.sh matrix build 1 4096 1,4096,7,512,333
+
+  # fase 6: het .pkg op een verse runner die niets bouwt (alleen de scripts uit de checkout)
+  installatie:
+    needs: macos
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: pakket
+
+      - name: Installeren (twee keer), plek en handtekening van AU, VST3 en CLAP, auval -strict
+        run: sh gereedschap/toets-pkg.sh "$PWD/pakket/PB Toetsenpad.pkg"
