@@ -1,7 +1,8 @@
 # Toetsenpad — de CLAP-plugin, en via clap-wrapper v0.16.0 de VST3 en AUv2 (make_clapfirst_plugins).
 #   cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (gereedschap/pb-render.cpp) en
-# build/pb-statetoets (gereedschap/pb-statetoets.cpp), en op macOS build/pb-paneel (gereedschap/pb-paneel.mm).
+# build/pb-statetoets (gereedschap/pb-statetoets.cpp), en op macOS build/pb-paneel (gereedschap/pb-paneel.mm) en
+# build/pb-aupresets (gereedschap/pb-aupresets.cpp). De fabriekspresets komen uit presets/*.json (presets.cmake).
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "laagste macOS")
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
@@ -44,9 +45,13 @@ if (APPLE)
   set_source_files_properties(src/paneel_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
+# --- de fabriekspresets (fase 4): presets/*.json als tabel in het binary (ARCHITECTUUR.md "Presets") -----------------
+include(presets.cmake)
+pb_presets("${PAKKET}/presets" "${CMAKE_BINARY_DIR}/presets/presets_tabel.h")
+
 function(pb_impl naam)
   add_library(${naam} STATIC src/plugin.cpp ${PB_PANEEL_BRONNEN})
-  target_include_directories(${naam} PUBLIC "${PAKKET}/dsp" "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_include_directories(${naam} PUBLIC "${PAKKET}/dsp" "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_BINARY_DIR}/presets")
   target_compile_options(${naam} PRIVATE ${PB_DSP_VLAGGEN})
   target_link_libraries(${naam} PUBLIC clap)
   if (APPLE)
@@ -98,6 +103,13 @@ if (APPLE)
     "-framework CoreAudioKit")
   target_compile_options(pb-paneel PRIVATE -fobjc-arc)
   set_target_properties(pb-paneel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# --- pb-aupresets: de fabriekspresets door de geïnstalleerde AU (fase 4) -----------------------------------------
+if (APPLE)
+  add_executable(pb-aupresets "${PAKKET}/gereedschap/pb-aupresets.cpp")
+  target_link_libraries(pb-aupresets PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-aupresets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
 
 # --- de RTSan-kanarie: dezelfde plugin met een malloc in process (valkuil 4); RTSan MOET hem vangen --------------

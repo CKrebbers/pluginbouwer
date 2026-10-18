@@ -1,0 +1,5 @@
+{
+  "naam": "Pluk",
+  "uitleg": "Kort loslaten: elke noot stopt meteen, als een getokkelde snaar.",
+  "waarden": { "Filter": 1800, "Loslaten": 40 }
+}

@@ -1,6 +1,6 @@
 // pb-statetoets — toetst state en tekst ↔ waarde door het gebouwde .clap (PROMPTS.md fase 2). Een kleine CLAP-host.
 //
-//   pb-statetoets <plugin.clap>
+//   pb-statetoets <plugin.clap> [--presets <verwacht.tsv>]
 //
 // State (ARCHITECTUUR.md "State"), met de hand gemaakte blobs, elk geval terwijl de plugin niet actief is én actief:
 //   (a) een blob zonder de laatste parameter (aantal = N − 1, zoals een oudere build hem schreef) laadt; die parameter
@@ -12,6 +12,11 @@
 // instantie die de verwachte waarden via params.flush kreeg (de state komt dus echt in het Ontwerp).
 // Tekst (SPEC.md "Tekst ↔ waarde"): value_to_text van de standaard geeft precies de tekst uit de tabel, en text_to_value
 // van die tekst geeft de standaard terug; plus de voorbeelden uit de kolom "regel" en de leesregels.
+// Presets (PROMPTS.md fase 4, met --presets; de tabel maakt gereedschap/presets-verwacht.sh uit presets/*.json):
+//   preset-discovery: per preset een provider met één locatie van soort PLUGIN en een container van één preset (valkuil
+//   15), met de naam, de load key en het plugin-id; preset-load van elke preset (niet actief en actief) geeft precies de
+//   waarden uit de JSON (ontbrekende namen hun standaard), rescan, loaded, het geluid bit voor bit en een state-rondje;
+//   een onbekende load key geeft false en on_error en verandert niets.
 // Exitcode 0 = alles groen; elke mislukte controle staat als "FOUT" in de uitvoer.
 #include <clap/clap.h>
 #include <dlfcn.h>
@@ -20,7 +25,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <map>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -40,8 +48,22 @@ void hRescan(const clap_host_t*, clap_param_rescan_flags f) { if (f & CLAP_PARAM
 void hClear(const clap_host_t*, clap_id, clap_param_clear_flags) {}
 void hRequestFlush(const clap_host_t*) { ++flushVragen; }
 const clap_host_params_t HOST_PARAMS = {hRescan, hClear, hRequestFlush};
+// preset-load van de host: telt loaded en on_error, en onthoudt de laatste load key
+int geladen = 0, laadFouten = 0;
+std::string laatsteSleutel;
+void hLaadFout(const clap_host_t*, uint32_t, const char*, const char*, int32_t, const char* msg) {
+  ++laadFouten;
+  std::printf("     (on_error van de plugin: %s)\n", msg ? msg : "");
+}
+void hGeladen(const clap_host_t*, uint32_t soort, const char* locatie, const char* sleutel) {
+  ++geladen;
+  laatsteSleutel = (soort == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !locatie && sleutel) ? sleutel : "?";
+}
+const clap_host_preset_load_t HOST_PRESET_LOAD = {hLaadFout, hGeladen};
 const void* hostExt(const clap_host_t*, const char* id) {
-  return std::strcmp(id, CLAP_EXT_PARAMS) ? nullptr : &HOST_PARAMS;
+  if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &HOST_PARAMS;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD)) return &HOST_PRESET_LOAD;
+  return nullptr;
 }
 void hostNiets(const clap_host_t*) {}
 const clap_host_t HOST = {CLAP_VERSION_INIT, nullptr, "pb-statetoets", "Pluginbouwer", "", "1",
@@ -335,6 +357,174 @@ void toetsState(bool actiefLaden) {
   }
 }
 
+// --- presets -------------------------------------------------------------------------------------------------
+struct VerwachtePreset { std::string naam; std::map<std::string, double> waarden; };
+std::map<std::string, VerwachtePreset> leesVerwacht(const char* bestand) {  // sleutel → naam en waarden
+  std::ifstream f(bestand);
+  if (!f) stop(std::string("kan ") + bestand + " niet lezen");
+  std::map<std::string, VerwachtePreset> v;
+  std::string regel;
+  while (std::getline(f, regel)) {
+    if (regel.empty()) continue;
+    std::vector<std::string> d;
+    std::stringstream ss(regel);
+    std::string veld;
+    while (std::getline(ss, veld, '\t')) d.push_back(veld);
+    while (d.size() < 4) d.push_back("");
+    auto& p = v[d[0]];
+    p.naam = d[1];
+    if (!d[2].empty()) p.waarden[d[2]] = std::strtod(d[3].c_str(), nullptr);
+  }
+  if (v.empty()) stop(std::string(bestand) + " bevat geen presets");
+  return v;
+}
+
+// wat een provider tijdens init en get_metadata meldt
+struct Gemeld {
+  std::vector<clap_preset_discovery_location_t> locaties;
+  std::vector<std::string> locatieNamen;
+  int bestandstypen = 0, soundpacks = 0;
+  struct P { std::string naam, sleutel; std::vector<std::pair<std::string, std::string>> ids; uint32_t vlaggen = 0; bool vlaggenGezet = false; };
+  std::vector<P> presets;
+};
+Gemeld* gemeld(const clap_preset_discovery_indexer_t* i) { return static_cast<Gemeld*>(i->indexer_data); }
+Gemeld* gemeld(const clap_preset_discovery_metadata_receiver_t* r) { return static_cast<Gemeld*>(r->receiver_data); }
+
+void toetsPresets(const clap_plugin_entry_t* entry, const char* bestand) {
+  std::printf("\n## presets (preset-discovery en preset-load)\n");
+  const auto verwacht = leesVerwacht(bestand);
+  auto* pf = static_cast<const clap_preset_discovery_factory_t*>(entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID));
+  auto* pfCompat = static_cast<const clap_preset_discovery_factory_t*>(entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT));
+  check(pf != nullptr, "de plugin heeft een preset-discovery-factory");
+  check(pfCompat == pf, std::string("ook onder het oude id (") + CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT + ")");
+  if (!pf) return;
+  const uint32_t n = pf->count(pf);
+  check(n == verwacht.size(), "aantal providers " + std::to_string(n) + " = aantal presets in presets/ " + std::to_string(verwacht.size()));
+
+  std::map<std::string, std::string> gevonden;  // sleutel → naam
+  std::set<std::string> providerIds;
+  for (uint32_t i = 0; i < n; ++i) {
+    const auto* d = pf->get_descriptor(pf, i);
+    check(d && d->id && d->name && *d->name && clap_version_is_compatible(d->clap_version),
+          "provider " + std::to_string(i) + ": descriptor met id, naam en een geldige CLAP-versie");
+    if (!d || !d->id) continue;
+    check(providerIds.insert(d->id).second, std::string("provider-id ") + d->id + " is uniek");
+    Gemeld g;
+    const clap_preset_discovery_indexer_t ix = {
+        CLAP_VERSION_INIT, "pb-statetoets", "Pluginbouwer", "", "1", &g,
+        [](const clap_preset_discovery_indexer_t* i, const clap_preset_discovery_filetype_t*) { ++gemeld(i)->bestandstypen; return true; },
+        [](const clap_preset_discovery_indexer_t* i, const clap_preset_discovery_location_t* l) {
+          gemeld(i)->locaties.push_back(*l);
+          gemeld(i)->locatieNamen.push_back(l->name ? l->name : "");
+          return true;
+        },
+        [](const clap_preset_discovery_indexer_t* i, const clap_preset_discovery_soundpack_t*) { ++gemeld(i)->soundpacks; return true; },
+        [](const clap_preset_discovery_indexer_t*, const char*) -> const void* { return nullptr; }};
+    const auto* pr = pf->create(pf, &ix, d->id);
+    check(pr && pr->desc == d, std::string(d->id) + ": create geeft een provider met dezelfde descriptor");
+    if (!pr) continue;
+    const bool init = pr->init(pr);
+    check(init, std::string(d->id) + ": init");
+    const bool eenLocatie = g.locaties.size() == 1 && g.locaties[0].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN &&
+                            g.locaties[0].location == nullptr && !g.locatieNamen[0].empty() &&
+                            (g.locaties[0].flags & CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT);
+    check(eenLocatie, std::string(d->id) + ": precies één locatie, soort PLUGIN, zonder pad, met een naam, fabriekspresets");
+    check(g.bestandstypen == 0, std::string(d->id) + ": geen bestandstypen (de presets zitten in het binary)");
+    const clap_preset_discovery_metadata_receiver_t r = {
+        &g,
+        [](const clap_preset_discovery_metadata_receiver_t*, int32_t, const char* m) { std::printf("     (on_error: %s)\n", m ? m : ""); },
+        [](const clap_preset_discovery_metadata_receiver_t* r, const char* naam, const char* sleutel) {
+          Gemeld::P p;
+          p.naam = naam ? naam : "";
+          p.sleutel = sleutel ? sleutel : "";
+          gemeld(r)->presets.push_back(p);
+          return true;
+        },
+        [](const clap_preset_discovery_metadata_receiver_t* r, const clap_universal_plugin_id_t* id) {
+          if (!gemeld(r)->presets.empty()) gemeld(r)->presets.back().ids.push_back({id->abi ? id->abi : "", id->id ? id->id : ""});
+        },
+        [](const clap_preset_discovery_metadata_receiver_t*, const char*) {},
+        [](const clap_preset_discovery_metadata_receiver_t* r, uint32_t f) {
+          if (!gemeld(r)->presets.empty()) { gemeld(r)->presets.back().vlaggen = f; gemeld(r)->presets.back().vlaggenGezet = true; }
+        },
+        [](const clap_preset_discovery_metadata_receiver_t*, const char*) {},
+        [](const clap_preset_discovery_metadata_receiver_t*, const char*) {},
+        [](const clap_preset_discovery_metadata_receiver_t*, clap_timestamp, clap_timestamp) {},
+        [](const clap_preset_discovery_metadata_receiver_t*, const char*) {},
+        [](const clap_preset_discovery_metadata_receiver_t*, const char*, const char*) {}};
+    const bool meta = init && pr->get_metadata(pr, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr, &r);
+    check(meta, std::string(d->id) + ": get_metadata op de eigen locatie");
+    const bool eenPreset = g.presets.size() == 1 && !g.presets[0].sleutel.empty() && !g.presets[0].naam.empty() &&
+                           g.presets[0].ids.size() == 1 && g.presets[0].ids[0].first == "clap" &&
+                           g.presets[0].ids[0].second == pluginId;
+    check(eenPreset, std::string(d->id) + ": een container van precies één preset (valkuil 15), met naam, load key en plugin-id clap/" + pluginId);
+    if (eenPreset) {
+      check(!g.presets[0].vlaggenGezet || (g.presets[0].vlaggen & CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT),
+            std::string(d->id) + ": de preset is een fabriekspreset");
+      check(gevonden.insert({g.presets[0].sleutel, g.presets[0].naam}).second, "load key " + g.presets[0].sleutel + " is uniek");
+    }
+    Gemeld leeg;  // een vreemde locatie: geen presets
+    const clap_preset_discovery_metadata_receiver_t r2 = {&leeg, r.on_error, r.begin_preset, r.add_plugin_id, r.set_soundpack_id,
+                                                          r.set_flags, r.add_creator, r.set_description, r.set_timestamps,
+                                                          r.add_feature, r.add_extra_info};
+    pr->get_metadata(pr, CLAP_PRESET_DISCOVERY_LOCATION_FILE, "/tmp/bestaat-niet.json", &r2);
+    check(leeg.presets.empty(), std::string(d->id) + ": een bestandslocatie geeft geen presets");
+    pr->destroy(pr);
+  }
+  for (auto& kv : verwacht) {
+    auto it = gevonden.find(kv.first);
+    check(it != gevonden.end() && it->second == kv.second.naam,
+          "presets/" + kv.first + ".json staat in de discovery als \"" + kv.second.naam + "\" (load key " + kv.first + ")");
+  }
+
+  // laden: elke preset, terwijl niet actief en actief
+  for (int actiefLaden = 0; actiefLaden < 2; ++actiefLaden) {
+    const char* modus = actiefLaden ? "actief" : "niet actief";
+    const auto voor = waardenSet(0.9);
+    for (auto& kv : verwacht) {
+      std::map<uint32_t, double> w = standaarden();
+      bool namenOk = true;
+      for (auto& pw : kv.second.waarden) {
+        bool bestaat = false;
+        for (auto& p : params)
+          if (p.naam == pw.first) { w[p.id] = pw.second; bestaat = true; }
+        namenOk = namenOk && bestaat;
+      }
+      check(namenOk, "presets/" + kv.first + ".json: alle parameternamen bestaan");
+      Instantie s;
+      auto* pl = static_cast<const clap_plugin_preset_load_t*>(s.p->get_extension(s.p, CLAP_EXT_PRESET_LOAD));
+      check(pl && pl->from_location, "de plugin heeft de extensie preset-load");
+      if (!pl) return;
+      s.zet(voor);
+      if (actiefLaden) s.activeer();
+      const int r0 = rescans, g0 = geladen, f0 = laadFouten;
+      laatsteSleutel.clear();
+      const bool ok = pl->from_location(s.p, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr, kv.first.c_str());
+      const std::string wie = "preset " + kv.first + " (" + kv.second.naam + ") [" + modus + "]";
+      check(ok, wie + ": from_location geeft true");
+      check(geladen == g0 + 1 && laatsteSleutel == kv.first && laadFouten == f0, wie + ": de host krijgt loaded met dezelfde locatie en load key");
+      check(rescans == r0 + 1, wie + ": een rescan(VALUES) naar de host");
+      const auto echt = s.waarden();
+      check(gelijk(echt, w), wie + ": waarden " + tekst(echt) + " = de JSON (rest standaard) " + tekst(w));
+      const auto geluid = s.speel();
+      check(hoorbaar(geluid) && bitGelijk(geluid, referentie(w)), wie + ": het geluid is bit voor bit dat van die waarden");
+      Instantie t;
+      check(t.laad(s.bewaar()) && gelijk(t.waarden(), w), wie + ": state.save daarna laadt in een nieuwe instantie tot dezelfde waarden");
+    }
+    Instantie s;  // een onbekende load key
+    auto* pl = static_cast<const clap_plugin_preset_load_t*>(s.p->get_extension(s.p, CLAP_EXT_PRESET_LOAD));
+    s.zet(voor);
+    if (actiefLaden) s.activeer();
+    const auto w0 = s.waarden();
+    const int r0 = rescans, g0 = geladen, f0 = laadFouten;
+    const bool ok = pl->from_location(s.p, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr, "bestaat-niet");
+    check(!ok && laadFouten == f0 + 1 && geladen == g0 && rescans == r0 && gelijk(s.waarden(), w0),
+          std::string("onbekende load key: false, on_error, geen loaded of rescan, waarden ongewijzigd [") + modus + "]");
+    const bool ok2 = pl->from_location(s.p, CLAP_PRESET_DISCOVERY_LOCATION_FILE, "/tmp/zacht.json", verwacht.begin()->first.c_str());
+    check(!ok2 && gelijk(s.waarden(), w0), std::string("een bestandslocatie laadt niets [") + modus + "]");
+  }
+}
+
 // --- tekst ↔ waarde ------------------------------------------------------------------------------------------
 void toetsTekst() {
   std::printf("\n## tekst <-> waarde (SPEC.md)\n");
@@ -416,7 +606,8 @@ void toetsTekst() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2) stop("gebruik: pb-statetoets <plugin.clap>");
+  if (argc != 2 && !(argc == 4 && !std::strcmp(argv[2], "--presets")))
+    stop("gebruik: pb-statetoets <plugin.clap> [--presets <verwacht.tsv>]");
   std::string pad = argv[1];
 #ifdef __APPLE__
   // een .clap is op macOS een bundel
@@ -446,6 +637,7 @@ int main(int argc, char** argv) {
   toetsState(false);
   toetsState(true);
   toetsTekst();
+  if (argc == 4) toetsPresets(entry, argv[3]);
   entry->deinit();
   std::printf("\n%d controles, %d fout\n", controles, fouten);
   return fouten ? 1 : 0;

@@ -1,4 +1,4 @@
-# CI van Toetsenpad: bouwen, alle validators, de null-test en het paneel (PROMPTS.md fase 0 tot en met 3). Het log is het bewijs; zet hier nooit een toets uit.
+# CI van Toetsenpad: bouwen, alle validators, de null-test, het paneel en de presets (PROMPTS.md fase 0 tot en met 4). Het log is het bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -42,10 +42,11 @@ jobs:
           echo "clap-validator exitcode: $status"
           grep -E "tests run, .* 0 failed" cv-schoon.log
           [ "$status" = 0 ] || exit $status
-          # fase 2: de param- en state-toetsen moeten echt draaien en slagen (SKIPPED telt niet)
+          # fase 2 en 4: de param-, state- en preset-toetsen moeten echt draaien en slagen (SKIPPED telt niet)
           for t in param-set-events param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate param-fuzz-modulation \
                    param-conversions param-default-values state-invalid-empty state-invalid-random \
-                   state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered; do
+                   state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
             uitslag=$(awk -v t="$t" '$0 ~ "┌─ " t "$" {zoek=1} zoek && match($0, /└── (PASSED|FAILED|SKIPPED|WARNING)/) {u = substr($0, RSTART, RLENGTH); sub(/.* /, "", u); print u; exit}' cv-schoon.log)
             echo "clap-validator $t: ${uitslag:-niet gevonden}"
             [ "$uitslag" = PASSED ] || exit 1
@@ -57,8 +58,10 @@ jobs:
           cat pv.log
           echo "pluginval exitcode: $status"
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv.log
-      - name: State- en teksttoets (pb-statetoets door het .clap)
-        run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
+      - name: State-, tekst- en presettoets (pb-statetoets door het .clap)
+        run: |
+          sh gereedschap/presets-verwacht.sh presets | tee presets-verwacht.tsv
+          build/pb-statetoets "build/plugins/PB Toetsenpad.clap" --presets presets-verwacht.tsv
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test, xvfb)
@@ -139,7 +142,17 @@ jobs:
           auval -strict -v aumu PTgg Vrve > auval.log 2>&1 || status=$?
           cat auval.log
           echo "auval exitcode: $status"
-          [ "$status" = 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log
+          [ "$status" = 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log || exit 1
+          # fase 4: elke fabriekspreset uit presets/ staat in de uitvoer van auval
+          grep -n -i "preset" auval.log || true
+          for f in presets/*.json; do
+            naam=$(jq -r .naam "$f")
+            if grep -F -q -- "$naam" auval.log; then echo "auval toont preset \"$naam\" ($f)"; else echo "FOUT: preset \"$naam\" ($f) staat niet in de uitvoer van auval"; exit 1; fi
+          done
+      - name: Presets door de AU (pb-aupresets)
+        run: |
+          sh gereedschap/presets-verwacht.sh presets > presets-verwacht.tsv
+          build/pb-aupresets presets-verwacht.tsv
       - name: Paneel (pb-paneel; schermafbeeldingen, knoppen via de host, CLAP en AU)
         run: build/pb-paneel "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" "$PWD/schermafbeelding"
       - uses: actions/upload-artifact@v4
@@ -169,8 +182,10 @@ jobs:
           sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" | tee pv-vst3.log
           grep -q "Testing opening Editor with released processing" pv-vst3.log || { echo "FOUT: pluginval opende geen editor (VST3)"; exit 1; }
           echo "pluginval VST3: editor geopend ($(grep -c "Testing opening Editor" pv-vst3.log)×)"
-      - name: State- en teksttoets (pb-statetoets door het .clap, arm64)
-        run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
+      - name: State-, tekst- en presettoets (pb-statetoets door het .clap, arm64)
+        run: |
+          sh gereedschap/presets-verwacht.sh presets > presets-verwacht.tsv
+          build/pb-statetoets "build/plugins/PB Toetsenpad.clap" --presets presets-verwacht.tsv
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test)
