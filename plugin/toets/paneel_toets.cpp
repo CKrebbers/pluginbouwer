@@ -115,7 +115,7 @@ void maten() {
   const auto s1 = dub::schaalVoor(dub::BEGIN_B, dub::BEGIN_H);
   controle(s1.s == 1 && s1.ox == 0 && s1.oy == 0, "op de beginmaat (732 × 220) is het paneel op ware grootte");
   const auto s2 = dub::schaalVoor(dub::MIN_B, dub::MIN_H);
-  controle(std::fabs(s2.s - 560.0 / 732) < 1e-12 && s2.ox == 0 && s2.oy > 0 && std::fabs(dub::ONTWERP_H * s2.s + 2 * s2.oy - 220) < 1e-9,
+  controle(std::fabs(s2.s - 560.0 / 732) < 1e-12 && std::fabs(s2.ox) < 1e-9 && s2.oy > 0 && std::fabs(dub::ONTWERP_H * s2.s + 2 * s2.oy - 220) < 1e-9,
            "op de kleinste maat (560 × 220) past het paneel heel, in het midden");
   const auto s3 = dub::schaalVoor(1464, 600);
   controle(s3.s == 2 && s3.oy == 80, "groter: gelijkmatig geschaald (1464 × 600 → 2×)");

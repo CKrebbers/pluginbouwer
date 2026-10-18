@@ -111,27 +111,76 @@ void zetInvoer(clap_id id, double v) {
 void draai(double sec) { [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:sec]]; }
 
 // --- schermafbeelding en pixels -------------------------------------------------------------------------------
-NSBitmapImageRep* foto(NSView* v, const std::string& pad) {
-  NSBitmapImageRep* rep = [v bitmapImageRepForCachingDisplayInRect:[v bounds]];
-  [v cacheDisplayInRect:[v bounds] toBitmapImageRep:rep];
+// De view tekent zichzelf in een eigen bitmap met de sRGB-kleurruimte (1 pixel per punt): de bytes zijn dan precies de
+// kleuren van design.md, zonder de kleurconversie van het scherm. Ernaast de view zoals AppKit hem voor het venster
+// cachet (op de schaal van het scherm).
+struct Beeld {
+  int b = 0, h = 0;
+  std::vector<unsigned char> rgba;  // rij 0 = boven
+};
+Beeld foto(NSView* v, const std::string& pad) {
+  Beeld beeld;
+  beeld.b = (int)[v bounds].size.width;
+  beeld.h = (int)[v bounds].size.height;
+  beeld.rgba.assign((size_t)beeld.b * beeld.h * 4, 0);
+  CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+  CGContextRef ctx = CGBitmapContextCreate(beeld.rgba.data(), beeld.b, beeld.h, 8, beeld.b * 4, cs,
+                                           kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+  NSGraphicsContext* gc = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
+  [v displayRectIgnoringOpacity:[v bounds] inContext:gc];
+  CGContextFlush(ctx);
+  CGImageRef img = CGBitmapContextCreateImage(ctx);
+  NSBitmapImageRep* rep = [[[NSBitmapImageRep alloc] initWithCGImage:img] autorelease];
   NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
   const bool ok = png && [png writeToFile:[NSString stringWithUTF8String:pad.c_str()] atomically:YES];
-  controle(ok, "schermafbeelding " + pad + " (" + std::to_string((long)[rep pixelsWide]) + " × " +
-                   std::to_string((long)[rep pixelsHigh]) + " pixels)");
-  return rep;
+  CGImageRelease(img);
+  CGContextRelease(ctx);
+  CGColorSpaceRelease(cs);
+  controle(ok, "schermafbeelding " + pad + " (" + std::to_string(beeld.b) + " × " + std::to_string(beeld.h) + " pixels, sRGB)");
+  // zoals AppKit hem voor het scherm tekent
+  NSBitmapImageRep* scherm = [v bitmapImageRepForCachingDisplayInRect:[v bounds]];
+  [v cacheDisplayInRect:[v bounds] toBitmapImageRep:scherm];
+  NSData* png2 = [scherm representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+  std::string pad2 = pad.substr(0, pad.size() - 4) + "-scherm.png";
+  [png2 writeToFile:[NSString stringWithUTF8String:pad2.c_str()] atomically:YES];
+  return beeld;
+}
+const uint32_t PALET[] = {0x232629, 0xe7e5dd, 0xf2c200, 0x40cbda, 0x3a3e42, 0x0d0e0f};
+const char PALET_TEKEN[] = {'.', '#', 'T', 's', 'g', ' '};
+uint32_t kleurOp(const Beeld& beeld, double x, double y) {
+  const int px = (int)std::floor(x), py = (int)std::floor(y);
+  if (px < 0 || py < 0 || px >= beeld.b || py >= beeld.h) return 0xff00ff;
+  const unsigned char* q = &beeld.rgba[((size_t)py * beeld.b + px) * 4];
+  return ((uint32_t)q[0] << 16) | ((uint32_t)q[1] << 8) | q[2];
+}
+int afstand(uint32_t a, uint32_t b) {
+  return std::abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255)) + std::abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) +
+         std::abs((int)(a & 255) - (int)(b & 255));
 }
 // kleur van het punt (x, y) in view-punten, y vanaf boven; tegen een hexkleur uit design.md
-void pixel(NSBitmapImageRep* rep, NSView* v, double x, double y, uint32_t hex, const std::string& wat) {
-  const double s = (double)[rep pixelsWide] / [v bounds].size.width;
-  NSColor* c = [[rep colorAtX:(NSInteger)std::floor(x * s) y:(NSInteger)std::floor(y * s)]
-      colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-  const int r = (int)std::lround([c redComponent] * 255), g = (int)std::lround([c greenComponent] * 255),
-            b = (int)std::lround([c blueComponent] * 255);
-  const int er = (hex >> 16) & 255, eg = (hex >> 8) & 255, eb = hex & 255;
-  const bool goed = std::abs(r - er) <= 8 && std::abs(g - eg) <= 8 && std::abs(b - eb) <= 8;
+void pixel(const Beeld& beeld, double x, double y, uint32_t hex, const std::string& wat) {
+  const uint32_t k = kleurOp(beeld, x, y);
   char t[160];
-  std::snprintf(t, sizeof t, "pixel (%.1f, %.1f) %s: #%02x%02x%02x (verwacht #%06x)", x, y, wat.c_str(), r, g, b, hex);
-  controle(goed, t);
+  std::snprintf(t, sizeof t, "pixel (%.1f, %.1f) %s: #%06x (verwacht #%06x)", x, y, wat.c_str(), k, hex);
+  controle(afstand(k, hex) <= 12, t);
+}
+// punt op de boog van knop i, op de hoek (graden vanaf boven, met de klok mee)
+double boogX(int i, double graden) { return 62 + 76 * i + 22 * std::sin(graden * M_PI / 180); }
+double boogY(double graden) { return 130 - 22 * std::cos(graden * M_PI / 180); }
+// een kaartje van een stuk van het beeld in het log: elke pixel als de dichtstbijzijnde kleur van design.md
+// (. paneel, # inkt, T tape, s spoor, g groef, spatie schaduw), 1 teken per pixel, elke tweede rij
+void kaart(const Beeld& beeld, int x0, int y0, int b, int h, const std::string& wat) {
+  std::printf("kaart %s (x %d..%d, y %d..%d, elke tweede rij):\n", wat.c_str(), x0, x0 + b - 1, y0, y0 + h - 1);
+  for (int y = y0; y < y0 + h; y += 2) {
+    std::string r = "  |";
+    for (int x = x0; x < x0 + b; ++x) {
+      const uint32_t k = kleurOp(beeld, x + 0.5, y + 0.5);
+      int best = 0;
+      for (int j = 1; j < 6; ++j) if (afstand(k, PALET[j]) < afstand(k, PALET[best])) best = j;
+      r += PALET_TEKEN[best];
+    }
+    std::printf("%s|\n", r.c_str());
+  }
 }
 
 // --- de muis --------------------------------------------------------------------------------------------------
@@ -226,14 +275,16 @@ int main(int argc, char** argv) {
     Muis muis{venster, v, (double)h};
 
     // 1. zoals de mockup: alle knoppen op hun standaard
-    NSBitmapImageRep* rep = foto(v, map + "/paneel.png");
-    pixel(rep, v, 10, 100, 0x232629, "paneel");
-    pixel(rep, v, 26, 20, 0xf2c200, "naamlabel (tape)");
-    pixel(rep, v, 728.5, 100, 0x0d0e0f, "harde schaduw rechts");
-    pixel(rep, v, 300, 0.5, 0xe7e5dd, "rand (inkt)");
-    pixel(rep, v, 670, 108, 0x3a3e42, "groef van Ruis (op 0)");
-    pixel(rep, v, 46.44, 145.56, 0x40cbda, "boog van Tijd (spoor)");
-    pixel(rep, v, 62, 130 + 8, 0x232629, "knop van Tijd (paneel)");
+    Beeld rep = foto(v, map + "/paneel.png");
+    kaart(rep, 0, 0, 160, 50, "naamlabel");
+    kaart(rep, 28, 88, 68, 94, "knop Tijd (375 ms)");
+    pixel(rep, 10, 100, 0x232629, "paneel");
+    pixel(rep, 26, 20, 0xf2c200, "naamlabel (tape)");
+    pixel(rep, 728.5, 100, 0x0d0e0f, "harde schaduw rechts");
+    pixel(rep, 300, 0.5, 0xe7e5dd, "rand (inkt)");
+    pixel(rep, 670, 108, 0x3a3e42, "groef van Ruis (op 0)");
+    pixel(rep, boogX(0, -100), boogY(-100), 0x40cbda, "boog van Tijd (spoor)");
+    pixel(rep, 62, 130 + 8, 0x232629, "knop van Tijd (paneel)");
 
     // 2. inactief: slepen op Tijd, 100 punten omhoog = half het bereik (20..1200 ms)
     int f0 = flushVerzoeken;
@@ -247,8 +298,10 @@ int main(int argc, char** argv) {
     controle(std::fabs(waarde(1) - 965) < 1e-9, "daarna Tijd = " + getal(waarde(1)) + " ms (verwacht 965)");
     draai(0.2);
     rep = foto(v, map + "/paneel-na-slepen.png");
-    pixel(rep, v, 46.44, 145.56, 0xf2c200, "boog van Tijd na aanraken (gekozen knop: tape)");
-    pixel(rep, v, 138 - 15.56, 130 + 15.56, 0x40cbda, "boog van Terug (spoor)");
+    pixel(rep, boogX(0, -100), boogY(-100), 0xf2c200, "boog van Tijd na aanraken (gekozen knop: tape)");
+    pixel(rep, boogX(0, 60), boogY(60), 0xf2c200, "boog van Tijd op 965 ms loopt door tot rechts (tape)");
+    pixel(rep, boogX(1, -100), boogY(-100), 0x40cbda, "boog van Terug (spoor)");
+    pixel(rep, boogX(1, 100), boogY(100), 0x3a3e42, "rechts op Terug alleen de groef");
 
     // 3. dubbelklik = standaard
     muis.neer(62, 130, 1);
@@ -309,7 +362,7 @@ int main(int argc, char** argv) {
     controle(waarde(9) == 1.0, "host zet Ruis op 1");
     draai(0.3);
     rep = foto(v, map + "/paneel-host.png");
-    pixel(rep, v, 670, 108, 0x40cbda, "boog van Ruis na automatisering (spoor)");
+    pixel(rep, 670, 108, 0x40cbda, "boog van Ruis na automatisering (spoor)");
     pl->stop_processing(pl);
     pl->deactivate(pl);
 
@@ -325,7 +378,7 @@ int main(int argc, char** argv) {
     draai(0.2);
     controle([v bounds].size.width == 1098 && [v bounds].size.height == 330, "de view is 1098 × 330");
     rep = foto(v, map + "/paneel-groot.png");
-    pixel(rep, v, 26 * 1.5 + 1, 20 * 1.5 + 1, 0xf2c200, "naamlabel op 1,5×");
+    pixel(rep, 26 * 1.5 + 1, 20 * 1.5 + 1, 0xf2c200, "naamlabel op 1,5×");
     controle(gui->get_size(pl, &b, &h) && b == 1098 && h == 330, "get_size volgt");
     controle(gui->hide(pl) && [v isHidden], "hide");
     controle(gui->show(pl) && ![v isHidden], "show");
