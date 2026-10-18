@@ -227,6 +227,7 @@ void metKomma(char* t) { for (; *t; ++t) if (*t == '.') *t = ','; }
 bool parToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t grootte) {
   const int i = indexVan(id);
   if (i < 0 || !uit || grootte == 0) return false;
+  if (!(v == v)) return false;
   const char* eenheid = Ontwerp::PARAMS[i].eenheid;
   if (!std::strcmp(eenheid, "Hz")) {
     if (v < 999.5) std::snprintf(uit, grootte, "%.0f Hz", v);
@@ -236,48 +237,75 @@ bool parToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t g
     if (v < 99.95) std::snprintf(uit, grootte, "%.1f ms", v);
     else std::snprintf(uit, grootte, "%.0f ms", v);
   } else {
-    std::snprintf(uit, grootte, "%.0f %%", v * 100.0);  // eenheidloos (× of leeg): hele procenten
+    double pct = v * 100.0;
+    if (pct > -0.5 && pct < 0.5) pct = 0.0;  // geen "-0 %"
+    std::snprintf(uit, grootte, "%.0f %%", pct);  // eenheidloos (× of leeg): hele procenten
   }
   metKomma(uit);
   return true;
 }
 
-// leest een getal met komma of punt; geeft het aantal gelezen tekens, 0 = geen getal
+// leest een getal met komma of punt; geeft het aantal gelezen tekens, 0 = geen getal. De cijfers worden een geheel
+// getal en dan één keer gedeeld door 10^k: zo is "0,38" precies de double die het dichtst bij 0,38 ligt (zonder locale)
 size_t leesGetal(const char* t, double* v) {
   size_t i = 0;
   double teken = 1;
   if (t[i] == '-' || t[i] == '+') { if (t[i] == '-') teken = -1; ++i; }
-  double x = 0;
-  bool cijfer = false;
-  while (t[i] >= '0' && t[i] <= '9') { x = x * 10 + (t[i] - '0'); ++i; cijfer = true; }
+  uint64_t m = 0;
+  int cijfers = 0, decimalen = 0, schaal = 0;
+  auto cijfer = [&](int c, bool naKomma) {
+    if (cijfers < 18) { m = m * 10 + (uint64_t)c; ++cijfers; if (naKomma) ++decimalen; }
+    else if (!naKomma) ++schaal;  // te veel cijfers: de rest telt alleen als grootte mee
+  };
+  bool gezien = false;
+  while (t[i] >= '0' && t[i] <= '9') { cijfer(t[i] - '0', false); ++i; gezien = true; }
   if (t[i] == ',' || t[i] == '.') {
     ++i;
-    double f = 0.1;
-    while (t[i] >= '0' && t[i] <= '9') { x += (t[i] - '0') * f; f *= 0.1; ++i; cijfer = true; }
+    while (t[i] >= '0' && t[i] <= '9') { cijfer(t[i] - '0', true); ++i; gezien = true; }
   }
-  if (!cijfer) return 0;
-  *v = teken * x;
+  if (!gezien) return 0;
+  double x = (double)m;
+  for (; schaal > 0; --schaal) x *= 10.0;
+  double tienMacht = 1.0;
+  for (int k = 0; k < decimalen; ++k) tienMacht *= 10.0;  // exact tot 10^22; decimalen ≤ 18
+  *v = teken * (x / tienMacht);
   return i;
+}
+
+bool gelijkLetters(const char* a, const char* b) {  // ASCII, hoofdletterongevoelig
+  for (; *a && *b; ++a, ++b) {
+    char x = *a, y = *b;
+    if (x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
+    if (y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
+    if (x != y) return false;
+  }
+  return *a == *b;
 }
 
 bool parFromText(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
   const int i = indexVan(id);
   if (i < 0 || !tekst || !v) return false;
-  while (*tekst == ' ') ++tekst;
+  while (*tekst == ' ' || *tekst == '\t') ++tekst;
   double x;
   const size_t n = leesGetal(tekst, &x);
   if (!n) return false;
   const char* r = tekst + n;
-  while (*r == ' ') ++r;
+  while (*r == ' ' || *r == '\t') ++r;
+  char rest[16];
+  size_t len = std::strlen(r);
+  while (len > 0 && (r[len - 1] == ' ' || r[len - 1] == '\t')) --len;
+  if (len >= sizeof rest) return false;
+  std::memcpy(rest, r, len);
+  rest[len] = 0;
   const char* eenheid = Ontwerp::PARAMS[i].eenheid;
-  auto is = [&](const char* w) { return !std::strcmp(r, w); };
+  auto is = [&](const char* w) { return gelijkLetters(rest, w); };
   if (!std::strcmp(eenheid, "Hz")) {
-    if (is("k") || is("kHz") || is("khz") || is("K")) x *= 1000.0;
-    else if (!(is("") || is("Hz") || is("hz"))) return false;
+    if (is("k") || is("kHz")) x *= 1000.0;
+    else if (!(is("") || is("Hz"))) return false;
   } else if (!std::strcmp(eenheid, "ms")) {
     if (!(is("") || is("ms"))) return false;
   } else {
-    if (!(is("") || is("%"))) return false;
+    if (!(is("") || is("%"))) return false;  // eenheidloos: procenten ("38" of "38 %")
     x /= 100.0;
   }
   *v = klem(i, x);

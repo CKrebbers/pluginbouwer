@@ -1,6 +1,7 @@
 # Toetsenpad — de CLAP-plugin, en via clap-wrapper v0.16.0 de VST3 en AUv2 (make_clapfirst_plugins).
 #   cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component} en build/pb-render (gereedschap/pb-render.cpp).
+# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (gereedschap/pb-render.cpp) en
+# build/pb-statetoets (gereedschap/pb-statetoets.cpp).
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "laagste macOS")
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
@@ -72,6 +73,11 @@ if (PB_RTSAN)
   target_compile_options(pb-render PRIVATE -fsanitize=realtime)
   target_link_options(pb-render PRIVATE -fsanitize=realtime)
 endif()
+
+# --- pb-statetoets: state-blobs en tekst ↔ waarde door het gebouwde .clap (PROMPTS.md fase 2) ---------------------
+add_executable(pb-statetoets "${PAKKET}/gereedschap/pb-statetoets.cpp")
+target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # --- de RTSan-kanarie: dezelfde plugin met een malloc in process (valkuil 4); RTSan MOET hem vangen --------------
 if (PB_KANARIE)

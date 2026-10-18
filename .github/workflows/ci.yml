@@ -1,4 +1,4 @@
-# CI van Toetsenpad: bouwen, alle validators en de null-test (PROMPTS.md fase 0 en 1). Het log is het bewijs; zet hier nooit een toets uit.
+# CI van Toetsenpad: bouwen, alle validators en de null-test (PROMPTS.md fase 0, 1 en 2). Het log is het bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -41,7 +41,15 @@ jobs:
           cat cv-schoon.log
           echo "clap-validator exitcode: $status"
           grep -E "tests run, .* 0 failed" cv-schoon.log
-          exit $status
+          [ "$status" = 0 ] || exit $status
+          # fase 2: de param- en state-toetsen moeten echt draaien en slagen (SKIPPED telt niet)
+          for t in param-set-events param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate param-fuzz-modulation \
+                   param-conversions param-default-values state-invalid-empty state-invalid-random \
+                   state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered; do
+            uitslag=$(awk -v t="$t" '$0 ~ "┌─ " t "$" {zoek=1} zoek && match($0, /└── (PASSED|FAILED|SKIPPED|WARNING)/) {u = substr($0, RSTART, RLENGTH); sub(/.* /, "", u); print u; exit}' cv-schoon.log)
+            echo "clap-validator $t: ${uitslag:-niet gevonden}"
+            [ "$uitslag" = PASSED ] || exit 1
+          done
       - name: pluginval strictness 10 (VST3, xvfb)
         run: |
           status=0
@@ -49,6 +57,8 @@ jobs:
           cat pv.log
           echo "pluginval exitcode: $status"
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv.log
+      - name: State- en teksttoets (pb-statetoets door het .clap)
+        run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test, xvfb)
@@ -145,6 +155,8 @@ jobs:
           [ "$status" = 0 ] && grep -q "^SUCCESS" pv-au.log
       - name: pluginval strictness 10, rtcheck (VST3 van een instrument, valkuil 22)
         run: sh gereedschap/pluginval-rt.sh "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3"
+      - name: State- en teksttoets (pb-statetoets door het .clap, arm64)
+        run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
       - name: Null-test VST3 (pluginval test)
