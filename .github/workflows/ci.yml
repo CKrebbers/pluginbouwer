@@ -152,7 +152,7 @@ jobs:
           if grep -q "RealtimeSanitizer" rtsan.log; then echo "RTSan vond iets"; exit 1; fi
           echo "RTSan: schoon" | tee -a rtsan.log
 
-      - name: Paneel-toets onder ThreadSanitizer (brievenbus: paneel en audiothread tegelijk)
+      - name: Paneel-toets onder ThreadSanitizer (brievenbus, paneel en audiothread tegelijk)
         run: |
           set -o pipefail
           CLAPINC=$(dirname "$(dirname "$(find build-rtsan/_deps -path '*include/clap/clap.h' | head -1)")")
