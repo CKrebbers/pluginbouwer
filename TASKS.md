@@ -6,5 +6,5 @@
 - [x] Fase 3 — UI: het frontpaneel uit design.md (§3)
 - [x] Fase 4 — presets (§4)
 - [x] Fase 5 — formaten AU/VST3/CLAP compleet, mono en stereo (§5)
-- [ ] Fase 6 — ad-hoc signeren en installeren (§6)
+- [x] Fase 6 — ad-hoc signeren en installeren (§6)
 - [ ] Fase 7 — test in Logic (checklist voor Clay, §7)
