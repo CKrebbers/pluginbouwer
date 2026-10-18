@@ -611,6 +611,9 @@ ${inst ? `> Stereo- én mono-uitgang (audio-ports-config: 0 → 2 en 0 → 1; ee
 > Het bewijs staat in \`PackageInfo\` van het pakket: geen \`<bundle>\` binnen \`<relocate>\`; pkgbuild schrijft altijd een
 > lege \`<relocate/>\`, dus toets niet op "geen relocate" (proef G1). Een lokbundel elders bewijst weinig:
 > \`lsregister\` registreert geen plugin-bundels (\`-10811\`).
+> De tweede installatie meldt "Upgrading at base path /" en "The upgrade was successful." (niet "The install was
+> successful"); zet \`set -o pipefail\` als je \`installer\` door \`tee\` stuurt, anders telt alleen de exitcode van tee
+> (proef G3).
 > postinstall: \`killall -9 AudioComponentRegistrar\`. Toets in een aparte job op een verse runner die niets bouwt:
 > installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan \`auval -strict\`.
 > Notarisatie alleen als optie in de docs, met de kosten.

@@ -23,5 +23,5 @@ gesprek, dat alleen die checkout ziet. Elke fase eindigt met een `UITSLAG-faseN.
 | `proef/f1`, `f2`, `f3` | pakket v2 (dub-echo), fase 0–6 door drie verse gesprekken | pass@3 voor fase 0–6; valkuilen 13–18, de patches voor AU-presets en mono/stereo |
 | `onderzoek/tls-zonder-patch` | GUI-toetsen aan zonder de tweede clap-wrapper-patch | bewust rood: zonder de patch vangt pluginval `--rtcheck` de calloc; niet samenvoegen |
 | `referentie/steekproef` | steekproef uit het Akai-archief (Aalto, CC-BY-4.0) | de meting waarop de bandklank is geijkt (`ref/referentie/RAPPORT.md`) |
-| `proef/f4` | pakket v3 (dub-echo), fase 0–6 door één ketting verse gesprekken | pass@1: haalt v3 elke fase in de eerste push (uitslag in `tools/pakket/uitslagen.json`) |
-| `proef/g1`, `g2`, `g3` | pakket v3 voor een instrument (toetsenpad), fase 0–6 | pass@3 voor een instrument: note port, aumu, noten in de null-test |
+| `proef/f4` | pakket v3 (dub-echo), fase 0–6 door één ketting verse gesprekken | 6 van 7 fasen de eerste push groen; fase 3 (paneel) in vier, waarvan twee door het pakket (nu gedicht) |
+| `proef/g1`, `g2`, `g3` | pakket v3 voor een instrument (toetsenpad), fase 0–6 | elke fase 3/3 gehaald: note port, aumu, noten als CLAP en MIDI bit voor bit; wat het pakket miste (presets, paneel, tekst, relocatie) staat nu in v3.1 |

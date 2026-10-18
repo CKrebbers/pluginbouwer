@@ -101,7 +101,11 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
 2. **[x] PR 1 (geluid-maken) in main (18 okt, op Clay's "alles zelf uitvoeren").** Via `integratie/geluid-maken`: CI groen, het artifact draait
    het al. Zonder deze stap maakt de tool op main geen geluid en kan het pakket geen instrument exporteren. Daarna: TASKS
    herschikken (F = geluid maken, G = pakket), pakket en tool opnieuw maken met de motor van 15 blokken.
-3. **Pakket v3 bewijzen (ik, verse sessies; begint zodra Clay "ga" zegt).** v3 draagt 18 valkuilen en 6 patches die nog nooit
+3. **[x] Pakket v3 bewijzen (18 okt).** Effect (proef/f4, één ketting): 6 van 7 fasen de eerste push groen, fase 3 (het
+   paneel) in vier. Instrument (proef/g1–g3): elke fase 3/3 gehaald; de eerste push groen in 2, 3, 3, 0, 2, 3, 1 van de
+   drie (fase 0–6). Elke extra ronde staat in tools/pakket/uitslagen.json met zijn oorzaak, en wat het pakket miste is
+   gedicht (v3.1: valkuilen 19–23 voor een effect, 24–28 voor een instrument, gereedschap/cv-eis.mjs, presets voor het
+   toetsenpad, de paneelmaat, de grenzen van de tekst). Oorspronkelijk: v3 draagt 18 valkuilen en 6 patches die nog nooit
    samen door een vers gesprek zijn gegaan. Eén keten (proef/f4), fase 0–6, pass@1. Stop: elke fase de eerste push groen;
    elke extra ronde is een gat in het pakket en wordt gedicht. Kosten: ~7 sessies in plaats van 21.
 4. **[x] De klank naar de Akai (18 okt; maatstaf de echte band in plaats van een ABX, zie ref/referentie/RAPPORT.md §4):
@@ -117,9 +121,10 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
    pluginval 10, au-proef met MusicDeviceMIDIEvent en host-callbacks; alles bit voor bit tegen de WASM. Oorspronkelijk: CLAP note ports, AU-type `aumu`, MIDI naar de toetsen-knoop; de sequencer op
    het hosttempo. Dan pass@3 met een instrumentontwerp: het pakket is nu alleen op een effect bewezen. Stop: een instrument
    uit de tool speelt in Logic op een MIDI-spoor, null-test instrument tegen WASM bit voor bit.
-6. **Upstream (Clay plakt, 5 min; ik volg op).** upstream/clap-wrapper/LEESMIJ.md: zeven punten clap-wrapper, één
+6. **Upstream (Clay plakt, 5 min; ik volg op).** [x] klaargezet: nu tien punten clap-wrapper (8–10 van 18 okt), één
+   clap-validator, één pluginval. Oorspronkelijk: upstream/clap-wrapper/LEESMIJ.md: zeven punten clap-wrapper, één
    clap-validator. Komt er antwoord, dan pas ik de patches aan en kijk bij de volgende clap-wrapper welke kunnen vervallen.
-7. **Niets weggooien.** De proeftakken (proef/e*, f*) en de onderzoekstak blijven staan: ze zijn het bewijs. Wel een index in
+7. **[x] Niets weggooien; README.md heeft de index (18 okt).** De proeftakken (proef/e*, f*) en de onderzoekstak blijven staan: ze zijn het bewijs. Wel een index in
    README (welke tak wat bewijst), zodat niemand ze hoeft te openen om dat te weten.
 
 Volgorde en waarom: 1 vóór alles (het bewijs waar het om gaat); 2 vóór 3 en 5 (een instrument in het pakket vraagt de motor);

@@ -20,7 +20,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 
 **Stopcriterium**: CI groen op de laatste commit: clap-validator 0 mislukt, pluginval 10 geslaagd (VST3 Linux, AU en
 VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kanarie faalt zoals bedoeld.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3** (18 okt 2026, pakket v3, tak proef/g1–g3). G2 en G3 de eerste push groen, G1 in twee (eigen fout: een state-rondje vóór er state was; de prompt zegt nu dat state pas in fase 1 komt). Gevonden: PIC (nu valkuil).
 
 ---
 ## Fase 1 — DSP aansluiten; null-test door het binary
@@ -36,7 +36,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > `testsignalen/noten/` (als CLAP-noten en als MIDI-bytes, blok 512 en wisselend).
 
 **Stopcriterium**: alle null-tests in CI ≤ −90 dBFS (verwacht: bit voor bit), ook de noten (CLAP en MIDI), en de validators van fase 0 nog groen.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**, alle drie de eerste code-push groen; noten als CLAP en als MIDI bit voor bit. G1 vond een echte fout die ook in de Pluginbouwer zat: reset liet de poort open en een noot hangen (nu gerepareerd en in ARCHITECTUUR).
 
 ---
 ## Fase 2 — parameters, automatisering, state
@@ -51,7 +51,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > Daarnaast: `value_to_text` van de standaard geeft precies de tekst uit de tabel, en `text_to_value` daarvan geeft
 > een waarde met weer dezelfde tekst (SPEC.md, "Rondreis"). Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**, alle drie de eerste code-push groen. Gevonden: de grenzen van de tekst op de afgeronde waarde (999,7 Hz = "1,00 kHz"), × en geen eenheid = procent, tekst ↔ waarde zonder locale (alle drie nu in het pakket).
 
 ---
 ## Fase 3 — UI
@@ -59,7 +59,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > Bouw het frontpaneel uit design.md en `frontpaneel.svg` (de mockup; CLAP gui-extensie, clap-wrapper geeft het door aan VST3/AU). Knoppen sturen
 > parameters via de host, nooit rechtstreeks de DSP. Geen audiothread-toegang vanuit de UI.
 **Stopcriterium**: pluginval 10 zonder `--skip-gui-tests` groen op macOS; een schermafbeelding in CI als artefact.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**, in twee à drie pushes. Alle drie liepen op dezelfde val: de pixeltoets via de kleurruimte van het scherm. Ook: de maat in design.md, de naamtape te smal voor Silkscreen, de lettertypen niet in het pakket, unieke Objective-C-klassen per binary (alles nu in design.md).
 
 ---
 ## Fase 4 — presets
@@ -68,7 +68,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
 > (SKIPPED telt niet; `node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^preset-discovery'`) en dat elke presetnaam in de uitvoer van `auval -strict -v` staat.
 **Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**; G2 en G3 de eerste code-push groen, G1 in twee (eigen fout: een .clap is op macOS een bundel). Pakketfout: presets/ ontbrak (nu vier presets die Noot en Poort niet zetten). Ook: clap-validator laadt maar één preset; de presetpatch kreeg NewCustomPresetSet.
 
 ---
 ## Fase 5 — formaten compleet
@@ -80,7 +80,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > doet `testsignalen/` eerst bit voor bit na). Bypass: `CLAP_PARAM_IS_BYPASS`, de DSP rekent door, 10 ms overvloeien,
 > en ook de droge invoer door `pb::uitvoer` (geen subnormale float naar de host; de fuzzer van clap-validator vangt het).
 **Stopcriterium**: CI groen met de uitgebreide matrix.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**, alle drie de eerste code-push groen. Gevonden: "a && b" midden in een CI-stap faalt niet (ook in onze CI; nu valkuil), het bypass-id (drie verschillende keuzes; nu id 1000), een preset laat de bypass staan, mono = kanaal 0, AU BypassEffect uit geeft een Reset.
 
 ---
 ## Fase 6 — signeren en installeren
@@ -94,11 +94,14 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > Het bewijs staat in `PackageInfo` van het pakket: geen `<bundle>` binnen `<relocate>`; pkgbuild schrijft altijd een
 > lege `<relocate/>`, dus toets niet op "geen relocate" (proef G1). Een lokbundel elders bewijst weinig:
 > `lsregister` registreert geen plugin-bundels (`-10811`).
+> De tweede installatie meldt "Upgrading at base path /" en "The upgrade was successful." (niet "The install was
+> successful"); zet `set -o pipefail` als je `installer` door `tee` stuurt, anders telt alleen de exitcode van tee
+> (proef G3).
 > postinstall: `killall -9 AudioComponentRegistrar`. Toets in een aparte job op een verse runner die niets bouwt:
 > installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan `auval -strict`.
 > Notarisatie alleen als optie in de docs, met de kosten.
 **Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
-**Uitslag**: nog niet getoetst
+**Uitslag**: **3/3**; G2 de eerste code-push groen, G1 in drie (pkgbuild schrijft altijd een lege <relocate/>), G3 in twee (de tweede installatie zegt "The upgrade was successful"). Beide nu in de prompt.
 
 ---
 ## Fase 7 — test in Logic (checklist voor Clay)
