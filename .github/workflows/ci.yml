@@ -1,0 +1,209 @@
+# CI van Toetsenpad: bouwen en alle validators. Het log is het bewijs (PROMPTS.md, poorten van fase 0).
+#   linux   clang, clap-validator 0.4.1 (uit de bron), pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb
+#   rtsan   clang 20, pb-render met -fsanitize=realtime door het .clap; een kanarie (malloc in process) MOET falen
+#   macos   arm64: bouwen, ad-hoc signeren, installeren, auval -strict, pluginval 10 met --rtcheck op AU en VST3
+# De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PLUGINVAL_VERSIE: v2.0.0-beta3
+  CLAP_VALIDATOR_VERSIE: 0.4.1
+  NAAM: PB Toetsenpad
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pakketten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang xvfb libasound2t64 libfreetype6 libfontconfig1
+
+      - name: clap-validator uit de cache
+        id: cv-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/clap-validator
+          key: clap-validator-${{ env.CLAP_VALIDATOR_VERSIE }}-${{ runner.os }}-ubuntu-24.04
+
+      - name: clap-validator bouwen uit de bron (cargo)
+        if: steps.cv-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" --locked --root ~/clap-validator clap-validator
+
+      - name: pluginval ophalen
+        run: |
+          curl -sSfL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
+          mkdir -p ~/pluginval && unzip -oq pluginval.zip -d ~/pluginval && chmod +x ~/pluginval/pluginval
+          ~/pluginval/pluginval --version
+
+      - name: Configureren
+        env:
+          CC: clang
+          CXX: clang++
+        run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Bouwen
+        run: cmake --build build --target toetsenpad_all pb-render
+
+      - name: pb-render door het .clap (rookproef)
+        run: |
+          ./build/pb-render "build/plugins/$NAAM.clap" testsignalen/noten/in.wav uit-noten.wav --blok 512 --noten testsignalen/noten/noten.txt
+          ./build/pb-render "build/plugins/$NAAM.clap" testsignalen/noten/in.wav uit-midi.wav --blok 3,128,1,4096,77 --noten testsignalen/noten/noten.txt --midi
+
+      - name: clap-validator (bewijs)
+        run: |
+          set +e
+          ~/clap-validator/bin/clap-validator validate "build/plugins/$NAAM.clap" 2>&1 | tee clap-validator.log
+          status=${PIPESTATUS[0]}
+          set -e
+          # valkuil 8: clap-validator kleurt altijd; haal de ANSI-codes weg vóór het grepen
+          sed 's/\x1b\[[0-9;]*m//g' clap-validator.log > clap-validator.txt
+          samenvatting=$(grep -E "[0-9]+ tests run" clap-validator.txt | tail -1)
+          echo "clap-validator: $samenvatting (exit $status)"
+          echo "### clap-validator $CLAP_VALIDATOR_VERSIE: $samenvatting" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] || { echo "clap-validator gaf exit $status"; exit 1; }
+          echo "$samenvatting" | grep -qE "(^|[^0-9])0 failed" || { echo "clap-validator: niet 0 mislukt"; exit 1; }
+
+      - name: pluginval strictness 10 op de VST3 onder xvfb (bewijs)
+        run: |
+          set +e
+          xvfb-run -a ~/pluginval/pluginval validate --strictness-level 10 "build/plugins/$NAAM.vst3" 2>&1 | tee pluginval-vst3.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "pluginval VST3 Linux: exit $status, laatste regel: $(tail -1 pluginval-vst3.log)"
+          echo "### pluginval VST3 Linux (strictness 10): $(tail -1 pluginval-vst3.log)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-vst3.log
+
+  rtsan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang 20 via apt.llvm.org
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build lsb-release wget software-properties-common gnupg
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          sudo apt-get install -y libclang-rt-20-dev
+          clang++-20 --version
+
+      - name: Configureren (pb-render met -fsanitize=realtime, plus de kanarie)
+        env:
+          CC: clang-20
+          CXX: clang++-20
+        run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON -DPB_KANARIE=ON
+
+      - name: Bouwen
+        run: cmake --build build --target toetsenpad_clap pb-render toetsenpad-kanarie
+
+      - name: RTSan door het .clap (moet schoon zijn; bewijs)
+        run: |
+          set -e
+          C="build/plugins/$NAAM.clap"
+          for blok in 512 3,128,1,4096,77; do
+            ./build/pb-render "$C" testsignalen/noten/in.wav uit-noten.wav --blok "$blok" --noten testsignalen/noten/noten.txt
+            ./build/pb-render "$C" testsignalen/noten/in.wav uit-midi.wav --blok "$blok" --noten testsignalen/noten/noten.txt --midi
+            ./build/pb-render "$C" testsignalen/automatie/in.wav uit-auto.wav --blok "$blok" --automatie testsignalen/automatie/events.txt
+          done
+          ./build/pb-render "$C" testsignalen/sinus-441.in.wav uit-state.wav --blok 512 --state-rondje
+          echo "RTSan: plugin schoon (6 renders met noten, MIDI en automatisering, 1 met state-rondje)"
+          echo "### RTSan: plugin schoon" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: RTSan-kanarie (malloc in process; MOET falen; bewijs)
+        run: |
+          set +e
+          ./build/pb-render build/kanarie/kanarie.clap testsignalen/noten/in.wav uit-kanarie.wav --blok 512 > kanarie.log 2>&1
+          status=$?
+          set -e
+          cat kanarie.log
+          if [ "$status" -eq 0 ]; then echo "FOUT: de kanarie werd niet gevangen; RTSan bewaakt process niet"; exit 1; fi
+          grep -q "RealtimeSanitizer" kanarie.log || { echo "FOUT: kanarie faalde (exit $status) maar niet door RTSan"; exit 1; }
+          grep -q "malloc" kanarie.log || { echo "FOUT: RTSan ving iets anders dan de malloc van de kanarie"; exit 1; }
+          echo "RTSan-kanarie gevangen zoals bedoeld (exit $status): $(grep -m1 RealtimeSanitizer kanarie.log)"
+          echo "### RTSan-kanarie gevangen zoals bedoeld (exit $status)" >> "$GITHUB_STEP_SUMMARY"
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pluginval ophalen
+        run: |
+          curl -sSfL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
+          mkdir -p ~/pluginval && ditto -x -k pluginval.zip ~/pluginval
+          PV=$(find ~/pluginval -type f -path "*MacOS/pluginval" | head -1)
+          [ -n "$PV" ] || { echo "geen pluginval in de zip"; find ~/pluginval; exit 1; }
+          xattr -dr com.apple.quarantine ~/pluginval || true
+          echo "PV=$PV" >> "$GITHUB_ENV"
+          "$PV" --version
+
+      - name: Configureren
+        run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Bouwen
+        run: cmake --build build --target toetsenpad_all pb-render -j 4
+
+      - name: Ad-hoc signeren
+        run: |
+          for b in clap vst3 component; do
+            codesign --force --deep --sign - "build/plugins/$NAAM.$b"
+            codesign --verify --deep --strict --verbose=2 "build/plugins/$NAAM.$b"
+          done
+
+      - name: Installeren in ~/Library/Audio/Plug-Ins
+        run: |
+          P=~/Library/Audio/Plug-Ins
+          mkdir -p "$P/Components" "$P/VST3" "$P/CLAP"
+          rm -rf "$P/Components/$NAAM.component" "$P/VST3/$NAAM.vst3" "$P/CLAP/$NAAM.clap"
+          ditto "build/plugins/$NAAM.component" "$P/Components/$NAAM.component"
+          ditto "build/plugins/$NAAM.vst3" "$P/VST3/$NAAM.vst3"
+          ditto "build/plugins/$NAAM.clap" "$P/CLAP/$NAAM.clap"
+          killall -9 AudioComponentRegistrar || true
+          auval -a | grep -E "PTgg|Vrve" || true
+
+      - name: pb-render door het .clap (rookproef)
+        run: ./build/pb-render "build/plugins/$NAAM.clap" testsignalen/noten/in.wav uit-noten.wav --blok 512 --noten testsignalen/noten/noten.txt
+
+      - name: Artefact klaarzetten (bundels zelf gezipt; GitHub bewaart geen rechten of symlinks)
+        run: |
+          mkdir -p artefact
+          ditto -c -k --keepParent "build/plugins/$NAAM.component" "artefact/$NAAM.component.zip"
+          ditto -c -k --keepParent "build/plugins/$NAAM.vst3" "artefact/$NAAM.vst3.zip"
+          ditto -c -k --keepParent "build/plugins/$NAAM.clap" "artefact/$NAAM.clap.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-keten_toetsenpad
+          path: artefact/
+
+      - name: auval -strict (bewijs)
+        run: |
+          set +e
+          auval -strict -v aumu PTgg Vrve 2>&1 | tee auval.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "### auval: $(grep -E 'AU VALIDATION' auval.log | tail -1)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: pluginval strictness 10 --rtcheck enabled op de AU, 3 keer (bewijs)
+        run: |
+          set +e
+          "$PV" validate --strictness-level 10 --rtcheck enabled --repeat 3 ~/Library/Audio/Plug-Ins/Components/"$NAAM".component 2>&1 | tee pluginval-au.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "pluginval AU: exit $status, laatste regel: $(tail -1 pluginval-au.log)"
+          echo "### pluginval AU (strictness 10, rtcheck enabled, repeat 3): $(tail -1 pluginval-au.log)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-au.log
+
+      - name: pluginval strictness 10 op de VST3 via pluginval-rt.sh (valkuil 22; bewijs)
+        run: |
+          sh gereedschap/pluginval-rt.sh "$PV" ~/Library/Audio/Plug-Ins/VST3/"$NAAM".vst3
+          echo "### pluginval VST3 macOS (strictness 10, pluginval-rt.sh): SUCCESS" >> "$GITHUB_STEP_SUMMARY"
