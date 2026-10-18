@@ -99,24 +99,40 @@ std::string hex(Rgb c) {
 constexpr Rgb PANEEL{0x23, 0x26, 0x29}, INKT{0xe7, 0xe5, 0xdd}, TAPE{0xf2, 0xc2, 0x00}, SPOOR{0x40, 0xcb, 0xda},
     GROEF{0x3a, 0x3e, 0x42}, SCHADUW{0x0d, 0x0e, 0x0f};
 
-// een schermafbeelding van de view (zijn eigen drawRect) als bitmap, en als PNG naar pad
+// een schermafbeelding van de view (zijn eigen drawRect) als bitmap, en als PNG naar pad. De bitmap is sRGB, zoals de
+// kleuren in design.md: dan is het tekenen van het (sRGB-)beeld van de plugin een identiteit en lezen we ruwe bytes.
+// (bitmapImageRepForCachingDisplayInRect geeft een bitmap in de kleurruimte van het scherm; de omzetting heen en terug
+// verschoof daar #232629 naar #2f3336, eerste CI-run van fase 3.)
 NSBitmapImageRep* foto(NSView* v, const std::string& pad) {
-  NSBitmapImageRep* rep = [v bitmapImageRepForCachingDisplayInRect:[v bounds]];
-  [v cacheDisplayInRect:[v bounds] toBitmapImageRep:rep];
+  const NSRect r = [v bounds];
+  const double schaal = [v window] ? [[v window] backingScaleFactor] : 1.0;
+  NSBitmapImageRep* leeg = [[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                   pixelsWide:(NSInteger)std::ceil(r.size.width * schaal)
+                                                                   pixelsHigh:(NSInteger)std::ceil(r.size.height * schaal)
+                                                                bitsPerSample:8
+                                                              samplesPerPixel:4
+                                                                     hasAlpha:YES
+                                                                     isPlanar:NO
+                                                               colorSpaceName:NSCalibratedRGBColorSpace
+                                                                  bytesPerRow:0
+                                                                 bitsPerPixel:32] autorelease];
+  NSBitmapImageRep* rep = [leeg bitmapImageRepByRetaggingWithColorSpace:[NSColorSpace sRGBColorSpace]];
+  [rep setSize:r.size];
+  [v cacheDisplayInRect:r toBitmapImageRep:rep];
   NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
   if (![png writeToFile:[NSString stringWithUTF8String:pad.c_str()] atomically:YES]) stop("kan " + pad + " niet schrijven");
-  std::printf("     schermafbeelding %s (%ld × %ld pixels)\n", pad.c_str(), (long)[rep pixelsWide], (long)[rep pixelsHigh]);
+  std::printf("     schermafbeelding %s (%ld × %ld pixels, %s)\n", pad.c_str(), (long)[rep pixelsWide],
+              (long)[rep pixelsHigh], [[[rep colorSpace] localizedName] UTF8String]);
   return rep;
 }
 
-// kleur op (x, y) in mockup-eenheden (s = punten per eenheid), in sRGB
+// kleur op (x, y) in mockup-eenheden (s = punten per eenheid): de ruwe sRGB-bytes van de bitmap
 void kleur(NSBitmapImageRep* rep, NSView* v, double s, double x, double y, Rgb verwacht, const std::string& wat) {
   const double px = [rep pixelsWide] / [v bounds].size.width;
-  NSColor* c = [[rep colorAtX:(NSInteger)std::floor(x * s * px) y:(NSInteger)std::floor(y * s * px)]
-      colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-  const Rgb k{(int)std::lround([c redComponent] * 255), (int)std::lround([c greenComponent] * 255),
-              (int)std::lround([c blueComponent] * 255)};
-  const bool ok = std::abs(k.r - verwacht.r) <= 6 && std::abs(k.g - verwacht.g) <= 6 && std::abs(k.b - verwacht.b) <= 6;
+  const NSInteger i = (NSInteger)std::floor(x * s * px), j = (NSInteger)std::floor(y * s * px);
+  const unsigned char* q = [rep bitmapData] + j * [rep bytesPerRow] + i * ([rep bitsPerPixel] / 8);
+  const Rgb k{q[0], q[1], q[2]};
+  const bool ok = std::abs(k.r - verwacht.r) <= 2 && std::abs(k.g - verwacht.g) <= 2 && std::abs(k.b - verwacht.b) <= 2;
   toets(ok, wat + ": " + hex(k) + " (verwacht " + hex(verwacht) + ")");
 }
 
