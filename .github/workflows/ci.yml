@@ -223,11 +223,16 @@ jobs:
           killall -9 AudioComponentRegistrar || true
           auval -a | grep -i "Vrve" || true
 
+      - name: Paneel-toets (model tegen de mockup, muis, brievenbus met twee draden)
+        run: |
+          set -o pipefail
+          build/pb-paneeltoets 2>&1 | tee paneel-toets.log
+
       - name: Gui-toets (paneel door het .clap in een venster, schermafbeeldingen, muis via de host)
+        if: success() || failure()
         run: |
           set -o pipefail
           mkdir -p schermafbeelding
-          build/pb-paneeltoets 2>&1 | tee paneel-toets.log
           build/pb-guitoets "$HOME/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap" "$PWD/schermafbeelding" 2>&1 | tee gui-toets.log
           ls -la schermafbeelding
 
