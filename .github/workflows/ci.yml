@@ -1,5 +1,6 @@
 # CI van Toetsenpad: bouwen, alle validators, de null-test, het paneel, de presets en de formaten (PROMPTS.md fase 0 tot en
-# met 5: stereo en mono, bypass, 44,1–192 kHz, blok 1..4096). Het log is het bewijs; zet hier nooit een toets uit.
+# met 6: stereo en mono, bypass, 44,1–192 kHz, blok 1..4096; het installatiepakket op een verse runner). Het log is het
+# bewijs; zet hier nooit een toets uit.
 name: ci
 on:
   push:
@@ -250,3 +251,76 @@ jobs:
         with:
           name: macos-keten_toetsenpad
           path: artefact/
+      - name: Installatiepakket (pkgbuild; ad-hoc gesigneerde AU, VST3 en CLAP; BundleIsRelocatable false)
+        run: |
+          versie=$(sed -n 's/^project(toetsenpad VERSION \([0-9.]*\).*/\1/p' plugin/CMakeLists.txt)
+          sh gereedschap/maak-pkg.sh build/plugins "pkg/PB Toetsenpad $versie.pkg" "$versie"
+          ls -la pkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: pkg/
+          if-no-files-found: error
+
+  # fase 6: een verse runner die niets bouwt en niets uitcheckt; alleen het .pkg uit de macos-job
+  installeer:
+    name: macOS installatiepakket (verse runner; twee keer installeren, plek, handtekening, auval -strict)
+    needs: macos
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: pkg
+      - name: Niets geïnstalleerd vooraf
+        run: |
+          ls -la pkg
+          for d in /Library/Audio/Plug-Ins "$HOME/Library/Audio/Plug-Ins"; do
+            for p in "Components/PB Toetsenpad.component" "VST3/PB Toetsenpad.vst3" "CLAP/PB Toetsenpad.clap"; do
+              if [ -e "$d/$p" ]; then echo "FOUT: $d/$p bestaat al op een verse runner"; exit 1; fi
+            done
+          done
+          if pkgutil --pkgs | grep -q toetsenpad; then echo "FOUT: er is al een receipt"; exit 1; fi
+          echo "verse runner: geen PB Toetsenpad, geen receipt"
+      - name: Installeren (eerste keer; "Installing")
+        run: |
+          pkg=$(ls pkg/*.pkg)
+          pkgutil --check-signature "$pkg" || echo "pakket is ongesigneerd (zoals bedoeld; geen Developer ID)"
+          sudo installer -pkg "$pkg" -target / -verbose 2>&1 | tee installeer-1.log
+          grep -q "The install was successful" installeer-1.log || { echo "FOUT: eerste installatie niet geslaagd"; exit 1; }
+          grep -q "Installing at base path /" installeer-1.log || { echo "FOUT: eerste installatie meldt geen \"Installing\""; exit 1; }
+          if grep -q -i "upgrad" installeer-1.log; then echo "FOUT: eerste installatie meldt al een upgrade"; exit 1; fi
+          pkgutil --pkg-info nl.varve.pluginbouwer.toetsenpad.pkg
+      - name: Installeren (tweede keer; "Upgrading")
+        run: |
+          pkg=$(ls pkg/*.pkg)
+          sudo installer -pkg "$pkg" -target / -verbose 2>&1 | tee installeer-2.log
+          grep -q "The install was successful" installeer-2.log || { echo "FOUT: tweede installatie niet geslaagd"; exit 1; }
+          grep -q "Upgrading at base path /" installeer-2.log || { echo "FOUT: tweede installatie meldt geen \"Upgrading\""; exit 1; }
+          pkgutil --files nl.varve.pluginbouwer.toetsenpad.pkg | grep -E "\.(component|vst3|clap)$"
+      - name: Plek en handtekening van alle drie
+        run: |
+          D=/Library/Audio/Plug-Ins
+          for p in "Components/PB Toetsenpad.component" "VST3/PB Toetsenpad.vst3" "CLAP/PB Toetsenpad.clap"; do
+            b="$D/$p"
+            [ -d "$b" ] || { echo "FOUT: $b ontbreekt"; exit 1; }
+            [ -e "$HOME/Library/Audio/Plug-Ins/$p" ] && { echo "FOUT: ook in ~/Library: $p"; exit 1; }
+            ls -la "$b/Contents" "$b/Contents/MacOS"
+            [ "$(stat -f %Su "$b")" = root ] || { echo "FOUT: $b is niet van root"; exit 1; }
+            codesign --verify --strict --deep --verbose=2 "$b"
+            codesign -dv "$b" 2>&1 | tee sig.log
+            grep -q "^Signature=adhoc" sig.log || { echo "FOUT: $b is niet ad-hoc gesigneerd"; exit 1; }
+            echo "OK: $b staat op zijn plek en is ad-hoc gesigneerd"
+          done
+          # nergens anders neergezet (BundleIsRelocatable false)
+          pkgutil --pkg-info nl.varve.pluginbouwer.toetsenpad.pkg | grep -E "^(volume|location):"
+      - name: auval -strict (de AU uit /Library, na de postinstall)
+        run: |
+          sleep 2
+          auval -a | grep -i "Vrve" || { echo "FOUT: auval ziet de AU niet"; exit 1; }
+          status=0
+          auval -strict -v aumu PTgg Vrve > auval.log 2>&1 || status=$?
+          cat auval.log
+          echo "auval exitcode: $status"
+          [ "$status" = 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log || exit 1
+          grep -q "/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" auval.log && echo "auval laadde de AU uit /Library" || true
