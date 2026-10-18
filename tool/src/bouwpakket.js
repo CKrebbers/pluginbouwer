@@ -400,7 +400,10 @@ export function designMd(ontwerp) {
 Zelfde taal als de Pluginbouwer: hoeken 0, rand 2 px, harde schaduw (3 px 3 px 0), geen gradiënten, geen
 glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen. Beide staan niet op een Mac:
 bak ze in de plugin in (OFL, uit github.com/google/fonts; zet de licentie erbij). De naamtape groeit mee met de tekst
-(Silkscreen 14 px is ±10,6 px per teken), 6 px marge aan elke kant.
+(Silkscreen 14 px is 9,83 px per teken, gemeten door proef G2), 6 px marge aan elke kant; meet hem uit het ingebakken
+lettertype, niet uit de mockup. Op macOS: geef elke Objective-C-klasse (de NSView van het paneel) een naam die per
+binary uniek is (bijvoorbeeld met het formaat of een hash erin), want dezelfde statische bibliotheek komt in de AU, de
+VST3 en de CLAP, en een host die er twee laadt krijgt anders dubbele klassen.
 
 | token | waarde | gebruik |
 |---|---|---|
@@ -450,7 +453,7 @@ export function frontpaneelSvg(ontwerp) {
   .spoor0{fill:none;stroke:#3a3e42;stroke-width:3}.spoor{fill:none;stroke:#40cbda;stroke-width:3}</style>
   <rect x="3" y="3" width="${B - 6}" height="${H - 6}" fill="#0d0e0f"/>
   <rect x="0" y="0" width="${B - 6}" height="${H - 6}" fill="#232629" stroke="#e7e5dd" stroke-width="2"/>
-  <rect x="${mx}" y="18" width="${12 + 11 * (3 + ontwerp.naam.length)}" height="24" fill="#f2c200"/>
+  <rect x="${mx}" y="18" width="${12 + Math.ceil(9.83 * (3 + ontwerp.naam.length))}" height="24" fill="#f2c200"/>
   <text x="${mx + 6}" y="35" class="n">PB ${esc(ontwerp.naam.toUpperCase())}</text>
 ${knoppen.join('\n')}
 </svg>

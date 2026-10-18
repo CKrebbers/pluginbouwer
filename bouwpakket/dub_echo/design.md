@@ -3,7 +3,10 @@
 Zelfde taal als de Pluginbouwer: hoeken 0, rand 2 px, harde schaduw (3 px 3 px 0), geen gradiënten, geen
 glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen. Beide staan niet op een Mac:
 bak ze in de plugin in (OFL, uit github.com/google/fonts; zet de licentie erbij). De naamtape groeit mee met de tekst
-(Silkscreen 14 px is ±10,6 px per teken), 6 px marge aan elke kant.
+(Silkscreen 14 px is 9,83 px per teken, gemeten door proef G2), 6 px marge aan elke kant; meet hem uit het ingebakken
+lettertype, niet uit de mockup. Op macOS: geef elke Objective-C-klasse (de NSView van het paneel) een naam die per
+binary uniek is (bijvoorbeeld met het formaat of een hash erin), want dezelfde statische bibliotheek komt in de AU, de
+VST3 en de CLAP, en een host die er twee laadt krijgt anders dubbele klassen.
 
 | token | waarde | gebruik |
 |---|---|---|

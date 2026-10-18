@@ -5,7 +5,7 @@
   .spoor0{fill:none;stroke:#3a3e42;stroke-width:3}.spoor{fill:none;stroke:#40cbda;stroke-width:3}</style>
   <rect x="3" y="3" width="554" height="214" fill="#0d0e0f"/>
   <rect x="0" y="0" width="554" height="214" fill="#232629" stroke="#e7e5dd" stroke-width="2"/>
-  <rect x="24" y="18" width="155" height="24" fill="#f2c200"/>
+  <rect x="24" y="18" width="140" height="24" fill="#f2c200"/>
   <text x="30" y="35" class="n">PB TOETSENPAD</text>
   <g transform="translate(62 130)"><title>Noot</title>
     <text y="-34" class="l">Noot</text>
