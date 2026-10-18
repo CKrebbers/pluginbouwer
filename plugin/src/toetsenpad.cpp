@@ -6,6 +6,10 @@
 // ARCHITECTUUR.md "Noten" (pb::NootStapel uit dsp/pb_noten.h). State zoals ARCHITECTUUR.md "State".
 // Fase 2: tekst ↔ waarde volgens SPEC.md (komma, geen locale), params.flush buiten process. Getoetst door
 // plugin/toets/statetoets.cpp (pb-statetoets) door het gebouwde .clap, en door clap-validator.
+// Fase 3: het frontpaneel (paneel.h; op macOS de CLAP gui-extensie, Cocoa, paneel_mac.mm). Het paneel raakt het Ontwerp
+// nooit aan (valkuil 14): een knop zet BEGIN/WAARDE/EIND in een lock-vrije rij en vraagt request_flush; process of
+// params.flush stuurt ze als GESTURE_BEGIN/PARAM_VALUE/GESTURE_END naar de host en past de waarde zelf toe, zoals een
+// event van de host. Het paneel leest alleen de atomaire spiegel.
 //
 // Draden (ARCHITECTUUR.md "Threads", valkuil 11): init, activate, state en tekst draaien op de mainthread; process
 // alleen op de audiothread. Zolang de plugin actief is raakt alleen de audiothread het Ontwerp aan; de mainthread leest
@@ -19,11 +23,17 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "ontwerpen/keten_toetsenpad.h"
+#include "paneel.h"
+#include "paneel_toets.h"
 #include "pb_noten.h"
 #include "toetsenpad_entry.h"
+#ifdef __APPLE__
+#include "paneel_mac.h"
+#endif
 
 #ifdef PB_KANARIE
 // Alleen in de kanarie-build van de RTSan-job: een malloc in process die RTSan MOET vangen (valkuil 4). De pointer
@@ -50,6 +60,51 @@ const clap_plugin_descriptor_t DESCRIPTOR = {
     CLAP_VERSION_INIT, Ontwerp::META.clapId, Ontwerp::META.naam, Ontwerp::META.maker, Ontwerp::META.url, "", "",
     Ontwerp::META.versie, Ontwerp::META.uitleg, FEATURES};
 
+// --- de rij van het paneel naar process/flush (één schrijver: de mainthread; één lezer: process of flush) -------------
+struct PaneelEvent {
+  uint8_t gebaar;  // pb_paneel::Gebaar
+  uint8_t knop;    // index in PARAMS
+  double waarde;
+};
+
+class PaneelRij {
+ public:
+  static constexpr uint32_t GROOTTE = 1024;
+  uint32_t vrij() const {
+    return GROOTTE - (kop_.load(std::memory_order_relaxed) - staart_.load(std::memory_order_acquire));
+  }
+  bool zet(const PaneelEvent& e) {  // mainthread
+    const uint32_t k = kop_.load(std::memory_order_relaxed);
+    if (k - staart_.load(std::memory_order_acquire) >= GROOTTE) return false;
+    e_[k % GROOTTE] = e;
+    kop_.store(k + 1, std::memory_order_release);
+    return true;
+  }
+  bool pak(PaneelEvent& e) {  // process of flush; lock-vrij, geen allocatie
+    const uint32_t s = staart_.load(std::memory_order_relaxed);
+    if (s == kop_.load(std::memory_order_acquire)) return false;
+    e = e_[s % GROOTTE];
+    staart_.store(s + 1, std::memory_order_release);
+    return true;
+  }
+
+ private:
+  PaneelEvent e_[GROOTTE];
+  std::atomic<uint32_t> kop_{0}, staart_{0};
+};
+
+struct Toetsenpad;
+
+// wat het paneel van de plugin mag: de spiegel lezen, tekst maken, en gebaren in de rij zetten (mainthread)
+struct PaneelBron final : pb_paneel::PaneelBron {
+  Toetsenpad* t = nullptr;
+  bool gebaarInRij[pb_paneel::MAX_KNOPPEN] = {};  // BEGIN kwam in de rij (anders ook geen WAARDE en EIND)
+  double waarde(int k) override;
+  bool uitstaand(int k) override;
+  void tekst(int k, double v, char* uit, uint32_t n) override;
+  void stuur(pb_paneel::Gebaar g, int k, double v) override;
+};
+
 struct Toetsenpad {
   clap_plugin_t plugin{};
   const clap_host_t* host = nullptr;
@@ -65,8 +120,18 @@ struct Toetsenpad {
   std::atomic<bool> stateKlaar{false};  // state.load terwijl actief: process/flush neemt de spiegel over
   std::atomic<uint32_t> staart{0};      // in samples, uitgerekend door de audiothread (tail.get leest het)
 
+  // het paneel (mainthread); de rij en de tellers zijn de enige brug naar process/flush
+  PaneelRij rij;
+  std::atomic<int> uitstaand[N];        // WAARDE-events van het paneel die process/flush nog niet toepaste
+  PaneelBron bron;
+  std::unique_ptr<pb_paneel::Paneel> paneel;
+  double paneelB = pb_paneel::Paneel::BEGIN_B, paneelH = pb_paneel::Paneel::BEGIN_H;
+  void* view = nullptr;                 // macOS: de NSView (paneel_mac.mm)
+
   Toetsenpad() {
     for (int i = 0; i < N; ++i) spiegel[i].store(Ontwerp::PARAMS[i].standaard);
+    for (auto& u : uitstaand) u.store(0);
+    bron.t = this;
   }
 };
 
@@ -165,6 +230,42 @@ void doeEvent(Toetsenpad* t, const clap_event_header_t* h) {
 void neemStateOver(Toetsenpad* t) {
   if (!t->stateKlaar.exchange(false, std::memory_order_acquire)) return;
   for (int i = 0; i < N; ++i) t->ontwerp.zetParam(i, t->spiegel[i].load(std::memory_order_relaxed));
+}
+
+// De gebaren van het paneel (valkuil 14): naar de host als events, en zelf toepassen zoals een event van de host.
+// Audiothread (process, of flush als actief) of mainthread (flush als niet actief); lock-vrij, geen allocatie.
+void paneelNaarHost(Toetsenpad* t, const clap_output_events_t* uit) {
+  PaneelEvent e;
+  while (t->rij.pak(e)) {
+    const clap_id id = Ontwerp::PARAMS[e.knop].id;
+    if (e.gebaar == pb_paneel::WAARDE) {
+      parameter(t, id, e.waarde);
+      clap_event_param_value_t ev{};
+      ev.header.size = sizeof ev;
+      ev.header.time = 0;
+      ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+      ev.header.type = CLAP_EVENT_PARAM_VALUE;
+      ev.header.flags = 0;
+      ev.param_id = id;
+      ev.cookie = nullptr;
+      ev.note_id = -1;
+      ev.port_index = -1;
+      ev.channel = -1;
+      ev.key = -1;
+      ev.value = t->spiegel[e.knop].load(std::memory_order_relaxed);
+      if (uit) uit->try_push(uit, &ev.header);
+      t->uitstaand[e.knop].fetch_sub(1, std::memory_order_release);
+    } else {
+      clap_event_param_gesture_t ev{};
+      ev.header.size = sizeof ev;
+      ev.header.time = 0;
+      ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+      ev.header.type = e.gebaar == pb_paneel::BEGIN ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END;
+      ev.header.flags = 0;
+      ev.param_id = id;
+      if (uit) uit->try_push(uit, &ev.header);
+    }
+  }
 }
 
 // --- audio-ports: 0 ingangen, 1 stereo-uitgang (SPEC.md "Instrument") ---------------------------------------------
@@ -305,9 +406,10 @@ bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* tekst, doub
 }
 
 // flush: buiten process. Actief: op de audiothread; niet actief: op de mainthread (dan draait er geen audio).
-void paramsFlush(const clap_plugin_t* pl, const clap_input_events_t* in, const clap_output_events_t*) {
+void paramsFlush(const clap_plugin_t* pl, const clap_input_events_t* in, const clap_output_events_t* out) {
   auto* t = zelf(pl);
   neemStateOver(t);
+  paneelNaarHost(t, out);
   const uint32_t n = in ? in->size(in) : 0;
   for (uint32_t k = 0; k < n; ++k) doeEvent(t, in->get(in, k));
 }
@@ -398,7 +500,13 @@ bool pluginInit(const clap_plugin_t* p) {
   return true;
 }
 
-void pluginDestroy(const clap_plugin_t* p) { delete zelf(p); }
+void pluginDestroy(const clap_plugin_t* p) {
+  auto* t = zelf(p);
+#ifdef __APPLE__
+  if (t->view) pbMacWeg(t->view);  // een host die gui.destroy vergat
+#endif
+  delete t;
+}
 
 bool pluginActivate(const clap_plugin_t* p, double sr, uint32_t minFrames, uint32_t maxFrames) {
   (void)minFrames;
@@ -463,6 +571,7 @@ clap_process_status pluginProcess(const clap_plugin_t* p, const clap_process_t* 
   }
 
   neemStateOver(t);
+  paneelNaarHost(t, pr->out_events);  // vóór de events van de host: die gaan voor als ze op dezelfde sample vallen
 
   const bool heeftUit = pr->audio_outputs_count > 0 && pr->audio_outputs[0].data32 &&
                         pr->audio_outputs[0].channel_count > 0;
@@ -492,6 +601,156 @@ clap_process_status pluginProcess(const clap_plugin_t* p, const clap_process_t* 
   return CLAP_PROCESS_CONTINUE;
 }
 
+// --- het paneel: PaneelBron (mainthread) ---------------------------------------------------------------------------
+double PaneelBron::waarde(int k) { return t->spiegel[k].load(std::memory_order_relaxed); }
+bool PaneelBron::uitstaand(int k) { return t->uitstaand[k].load(std::memory_order_acquire) > 0; }
+void PaneelBron::tekst(int k, double v, char* uit, uint32_t n) {
+  if (!paramsValueToText(&t->plugin, Ontwerp::PARAMS[k].id, v, uit, n) && n) uit[0] = 0;
+}
+void PaneelBron::stuur(pb_paneel::Gebaar g, int k, double v) {
+  if (k < 0 || k >= N) return;
+  // Een volle rij (een host die niet flusht en niet rendert): een gebaar dat niet begon, krijgt ook geen WAARDE en EIND,
+  // en voor EIND blijft altijd plaats (WAARDE neemt de laatste twee plaatsen niet, BEGIN de laatste drie niet).
+  if (g == pb_paneel::BEGIN) {
+    gebaarInRij[k] = t->rij.vrij() >= 3 && t->rij.zet({(uint8_t)g, (uint8_t)k, 0});
+  } else if (g == pb_paneel::WAARDE) {
+    if (!gebaarInRij[k] || t->rij.vrij() < 2) return;
+    t->uitstaand[k].fetch_add(1, std::memory_order_relaxed);
+    if (!t->rij.zet({(uint8_t)g, (uint8_t)k, klem(k, v)})) t->uitstaand[k].fetch_sub(1, std::memory_order_relaxed);
+  } else {
+    if (!gebaarInRij[k]) return;
+    gebaarInRij[k] = false;
+    t->rij.zet({(uint8_t)g, (uint8_t)k, 0});
+  }
+  // valkuil 14: de host roept flush (of process) aan; onder AUv2 doet dit niets en komt het bij de volgende Render
+  if (t->hostParams) t->hostParams->request_flush(t->host);
+}
+
+pb_paneel::Paneel* maakPaneel(Toetsenpad* t) {
+  if (!t->paneel) {
+    pb_paneel::Knop k[N];
+    for (int i = 0; i < N; ++i) {
+      const auto& p = Ontwerp::PARAMS[i];
+      k[i] = {p.naam, p.naam, p.min, p.max, p.standaard};
+    }
+    t->paneel.reset(new pb_paneel::Paneel(t->bron, k, N));
+    t->paneel->maat(t->paneelB, t->paneelH);
+  }
+  return t->paneel.get();
+}
+
+// --- paneeltoets (paneel_toets.h): het paneel zonder venster, voor plugin/toets/paneeltoets.cpp --------------------
+bool toetsMaak(const clap_plugin_t* p, double b, double h) {
+  auto* t = zelf(p);
+  if (!t->paneel) {
+    t->paneelB = b;
+    t->paneelH = h;
+  }
+  return maakPaneel(t) != nullptr;
+}
+void toetsWeg(const clap_plugin_t* p) {
+  auto* t = zelf(p);
+  if (!t->view) t->paneel.reset();
+}
+bool toetsTeken(const clap_plugin_t* p, uint8_t* rgba, uint32_t bw, uint32_t bh, double schaal) {
+  auto* t = zelf(p);
+  if (!t->paneel || !rgba) return false;
+  t->paneel->teken(rgba, (int)bw, (int)bh, schaal);
+  return true;
+}
+bool toetsMuis(const clap_plugin_t* p, int soort, double x, double y, bool shift) {
+  auto* t = zelf(p);
+  if (!t->paneel || soort < 0 || soort > 3) return false;
+  return t->paneel->muis((pb_paneel::Muis)soort, x, y, shift);
+}
+bool toetsKnop(const clap_plugin_t* p, int k, double* x, double* y) {
+  auto* t = zelf(p);
+  if (!t->paneel || k < 0 || k >= t->paneel->aantal()) return false;
+  t->paneel->knopMidden(k, x, y);
+  return true;
+}
+int toetsGekozen(const clap_plugin_t* p) {
+  auto* t = zelf(p);
+  return t->paneel ? t->paneel->gekozen() : -1;
+}
+const pb_paneeltoets_t PANEELTOETS = {toetsMaak, toetsWeg, toetsTeken, toetsMuis, toetsKnop, toetsGekozen};
+
+#ifdef __APPLE__
+// --- gui (CLAP, Cocoa): clap-wrapper geeft hem door aan VST3 (IPlugView) en AUv2 (kAudioUnitProperty_CocoaUI) ----
+bool guiIsApiSupported(const clap_plugin_t*, const char* api, bool floating) {
+  return !floating && api && !std::strcmp(api, CLAP_WINDOW_API_COCOA);
+}
+bool guiGetPreferredApi(const clap_plugin_t*, const char** api, bool* floating) {
+  *api = CLAP_WINDOW_API_COCOA;
+  *floating = false;
+  return true;
+}
+bool guiCreate(const clap_plugin_t* p, const char* api, bool floating) {
+  auto* t = zelf(p);
+  if (!guiIsApiSupported(p, api, floating) || t->view) return false;
+  t->view = pbMacMaak(maakPaneel(t));
+  return t->view != nullptr;
+}
+// clap-wrapper (AUv2 Cleanup) kan destroy twee keer aanroepen: de tweede keer doet niets
+void guiDestroy(const clap_plugin_t* p) {
+  auto* t = zelf(p);
+  if (t->view) pbMacWeg(t->view);
+  t->view = nullptr;
+  t->paneel.reset();
+}
+bool guiSetScale(const clap_plugin_t*, double) { return false; }  // Cocoa: logische punten, de view kent zijn schaal
+bool guiGetSize(const clap_plugin_t* p, uint32_t* b, uint32_t* h) {
+  auto* t = zelf(p);
+  *b = (uint32_t)(t->paneelB + 0.5);
+  *h = (uint32_t)(t->paneelH + 0.5);
+  return true;
+}
+bool guiCanResize(const clap_plugin_t*) { return true; }
+bool guiGetResizeHints(const clap_plugin_t*, clap_gui_resize_hints_t* hints) {
+  hints->can_resize_horizontally = true;
+  hints->can_resize_vertically = true;
+  hints->preserve_aspect_ratio = false;
+  hints->aspect_ratio_width = 0;
+  hints->aspect_ratio_height = 0;
+  return true;
+}
+bool guiAdjustSize(const clap_plugin_t*, uint32_t* b, uint32_t* h) {
+  using P = pb_paneel::Paneel;
+  *b = *b < (uint32_t)P::MIN_B ? (uint32_t)P::MIN_B : (*b > (uint32_t)P::MAX_B ? (uint32_t)P::MAX_B : *b);
+  *h = *h < (uint32_t)P::MIN_H ? (uint32_t)P::MIN_H : (*h > (uint32_t)P::MAX_H ? (uint32_t)P::MAX_H : *h);
+  return true;
+}
+bool guiSetSize(const clap_plugin_t* p, uint32_t b, uint32_t h) {
+  auto* t = zelf(p);
+  t->paneelB = b;
+  t->paneelH = h;
+  if (t->paneel) t->paneel->maat(b, h);
+  pbMacMaat(t->view, b, h);
+  return true;
+}
+bool guiSetParent(const clap_plugin_t* p, const clap_window_t* w) {
+  auto* t = zelf(p);
+  if (!t->view || !w || !w->cocoa) return false;
+  pbMacOuder(t->view, w->cocoa);
+  pbMacMaat(t->view, t->paneelB, t->paneelH);
+  return true;
+}
+bool guiSetTransient(const clap_plugin_t*, const clap_window_t*) { return false; }
+void guiSuggestTitle(const clap_plugin_t*, const char*) {}
+bool guiShow(const clap_plugin_t* p) {
+  pbMacToon(zelf(p)->view, true);
+  return true;
+}
+bool guiHide(const clap_plugin_t* p) {
+  pbMacToon(zelf(p)->view, false);
+  return true;
+}
+const clap_plugin_gui_t GUI = {guiIsApiSupported, guiGetPreferredApi, guiCreate,     guiDestroy,
+                               guiSetScale,       guiGetSize,         guiCanResize,  guiGetResizeHints,
+                               guiAdjustSize,     guiSetSize,         guiSetParent,  guiSetTransient,
+                               guiSuggestTitle,   guiShow,            guiHide};
+#endif
+
 const void* pluginGetExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
   if (!std::strcmp(id, CLAP_EXT_NOTE_PORTS)) return &NOTE_PORTS;
@@ -499,6 +758,10 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
+#ifdef __APPLE__
+  if (!std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
+#endif
+  if (!std::strcmp(id, PB_EXT_PANEELTOETS)) return &PANEELTOETS;
   return nullptr;
 }
 

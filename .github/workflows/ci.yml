@@ -8,6 +8,10 @@
 # Fase 2: clap-validator moet de state- en param-toetsen PASSED geven (SKIPPED telt niet), en pb-statetoets (de eigen
 # toets: met de hand gemaakte state-blobs, tekst <-> waarde volgens SPEC.md, params.flush buiten process) draait door
 # het gebouwde .clap op Linux en macOS.
+# Fase 3: het frontpaneel. pluginval draait op macOS zonder --skip-gui-tests (AU en VST3 openen de editor). pb-paneeltoets
+# toetst het paneel door het .clap (tekening, slepen, Shift, dubbelklik, gebaren via flush/process) op Linux en macOS;
+# pb-scherm opent het echte Cocoa-paneel via de gui-extensie in een venster, stuurt er NSEvents naar en maakt de
+# schermafbeeldingen (artefact macos-schermafbeelding; de software-tekening van Linux als linux-schermafbeelding).
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -60,7 +64,7 @@ jobs:
         run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets
 
       - name: pb-render door het .clap (rookproef)
         run: |
@@ -114,6 +118,19 @@ jobs:
           set -o pipefail
           ./build/pb-statetoets "build/plugins/$NAAM.clap" | tee statetoets.log
           echo "### $(tail -1 statetoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Paneeltoets door het .clap (pb-paneeltoets; bewijs)
+        run: |
+          set -o pipefail
+          mkdir -p schermafbeelding
+          ./build/pb-paneeltoets "build/plugins/$NAAM.clap" schermafbeelding | tee paneeltoets.log
+          echo "### $(tail -1 paneeltoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-schermafbeelding
+          path: schermafbeelding/
 
   rtsan:
     runs-on: ubuntu-24.04
@@ -187,7 +204,7 @@ jobs:
         run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets -j 4
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-scherm -j 4
 
       - name: Ad-hoc signeren
         run: |
@@ -238,6 +255,7 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           echo "pluginval AU: exit $status, laatste regel: $(tail -1 pluginval-au.log)"
+          echo "pluginval AU, editor (fase 3, zonder --skip-gui-tests):"; grep -iE "editor" pluginval-au.log | sort | uniq -c || true
           echo "### pluginval AU (strictness 10, rtcheck enabled, repeat 3): $(tail -1 pluginval-au.log)" >> "$GITHUB_STEP_SUMMARY"
           [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-au.log
 
@@ -260,3 +278,24 @@ jobs:
           set -o pipefail
           ./build/pb-statetoets "build/plugins/$NAAM.clap" | tee statetoets.log
           echo "### $(tail -1 statetoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Paneeltoets door het .clap, macOS arm64 (pb-paneeltoets; bewijs)
+        run: |
+          set -o pipefail
+          mkdir -p schermafbeelding
+          ./build/pb-paneeltoets "build/plugins/$NAAM.clap" schermafbeelding | tee paneeltoets.log
+          echo "### $(tail -1 paneeltoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Het Cocoa-paneel via de gui-extensie, NSEvents en schermafbeelding (pb-scherm; bewijs)
+        run: |
+          set -o pipefail
+          mkdir -p schermafbeelding
+          ./build/pb-scherm "build/plugins/$NAAM.clap" schermafbeelding | tee scherm.log
+          ls -la schermafbeelding
+          echo "### $(tail -1 scherm.log)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-schermafbeelding
+          path: schermafbeelding/
