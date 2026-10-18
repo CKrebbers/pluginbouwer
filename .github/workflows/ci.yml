@@ -5,6 +5,9 @@
 # Fase 1: de null-test door het gebouwde binary (gereedschap/ci-null.sh): CLAP via pb-render (blok 512, wisselend,
 # state-rondje, automatisering, noten als CLAP en MIDI) op Linux en macOS, en pluginval test op de VST3 (Linux, macOS)
 # en de AU (macOS). Grens piek <= -90 dBFS (verwacht: bit voor bit).
+# Fase 2: clap-validator moet de state- en param-toetsen PASSED geven (SKIPPED telt niet), en pb-statetoets (de eigen
+# toets: met de hand gemaakte state-blobs, tekst <-> waarde volgens SPEC.md, params.flush buiten process) draait door
+# het gebouwde .clap op Linux en macOS.
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -57,7 +60,7 @@ jobs:
         run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets
 
       - name: pb-render door het .clap (rookproef)
         run: |
@@ -77,6 +80,18 @@ jobs:
           echo "### clap-validator $CLAP_VALIDATOR_VERSIE: $samenvatting" >> "$GITHUB_STEP_SUMMARY"
           [ "$status" -eq 0 ] || { echo "clap-validator gaf exit $status"; exit 1; }
           echo "$samenvatting" | grep -qE "(^|[^0-9])0 failed" || { echo "clap-validator: niet 0 mislukt"; exit 1; }
+          # fase 2: deze toetsen moeten PASSED zijn (SKIPPED telt niet). Per toets: "┌─ <naam>" ... "└── <uitslag>"
+          awk '/┌─ /{s=$0; sub(/.*┌─ /,"",s); split(s,a," "); t=a[1]} /└── /{s=$0; sub(/.*└── /,"",s); split(s,a," "); if (t!="") print t, a[1]; t=""}' clap-validator.txt > clap-validator-uitslagen.txt
+          ontbreekt=0
+          for toets in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
+                       state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds \
+                       param-fuzz-sample-accurate param-set-events param-conversions param-default-values; do
+            uitslag=$(awk -v t="$toets" '$1==t {print $2}' clap-validator-uitslagen.txt | tail -1)
+            echo "clap-validator $toets: ${uitslag:-niet gevonden}"
+            [ "$uitslag" = PASSED ] || ontbreekt=1
+          done
+          [ "$ontbreekt" -eq 0 ] || { echo "clap-validator: een state- of param-toets is niet PASSED"; exit 1; }
+          echo "### clap-validator: state-reproducibility (3), state-invalid (2), param-fuzz (3), param-set-events, param-conversions, param-default-values PASSED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: pluginval strictness 10 op de VST3 onder xvfb (bewijs)
         run: |
@@ -93,6 +108,12 @@ jobs:
 
       - name: Null-test VST3 Linux via pluginval test (bewijs)
         run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/$NAAM.vst3" ~/pluginval/pluginval vst3-linux
+
+      - name: State- en teksttoets door het .clap (pb-statetoets; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-statetoets "build/plugins/$NAAM.clap" | tee statetoets.log
+          echo "### $(tail -1 statetoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
 
   rtsan:
     runs-on: ubuntu-24.04
@@ -166,7 +187,7 @@ jobs:
         run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render -j 4
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets -j 4
 
       - name: Ad-hoc signeren
         run: |
@@ -233,3 +254,9 @@ jobs:
 
       - name: Null-test AU via pluginval test (valkuil 1; bewijs)
         run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/$NAAM.component" "$PV" au
+
+      - name: State- en teksttoets door het .clap, macOS arm64 (pb-statetoets; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-statetoets "build/plugins/$NAAM.clap" | tee statetoets.log
+          echo "### $(tail -1 statetoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"

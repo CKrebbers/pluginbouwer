@@ -4,6 +4,8 @@
 // Fase 1: het Ontwerp draait in process. Parameters zijn CLAP-params (id = nummer in SPEC.md, bereik en standaard uit
 // PARAMS); events (parameters en noten) gaan op hun sample: het blok wordt bij elk event gesplitst. Noten volgen
 // ARCHITECTUUR.md "Noten" (pb::NootStapel uit dsp/pb_noten.h). State zoals ARCHITECTUUR.md "State".
+// Fase 2: tekst ↔ waarde volgens SPEC.md (komma, geen locale), params.flush buiten process. Getoetst door
+// plugin/toets/statetoets.cpp (pb-statetoets) door het gebouwde .clap, en door clap-validator.
 //
 // Draden (ARCHITECTUUR.md "Threads", valkuil 11): init, activate, state en tekst draaien op de mainthread; process
 // alleen op de audiothread. Zolang de plugin actief is raakt alleen de audiothread het Ontwerp aan; de mainthread leest
@@ -12,6 +14,7 @@
 #include <clap/clap.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -225,7 +228,10 @@ bool paramsGetValue(const clap_plugin_t* pl, clap_id id, double* v) {
   return true;
 }
 
-// Tekst volgens SPEC.md "Tekst ↔ waarde": komma als decimaalteken, spatie voor de eenheid.
+// Tekst volgens SPEC.md "Tekst ↔ waarde": komma als decimaalteken, spatie voor de eenheid, geen locale.
+// Eerst afronden op wat getoond wordt, dan pas de grens kiezen: 999,7 Hz is "1,00 kHz", niet "1000 Hz".
+double rond(double v, double stap) { return std::floor(v / stap + 0.5) * stap; }
+
 void metKomma(char* s) {
   for (; *s; ++s)
     if (*s == '.') *s = ',';
@@ -233,39 +239,41 @@ void metKomma(char* s) {
 
 bool paramsValueToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t grootte) {
   const int i = indexVan(id);
-  if (i < 0 || !uit || grootte == 0) return false;
+  if (i < 0 || !uit || grootte == 0 || !(v == v)) return false;
   char b[64];
   const char* eenheid = Ontwerp::PARAMS[i].eenheid;
-  if (!std::strcmp(eenheid, "Hz")) {
-    if (v < 1000) std::snprintf(b, sizeof b, "%.0f Hz", v);
-    else if (v < 10000) std::snprintf(b, sizeof b, "%.2f kHz", v / 1000.0);
-    else std::snprintf(b, sizeof b, "%.1f kHz", v / 1000.0);
-  } else if (!std::strcmp(eenheid, "ms")) {
-    if (v < 100) std::snprintf(b, sizeof b, "%.1f ms", v);
-    else std::snprintf(b, sizeof b, "%.0f ms", v);
+  if (!std::strcmp(eenheid, "Hz")) {  // onder 1000 hele Hz; vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1
+    if (rond(v, 1) < 1000) std::snprintf(b, sizeof b, "%.0f Hz", rond(v, 1) + 0.0);
+    else if (rond(v, 10) < 10000) std::snprintf(b, sizeof b, "%.2f kHz", rond(v, 10) / 1000.0);
+    else std::snprintf(b, sizeof b, "%.1f kHz", rond(v, 100) / 1000.0);
+  } else if (!std::strcmp(eenheid, "ms")) {  // onder 100 één decimaal, vanaf 100 hele ms
+    if (rond(v, 0.1) < 100) std::snprintf(b, sizeof b, "%.1f ms", rond(v * 10, 1) / 10.0 + 0.0);
+    else std::snprintf(b, sizeof b, "%.0f ms", rond(v, 1));
   } else {  // eenheidloos: × 100, hele procenten
-    std::snprintf(b, sizeof b, "%.0f %%", v * 100.0);
+    std::snprintf(b, sizeof b, "%.0f %%", rond(v * 100.0, 1) + 0.0);
   }
   metKomma(b);
   std::snprintf(uit, grootte, "%s", b);
   return true;
 }
 
-// Een getal met komma of punt, zonder locale (een host kan de C-locale veranderd hebben).
-bool leesGetal(const char* s, double* v, const char** rest) {
+// Een getal met komma of punt, zonder locale (een host kan de C-locale veranderd hebben). De cijfers worden als geheel
+// getal gelezen (mant) met zijn deler (een macht van 10); de aanroeper deelt één keer, ook voor procenten, zodat "38 %"
+// precies 0.38 wordt (zoals strtod het zou doen).
+bool leesGetal(const char* s, double* mant, double* deler, const char** rest) {
   while (*s == ' ') ++s;
   bool neg = false;
   if (*s == '-' || *s == '+') neg = *s++ == '-';
-  double x = 0;
-  bool cijfers = false;
-  while (*s >= '0' && *s <= '9') { x = x * 10 + (*s++ - '0'); cijfers = true; }
+  double x = 0, d = 1;
+  int cijfers = 0;
+  while (*s >= '0' && *s <= '9') { x = x * 10 + (*s++ - '0'); ++cijfers; }
   if (*s == ',' || *s == '.') {
     ++s;
-    double f = 0.1;
-    while (*s >= '0' && *s <= '9') { x += (*s++ - '0') * f; f *= 0.1; cijfers = true; }
+    while (*s >= '0' && *s <= '9') { x = x * 10 + (*s++ - '0'); d *= 10; ++cijfers; }
   }
-  if (!cijfers) return false;
-  *v = neg ? -x : x;
+  if (!cijfers || cijfers > 15) return false;  // meer dan 15 cijfers is niet exact; zo lang is geen waarde van ons
+  *mant = neg ? -x : x;
+  *deler = d;
   *rest = s;
   return true;
 }
@@ -273,19 +281,22 @@ bool leesGetal(const char* s, double* v, const char** rest) {
 bool paramsTextToValue(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
   const int i = indexVan(id);
   if (i < 0 || !tekst) return false;
-  double x;
+  double mant, deler, x;
   const char* r;
-  if (!leesGetal(tekst, &x, &r)) return false;
+  if (!leesGetal(tekst, &mant, &deler, &r)) return false;
   while (*r == ' ') ++r;
   const char* eenheid = Ontwerp::PARAMS[i].eenheid;
-  if (!std::strcmp(eenheid, "Hz")) {
-    if (*r == 'k' || *r == 'K') { x *= 1000.0; ++r; }
+  if (!std::strcmp(eenheid, "Hz")) {  // "900", "900 Hz", "3k", "3,00 kHz"
+    const bool kilo = *r == 'k' || *r == 'K';
+    if (kilo) ++r;
     if ((r[0] == 'H' || r[0] == 'h') && (r[1] == 'z' || r[1] == 'Z')) r += 2;
-  } else if (!std::strcmp(eenheid, "ms")) {
+    x = kilo ? mant * 1000.0 / deler : mant / deler;
+  } else if (!std::strcmp(eenheid, "ms")) {  // "375", "375 ms", "20,0 ms"
     if (r[0] == 'm' && r[1] == 's') r += 2;
-  } else {
-    x /= 100.0;  // eenheidloos: procenten, met of zonder "%"
+    x = mant / deler;
+  } else {  // eenheidloos: procenten, met of zonder "%" ("38" en "38 %" zijn 0,38)
     if (*r == '%') ++r;
+    x = mant / (deler * 100.0);
   }
   while (*r == ' ') ++r;
   if (*r) return false;

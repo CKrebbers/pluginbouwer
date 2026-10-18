@@ -2,7 +2,8 @@
 #
 #   cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
 #
-# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component} en build/pb-render (de CLAP-host van de null-test).
+# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (de CLAP-host van de null-test) en
+# build/pb-statetoets (de state- en teksttoets van fase 2).
 cmake_minimum_required(VERSION 3.21)
 project(toetsenpad VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -66,6 +67,11 @@ endif()
 add_executable(pb-render ${PAKKET}/gereedschap/pb-render.cpp)
 target_link_libraries(pb-render PRIVATE clap ${CMAKE_DL_LIBS})
 set_target_properties(pb-render PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# --- pb-statetoets: de eigen toets van fase 2 (state-blobs, tekst ↔ waarde, flush), door het gebouwde .clap -------------
+add_executable(pb-statetoets toets/statetoets.cpp)
+target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 option(PB_RTSAN "pb-render bouwen met -fsanitize=realtime (clang >= 20)" OFF)
 if (PB_RTSAN)
