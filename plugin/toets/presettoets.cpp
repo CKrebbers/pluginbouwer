@@ -278,7 +278,15 @@ std::string tekst(const std::vector<double>& w) {
 
 int main(int argc, char** argv) {
   if (argc < 2) stop("gebruik: pb-presettoets <plugin.clap>");
-  void* lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+  std::string pad = argv[1], bin = pad;
+#ifdef __APPLE__
+  {  // een .clap is op macOS een bundle: de code staat in Contents/MacOS/<naam zonder .clap>
+    std::string naam = pad.substr(pad.find_last_of('/') + 1);
+    if (naam.size() > 5 && naam.substr(naam.size() - 5) == ".clap") naam.resize(naam.size() - 5);
+    bin = pad + "/Contents/MacOS/" + naam;
+  }
+#endif
+  void* lib = dlopen(bin.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!lib) stop(std::string("dlopen: ") + dlerror());
   auto* entry = static_cast<const clap_plugin_entry_t*>(dlsym(lib, "clap_entry"));
   if (!entry || !entry->init(argv[1])) stop("geen clap_entry");
