@@ -38,6 +38,29 @@ blob korter dan zijn `aantal` belooft = false (niets veranderd); een hogere vers
 plugin mag er velden bij hebben, nooit een id een andere betekenis geven). Na een geslaagde load: `host_params->rescan(CLAP_PARAM_RESCAN_VALUES)`
 (clap-validator eist het in state-reproducibility), en als de plugin actief is `request_flush`.
 
+## Paneel (fase 3)
+Het frontpaneel uit design.md en `frontpaneel.svg`, in drie lagen:
+- `plugin/src/paneel.{h,cpp}`: het model, zonder platform. Indeling in de coördinaten van de mockup (560 × 220, y
+  omlaag), gelijk geschaald naar de venstermaat en in het midden; tekent naar een lijst opdrachten (vlak, rand, open lijn,
+  cirkel, tekst) en vertaalt de muis: slepen 200 punten omhoog = het hele bereik, lineair in de CLAP-waarde; Shift = 10×
+  fijner (zonder sprong als Shift halverwege verandert); dubbelklik = standaard; de laatst aangeraakte knop is de gekozen
+  knop (tape-boog). De waardetekst komt van `value_to_text` van de plugin.
+- `plugin/src/paneel_mac.mm`: de NSView (CLAP gui-extensie, alleen `CLAP_WINDOW_API_COCOA`, ingebed; clap-wrapper geeft
+  hem door aan VST3 en AUv2). Tekent met CoreGraphics/CoreText; IBM Plex Mono en Silkscreen (SIL OFL, `plugin/lettertypen/`)
+  zitten als bytes in het binary. De klasse wordt met de objc-runtime gemaakt met het adres van de code in de naam, zodat
+  CLAP, VST3 en AU in één host elk hun eigen klasse hebben. Linux en Windows hebben (nog) geen paneel.
+- `plugin.cpp`: de koppeling (`koppeling.h`). Het paneel leest alleen de atomaire spiegel (`get_value`). Een wijziging gaat
+  als BEGIN/WAARDE/EIND in een lock-vrije rij (één schrijver: de mainthread; één lezer: process of params.flush, die nooit
+  tegelijk draaien; wat niet past wacht op de mainthread, in volgorde) en de plugin vraagt `request_flush`. process/flush
+  geeft ze als `CLAP_EVENT_PARAM_GESTURE_BEGIN`/`PARAM_VALUE`/`GESTURE_END` (op sample 0) aan de host en past de waarde toe
+  zoals een event van de host (valkuil 14). Het paneel raakt het Ontwerp en de audiothread nooit. Gaat het paneel dicht
+  midden in een gebaar, dan volgt GESTURE_END. Zolang de host een gestuurde waarde nog niet overnam, toont het paneel die
+  (hooguit ±0,5 s; daarna weer wat de host heeft).
+- Toetsen: `pb-paneeltoets` (Linux en macOS; het model met de echte rij, tegen de getallen in `frontpaneel.svg`) en
+  `pb-paneel` (macOS; door het gebouwde .clap in een NSWindow, gesimuleerde muis, pixels terug, schermafbeeldingen als
+  artefact `macos-frontpaneel`). pluginval draait op macOS zonder `--skip-gui-tests`; CI eist dat zijn editortoetsen de
+  editor echt openden.
+
 ## Presets (fase 4)
 Een fabriekspreset is `presets/<sleutel>.json`: `{ naam, uitleg, waarden: { <parameternaam>: waarde } }` (geen
 state-blob). Bak ze bij het bouwen in het binary (CMake maakt er een tabel van; een onbekende naam of een waarde buiten

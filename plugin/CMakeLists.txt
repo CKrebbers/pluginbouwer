@@ -1,7 +1,8 @@
 # PB Toetsenpad — CLAP-first, met clap-wrapper v0.16.0 (gepatcht) voor VST3 en AUv2.
 #   cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (de CLAP-host van de null-test) en
-# build/pb-statetoets (state- en teksttoets, fase 2).
+# build/pb-statetoets (state- en teksttoets, fase 2), build/pb-paneeltoets (het paneelmodel, fase 3) en op macOS
+# build/pb-paneel (het paneel door het binary: openen, bedienen, schermafbeeldingen; fase 3).
 #   -DPB_RTSAN=ON    pb-render met -fsanitize=realtime (clang ≥ 20)
 #   -DPB_KANARIE=ON  process alloceert (de kanarie: RTSan MOET dan falen)
 cmake_minimum_required(VERSION 3.21)
@@ -39,10 +40,28 @@ FetchContent_Declare(clap-wrapper
 FetchContent_MakeAvailable(clap-wrapper)
 
 # De impl: de schil plus de gegeven DSP (include-pad dsp/). De DSP-vlaggen gelden voor alles wat de DSP compileert.
-add_library(toetsenpad-impl STATIC src/plugin.cpp)
+add_library(toetsenpad-impl STATIC src/plugin.cpp src/paneel.cpp)
 target_include_directories(toetsenpad-impl PUBLIC ${PAKKET}/dsp ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(toetsenpad-impl PUBLIC clap)
 target_compile_options(toetsenpad-impl PRIVATE -ffp-contract=off -fno-fast-math -fno-math-errno)
+
+# Het frontpaneel (fase 3). Op macOS een NSView (CLAP gui-extensie, Cocoa); clap-wrapper geeft hem door aan VST3 en
+# AUv2. De lettertypen (IBM Plex Mono en Silkscreen, SIL OFL 1.1, zie lettertypen/) gaan als bytes in het binary:
+# dan hoeft er niets naast de plugin te staan en is er geen installatie van een lettertype nodig.
+if (APPLE)
+  set(PB_LETTERS ${CMAKE_BINARY_DIR}/lettertypen.cpp)
+  set(PB_LETTER_BRON ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/IBMPlexMono-Regular.ttf
+                     ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/Silkscreen-Regular.ttf)
+  string(REPLACE ";" "|" PB_LETTER_BRONNEN "${PB_LETTER_BRON}")  # een ; zou het commando in stukken knippen
+  add_custom_command(OUTPUT ${PB_LETTERS}
+    COMMAND ${CMAKE_COMMAND} "-DUIT=${PB_LETTERS}" "-DBRONNEN=${PB_LETTER_BRONNEN}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/insluiten.cmake
+    DEPENDS ${PB_LETTER_BRON} ${CMAKE_CURRENT_SOURCE_DIR}/lettertypen/insluiten.cmake
+    COMMENT "Lettertypen insluiten"
+    VERBATIM)
+  target_sources(toetsenpad-impl PRIVATE src/paneel_mac.mm ${PB_LETTERS})
+  target_link_libraries(toetsenpad-impl PUBLIC "-framework Cocoa" "-framework CoreText" "-framework CoreGraphics")
+endif()
 if (PB_KANARIE)
   target_compile_definitions(toetsenpad-impl PRIVATE PB_KANARIE=1)
 endif()
@@ -81,3 +100,16 @@ endif()
 add_executable(pb-statetoets toetsen/pb-statetoets.cpp)
 target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
 set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# pb-paneeltoets: het model van het paneel met de echte koppeling (rij, flush, process), uit de statische impl
+add_executable(pb-paneeltoets toetsen/pb-paneeltoets.cpp)
+target_link_libraries(pb-paneeltoets PRIVATE toetsenpad-impl)
+set_target_properties(pb-paneeltoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+if (APPLE)
+  # pb-paneel: een kleine CLAP-host met een venster; opent het paneel van het gebouwde .clap, bedient het met de muis
+  # en schrijft schermafbeeldingen (PNG)
+  add_executable(pb-paneel toetsen/pb-paneel.mm)
+  target_link_libraries(pb-paneel PRIVATE clap ${CMAKE_DL_LIBS} "-framework Cocoa")
+  set_target_properties(pb-paneel PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()

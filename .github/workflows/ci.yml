@@ -1,10 +1,12 @@
 # CI van PB Toetsenpad — het log is het bewijs (SPEC.md "Validators"; PROMPTS.md fase 0).
 #   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron; de state- en param-toetsen moeten PASSED zijn),
 #           pluginval strictness 10 op de VST3 onder xvfb, null-test door het .clap (ci-null.sh clap) en door de VST3
-#           (ci-null.sh pluginval), state- en teksttoets (pb-statetoets, fase 2)
+#           (ci-null.sh pluginval), state- en teksttoets (pb-statetoets, fase 2), paneelmodel (pb-paneeltoets, fase 3)
 #   rtsan:  pb-render met -fsanitize=realtime (clang 20) door het .clap; een kanarie-bouw die MOET falen
 #   macos:  arm64, ad-hoc gesigneerd, geïnstalleerd, auval -strict, pluginval 10 --rtcheck op AU en VST3, artefact,
-#           null-test door het .clap, de VST3 en de AU, state- en teksttoets (pb-statetoets)
+#           null-test door het .clap, de VST3 en de AU, state- en teksttoets (pb-statetoets), het paneel (fase 3):
+#           pluginval zonder --skip-gui-tests (de editortoetsen moeten echt een editor openen), pb-paneeltoets, en
+#           pb-paneel door het gesigneerde .clap met schermafbeeldingen als artefact macos-frontpaneel
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -104,6 +106,18 @@ jobs:
 
       - name: State- en teksttoets (pb-statetoets door het .clap; fase 2)
         run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
+
+      - name: Paneelmodel met de echte rij (pb-paneeltoets; fase 3)
+        run: |
+          mkdir -p paneel-svg
+          build/pb-paneeltoets frontpaneel.svg paneel-svg
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-paneel-svg
+          path: paneel-svg/
+          if-no-files-found: ignore
 
   rtsan:
     runs-on: ubuntu-24.04
@@ -216,10 +230,15 @@ jobs:
           sleep 2
           auval -a | grep -i "Vrve" || true
 
-      - name: pluginval strictness 10 --rtcheck (VST3, via pluginval-rt.sh; valkuil 22)
+      - name: pluginval strictness 10 --rtcheck (VST3, via pluginval-rt.sh; valkuil 22; met GUI-toetsen)
         run: |
+          set -o pipefail
           sh gereedschap/pluginval-rt.sh ~/pluginval/pluginval.app/Contents/MacOS/pluginval \
-            "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3"
+            "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" 2>&1 | tee pv-vst3-mac.log
+          # fase 3: geen --skip-gui-tests, en de editortoetsen openden echt een editor ("Editor stress" logt dit
+          # alleen als de plugin een editor heeft)
+          grep -q "Testing opening Editor with released processing" pv-vst3-mac.log
+          echo "pluginval VST3: editortoetsen draaiden met de editor van de plugin"
 
       - name: pluginval strictness 10 --rtcheck enabled --repeat 3 (AU)
         run: |
@@ -228,6 +247,10 @@ jobs:
             "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
             --strictness-level 10 --rtcheck enabled --repeat 3 --timeout-ms 600000 2>&1 | tee pv-au.log
           grep -q "^SUCCESS" pv-au.log
+          # fase 3: geen --skip-gui-tests; de editor ging drie keer open (elke herhaling)
+          n=$(grep -c "Testing opening Editor with released processing" pv-au.log || true)
+          echo "pluginval AU: editor geopend in $n herhalingen"
+          test "$n" -ge 3
 
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
@@ -244,6 +267,22 @@ jobs:
 
       - name: State- en teksttoets (pb-statetoets door het gesigneerde .clap; fase 2)
         run: build/pb-statetoets "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap"
+
+      - name: Paneelmodel met de echte rij (pb-paneeltoets; fase 3)
+        run: build/pb-paneeltoets frontpaneel.svg
+
+      - name: Paneel door het gesigneerde .clap (pb-paneel; venster, muis, schermafbeeldingen; fase 3)
+        run: |
+          mkdir -p schermafbeeldingen
+          build/pb-paneel "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" "$PWD/schermafbeeldingen"
+          ls -la schermafbeeldingen
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-frontpaneel
+          path: schermafbeeldingen/
+          if-no-files-found: error
 
       - name: auval -strict (aumu PTgg Vrve)
         run: |
