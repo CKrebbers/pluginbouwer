@@ -92,7 +92,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 > installeren (twee keer: de tweede meldt "upgrade"), plek en handtekening van alle drie, dan `auval -strict`.
 > Notarisatie alleen als optie in de docs, met de kosten.
 **Stopcriterium**: het pakket installeert in CI op een schone runner; auval slaagt daarna.
-**Uitslag**: nog niet getoetst
+**Uitslag**: gehaald (proef G3, zie UITSLAG-fase6.md)
 
 ---
 ## Fase 7 — test in Logic (checklist voor Clay)
