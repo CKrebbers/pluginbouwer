@@ -87,4 +87,20 @@ bool tekstNaarWaarde(const char* e, const char* tekst, double min, double max, d
   return true;
 }
 
+std::string bypassNaarTekst(double v) { return v >= 0.5 ? "Aan" : "Uit"; }
+
+bool tekstNaarBypass(const char* tekst, double& waarde) {
+  if (!tekst) return false;
+  std::string t;
+  for (const char* p = tekst; *p; ++p) {
+    char c = *p;
+    if (c == ' ' || c == '\t') continue;
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    t += c;
+  }
+  if (t == "aan" || t == "1" || t == "on") { waarde = 1; return true; }
+  if (t == "uit" || t == "0" || t == "off") { waarde = 0; return true; }
+  return false;
+}
+
 }  // namespace dub

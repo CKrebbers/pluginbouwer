@@ -1,4 +1,4 @@
-// state_toets — de eigen toets van fase 2, door het gebouwde .clap (dlopen, zoals een host).
+// state_toets — de eigen toets van fase 2 (fase 5: de bypass, id 10, telt mee als stepped parameter), door het gebouwde .clap (dlopen, zoals een host).
 //
 //   state_toets <plugin.clap>
 //
@@ -71,10 +71,11 @@ struct Blob {
   void param(uint32_t id, double v) { u32(id); f64(v); }
 };
 
-struct Info { clap_id id; std::string naam; double min, max, standaard; };
+struct Info { clap_id id; std::string naam; double min, max, standaard; bool stappen = false; };
 
-// een waarde binnen het bereik die niet de standaard is
+// een waarde binnen het bereik die niet de standaard is (bij stappen, zoals de bypass: een hele stap)
 double anders(const Info& p, int k) {
+  if (p.stappen) return p.standaard == p.max ? p.min : p.max;
   const double t = 0.15 + std::fmod(0.07 * k, 0.7);  // binnen (0, 1): nooit geklemd
   double v = p.min + (p.max - p.min) * t;
   if (v == p.standaard) v = p.min + (p.max - p.min) * (t + 0.1);
@@ -271,6 +272,7 @@ void tekstToetsen(Toets& t) {
       {1, "375 ms", 375, 1},       {2, "50 %", 0.5, 0.01},     {3, "3,00 kHz", 3000, 10},
       {4, "100 Hz", 100, 1},       {5, "Q 0,71", 0.71, 0.01},  {6, "6,0 dB", 6, 0.1},
       {7, "25 %", 0.25, 0.01},     {8, "38 %", 0.38, 0.01},    {9, "0 %", 0, 0.01},
+      {10, "Uit", 0, 0},  // de bypass (fase 5)
   };
   controle(t.par.size() == sizeof tabel / sizeof tabel[0], "evenveel parameters als rijen in de tabel");
   for (const auto& r : tabel) {
@@ -295,6 +297,8 @@ void tekstToetsen(Toets& t) {
       {3, "3k", true, 3000},        {3, "3,00 kHz", true, 3000},  {3, "12,0 kHz", true, 12000}, {3, "300 Hz", true, 300},
       {3, "2.5 khz", true, 2500},   {4, "50", true, 50},          {5, "Q 0,71", true, 0.71},  {5, "2.5", true, 2.5},
       {6, "6,0 dB", true, 6},       {6, "-3", true, 0},           {8, "", false, 0},          {9, "%", false, 0},
+      {10, "Aan", true, 1},         {10, "uit", true, 0},         {10, "1", true, 1},         {10, "0", true, 0},
+      {10, "on", true, 1},          {10, "half", false, 0},
   };
   for (const auto& r : invoer) {
     size_t i = 0;
@@ -354,7 +358,8 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < t.pp->count(t.pl); ++i) {
       clap_param_info_t info{};
       t.pp->get_info(t.pl, i, &info);
-      t.par.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
+      t.par.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value,
+                       (info.flags & CLAP_PARAM_IS_STEPPED) != 0});
     }
     if (t.par.size() < 2) { std::fprintf(stderr, "te weinig parameters\n"); return 2; }
     if (ronde == 0) {

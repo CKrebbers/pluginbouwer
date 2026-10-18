@@ -10,4 +10,8 @@ std::string waardeNaarTekst(const char* eenheid, double waarde);
 // geklemd op [min, max]; false als de tekst onleesbaar is
 bool tekstNaarWaarde(const char* eenheid, const char* tekst, double min, double max, double& waarde);
 
+// de bypass (twee standen): "Uit" (0) en "Aan" (1); terug ook "0"/"1" en "off"/"on", hoofdletters maken niet uit
+std::string bypassNaarTekst(double waarde);
+bool tekstNaarBypass(const char* tekst, double& waarde);
+
 }  // namespace dub

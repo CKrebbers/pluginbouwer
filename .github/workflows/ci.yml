@@ -1,4 +1,4 @@
-# CI van het bouwpakket Dub-echo (fase 0–4): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
+# CI van het bouwpakket Dub-echo (fase 0–5): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
 # stap "Bewijs" die de uitslagen samenvat (de GitHub-tools geven alleen de laatste 5000 regels van een job: valkuil 18).
 name: ci
 
@@ -71,6 +71,13 @@ jobs:
             preset-discovery-load | tee cv-presets.log
           test "$(grep -c ': PASSED$' cv-presets.log)" -eq 3
 
+      - name: clap-validator indelingen, samplerates, blokgroottes en in-place PASSED (fase 5)
+        run: |
+          sh gereedschap/cv-eis.sh clap-validator.log layout-audio-ports-config layout-configurable-audio-ports \
+            process-audio-basic-out-of-place process-audio-basic-in-place process-varying-sample-rates \
+            process-varying-block-sizes process-random-block-sizes | tee cv-indelingen.log
+          test "$(grep -c ': PASSED$' cv-indelingen.log)" -eq 7
+
       - name: Preset-toets (alle fabriekspresets via preset-discovery vinden en via preset-load laden; door het .clap)
         run: |
           set -o pipefail
@@ -111,6 +118,21 @@ jobs:
           set -o pipefail
           xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/PB Dub-echo.vst3" "$PWD/pv/pluginval" vst3-linux 2>&1 | tee null-vst3.log
 
+      - name: Matrix - verwachte uitvoer uit graaf.wasm (eerst testsignalen bit voor bit; 44,1-192 kHz, drie indelingen, bypass)
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs maak "$PWD/uit/matrix" 2>&1 | tee matrix-maak.log
+
+      - name: Null-test CLAP matrix (pb-render; elke samplerate en indeling, blok 512 en 1,4096,77,3 in-place, bypass)
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs clap "$PWD/uit/matrix" build/pb-render "build/plugins/PB Dub-echo.clap" 2>&1 | tee null-matrix-clap.log
+
+      - name: Null-test VST3 matrix (pluginval test per samplerate, blok 1..4096, xvfb)
+        run: |
+          set -o pipefail
+          xvfb-run -a node gereedschap/matrix.mjs pluginval "$PWD/uit/matrix" "$PWD/pv/pluginval" "$PWD/build/plugins/PB Dub-echo.vst3" vst3-linux 2>&1 | tee null-matrix-vst3.log
+
       - name: Bewijs
         if: always()
         run: |
@@ -118,12 +140,21 @@ jobs:
           grep -E "FAILED" clap-validator.log || echo "geen FAILED"
           echo "== clap-validator state/param =="; cat cv-eis.log || echo "(geen uitslag)"
           echo "== clap-validator presets =="; cat cv-presets.log || echo "(geen uitslag)"
+          echo "== clap-validator indelingen (fase 5) =="; cat cv-indelingen.log || echo "(geen uitslag)"
           echo "== preset-toets Linux =="; grep -E "^FOUT|^presets:|^preset-toets:" preset-toets.log || echo "(geen uitslag)"
           echo "== state-toets Linux =="; grep -E "^FOUT|^state-toets:" state-toets.log || echo "(geen uitslag)"
           echo "== paneel-toets Linux =="; grep -E "^FOUT|^paneel-toets:" paneel-toets.log || echo "(geen uitslag)"
           echo "== pluginval VST3 Linux =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!" pluginval-vst3.log || echo "(geen uitslag)"
           echo "== null-test CLAP Linux =="; grep -aE "^###|^\| [a-z]" null-clap.log || echo "(geen uitslag)"
           echo "== null-test VST3 Linux =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-vst3.log || echo "(geen uitslag)"
+          echo "== matrix: graaf.wasm tegen testsignalen =="; grep -aE "^\| graaf.wasm|^matrix:" matrix-maak.log || echo "(geen uitslag)"
+          for m in clap vst3; do
+            echo "== null-test $m matrix Linux =="
+            grep -aE "^### " null-matrix-$m.log || echo "(geen uitslag)"
+            echo "   bit voor bit: $(grep -acE '^\| .*\| ja \|' null-matrix-$m.log) renders; niet bit voor bit of erger:"
+            grep -aE "^\| " null-matrix-$m.log | grep -avE "\| ja \||^\| render|^\|---" || echo "   (geen)"
+            grep -aE "^matrix " null-matrix-$m.log || echo "(geen eindregel)"
+          done
 
   rtsan:
     name: RTSan (clang 20, pb-render, kanarie)
@@ -157,6 +188,15 @@ jobs:
             for blok in 512 3,128,1,4096,77; do
               echo "pb-render $(basename "$f") --blok $blok" | tee -a rtsan.log
               build-rtsan/pb-render "$CLAP" "$f" uit/rtsan/x.wav --blok "$blok" 2>&1 | tee -a rtsan.log
+            done
+          done
+          # fase 5: elke indeling in-place met bypass-events (overvloei), op 44,1 en 192 kHz, blok 1..4096
+          printf '24000 10 1\n48000 10 0\n48192 10 1\n96000 10 0\n' > bypass.txt
+          for ind in stereo mono mono-stereo; do
+            for sr in 44100 192000; do
+              echo "pb-render echo-standaard --indeling $ind --sr $sr --in-place, bypass" | tee -a rtsan.log
+              build-rtsan/pb-render "$CLAP" testsignalen/echo-standaard.in.wav uit/rtsan/b.wav --sr "$sr" --indeling "$ind" \
+                --in-place --blok 1,4096,77,3 --automatie bypass.txt 2>&1 | tee -a rtsan.log
             done
           done
           echo "pb-render automatie (720 events)" | tee -a rtsan.log
@@ -336,6 +376,37 @@ jobs:
           set -o pipefail
           sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" "$PV" au-macos 2>&1 | tee null-au.log
 
+      - name: Matrix - verwachte uitvoer uit graaf.wasm (eerst testsignalen bit voor bit; 44,1-192 kHz, drie indelingen, bypass)
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs maak "$PWD/uit/matrix" 2>&1 | tee matrix-maak.log
+
+      - name: Null-test CLAP matrix (pb-render; elke samplerate en indeling, blok 512 en 1,4096,77,3 in-place, bypass)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs clap "$PWD/uit/matrix" build/pb-render "$HOME/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap" 2>&1 | tee null-matrix-clap.log
+
+      - name: Null-test AU matrix (pb-aurender; 2 naar 2, 1 naar 1, 1 naar 2, elke samplerate, bypass via kAudioUnitProperty_BypassEffect)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          mkdir -p uit/au
+          build/pb-aurender "$PWD/uit/matrix/au-lijst.txt" "$PWD/uit/au" 2>&1 | tee au-render.log
+          node gereedschap/matrix.mjs vergelijk "$PWD/uit/matrix" "$PWD/uit/au" "AU pb-aurender" 2>&1 | tee null-matrix-au.log
+
+      - name: Null-test AU matrix (pluginval test per samplerate, blok 1..4096)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs pluginval "$PWD/uit/matrix" "$PV" "$HOME/Library/Audio/Plug-Ins/Components/PB Dub-echo.component" au-macos 2>&1 | tee null-matrix-aupv.log
+
+      - name: Null-test VST3 matrix (pluginval test per samplerate, blok 1..4096)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          node gereedschap/matrix.mjs pluginval "$PWD/uit/matrix" "$PV" "$HOME/Library/Audio/Plug-Ins/VST3/PB Dub-echo.vst3" vst3-macos 2>&1 | tee null-matrix-vst3.log
+
       - name: Bundels zippen (GitHub-artefacten bewaren geen rechten of symlinks)
         if: always()
         run: |
@@ -369,3 +440,13 @@ jobs:
           echo "== null-test CLAP macOS =="; grep -aE "^###|^\| [a-z]" null-clap.log || echo "(geen uitslag)"
           echo "== null-test VST3 macOS =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-vst3.log || echo "(geen uitslag)"
           echo "== null-test AU macOS =="; grep -aE "^###|^\| [a-z]|^PASSED|^FAILED" null-au.log || echo "(geen uitslag)"
+          echo "== auval: kanaalindelingen =="; grep -aiE -A3 "channel (handling|capabilities)" auval.log || echo "(geen)"
+          echo "== matrix: graaf.wasm tegen testsignalen =="; grep -aE "^\| graaf.wasm|^matrix:" matrix-maak.log || echo "(geen uitslag)"
+          echo "== pb-aurender =="; grep -aE "^pb-aurender: [0-9]+ renders|pb-aurender: .*(status|niet)" au-render.log || echo "(geen uitslag)"
+          for m in clap au aupv vst3; do
+            echo "== null-test $m matrix macOS =="
+            grep -aE "^### " null-matrix-$m.log || echo "(geen uitslag)"
+            echo "   bit voor bit: $(grep -acE '^\| .*\| ja \|' null-matrix-$m.log) renders; niet bit voor bit of erger:"
+            grep -aE "^\| " null-matrix-$m.log | grep -avE "\| ja \||^\| render|^\|---" || echo "   (geen)"
+            grep -aE "^matrix " null-matrix-$m.log || echo "(geen eindregel)"
+          done

@@ -140,4 +140,9 @@ if (APPLE)
   target_compile_options(pb-aupresettoets PRIVATE ${PB_FP_VLAGGEN})
   target_link_libraries(pb-aupresettoets PRIVATE clap "-framework AudioToolbox" "-framework CoreFoundation")
   set_target_properties(pb-aupresettoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+  # fase 5: de matrix (samplerates × indelingen × bypass) door de geïnstalleerde .component, zoals een AU-host rendert
+  add_executable(pb-aurender toets/au_render.cpp)
+  target_link_libraries(pb-aurender PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-aurender PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()

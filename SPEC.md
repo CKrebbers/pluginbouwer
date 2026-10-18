@@ -46,11 +46,24 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 7 | Haperen | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt. 0,25 is een goede bandrecorder, 1 een versleten band |
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
 | 9 | Ruis | 0 – 1 | — | 0 | 20 ms | glijden | De sis van de band in de echo; bij 1 zoals een echte bandrecorder, en hij stapelt in de herhalingen |
+| 10 | Bypass | 0 / 1 | — | 0 | 10 ms overvloeien | twee standen | Uit = het effect, Aan = de droge invoer. Geen parameter van het Ontwerp: de schil doet het (fase 5) |
 
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
 - "glijden": de waarde schuift per sample naar het doel (een tape-echo laat dan de toon glijden; zo bedoeld).
+- Bypass (id 10): `CLAP_PARAM_IS_BYPASS | IS_STEPPED | IS_AUTOMATABLE`; VST3 maakt er `kIsBypass` van, de AU
+  `kAudioUnitProperty_BypassEffect` (beide clap-wrapper). De DSP rekent door; de uitvoer vloeit in 10 ms lineair over
+  (per sample g ± 1/(0,010 · sr), dan nat · (1 − g) + droog · g door `pb::uitvoer`). Bij g = 0 is de uitvoer bit voor
+  bit die van het Ontwerp, bij g = 1 de invoer met subnormale samples op 0. Hij gaat mee in de state; een preset laat
+  hem staan.
+
+## Formaten (fase 5)
+- Kanaalindelingen: stereo (2 → 2), mono (1 → 1) en mono → stereo (1 → 2; Logic biedt die aan op een monospoor).
+  Mono rekent alleen DSP-kanaal 0; mono → stereo geeft de ene ingang aan beide DSP-kanalen (links en rechts
+  verschillen door hun eigen ruis en bandbeweging).
+- Samplerates 44,1–192 kHz, blokgrootte 1..4096 (en elke andere: process knipt op de maxFrames van activate).
+- Null-test van de hele matrix tegen `wasm/graaf.wasm` (`gereedschap/matrix.mjs`), bit voor bit.
 
 ## Tekst ↔ waarde (paneel, host, clap `value_to_text`/`text_to_value`)
 | id | naam | label op het paneel | standaard als tekst | regel |
@@ -64,6 +77,7 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 | 7 | Haperen | Haperen | 25 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 8 | Mix | Mix | 38 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 9 | Ruis | Ruis | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 10 | Bypass | — (niet op het paneel) | Uit | "Uit" (0) of "Aan" (1); terug ook "0"/"1" en "off"/"on" |
 
 - Decimaalteken een komma (Nederlands), spatie voor de eenheid. `text_to_value` neemt komma én punt, met of zonder
   eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten

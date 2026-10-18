@@ -3,8 +3,8 @@
 ## Lagen
 ```
 dsp/                 DE DSP (gegeven, niet herschrijven): pb_*.h + de keten als constante (ontwerpen/keten_dub_echo.h)
-plugin/              de CLAP-schil (fase 0–2), clap-wrapper maakt VST3 en AUv2
-gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh
+plugin/              de CLAP-schil (fase 0–5), clap-wrapper maakt VST3 en AUv2
+gereedschap/         pb-render (CLAP-host), vergelijk.mjs (null-test + statistisch), ci-null.sh, matrix.mjs (fase 5)
 testsignalen/        invoer + verwachte uitvoer (uit de WASM van de tool) + pluginval-configs
 ```
 
@@ -54,6 +54,25 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
   en alle providers delen de locatie (PLUGIN, nullptr). `pb-presettoets` laadt ze daarom allemaal zelf.
 - Een eigen presetnaam van de host (AU, presetnummer −1) moet in ClassInfo terugkomen; de presetpatch overschrijft
   daarvoor ook `NewCustomPresetSet` (anders auval: "Preset name is not retained in retrieved class data").
+
+## Kanalen en bypass (fase 5)
+- Eén ingangs- en één uitgangspoort; hun kanalen volgen de gekozen indeling: stereo 2 → 2 (id 0), mono 1 → 1 (id 1),
+  mono → stereo 1 → 2 (id 2). Elk formaat kiest anders (valkuil 17):
+  - CLAP: `audio-ports-config` (`select`, alleen inactief) en `audio-ports-config-info`;
+  - VST3 (clap-wrapper): `configurable-audio-ports` (`setBusArrangements`): de verzoeken samen met de huidige
+    indeling moeten een van de drie zijn;
+  - AU (clap-wrapper + `patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch`): de configs worden
+    `SupportedNumChannels`, Initialize kiest de config die bij de stroomformaten past.
+- `in_place_pair` alleen bij evenveel kanalen in als uit; toch kan een host bij 1 → 2 de ingang als uitgang 0
+  meegeven. De DSP schrijft per sample eerst uitgang 0, dus dient één hostbuffer als ingang van DSP-kanaal 1 en is
+  hij uitgang 0, dan wordt de invoer eerst gekopieerd (buffer van 2 × maxFrames uit activate).
+- Bypass (id 10, SPEC.md): `waarde[N]`/`kopie[N]` naast de N parameters van het Ontwerp, nooit `zetParam`. In
+  process volgt `bypassMix` per sample het doel; zolang hij niet 0 is wordt de invoer altijd gekopieerd (in-place
+  overschrijft de DSP hem). Bij activate en reset springt hij naar het doel (geen overvloei bij het starten). De AU
+  zet hem via `kAudioUnitProperty_BypassEffect` als parameterevent op sample 0 van de volgende Render.
+- Toetsen: `gereedschap/matrix.mjs` (verwachte uitvoer uit graaf.wasm, dat eerst `testsignalen/` bit voor bit moet
+  nadoen), `pb-render --indeling … --in-place`, `pb-aurender` (macOS: de .component zoals een AU-host), en
+  pluginval test per samplerate.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

@@ -8,6 +8,10 @@
 //             [--noten f [--midi]] noten op hun sample (instrument); f: per regel "sample aan|uit noot". Standaard als
 //                                 CLAP-noten, met --midi als MIDI-bytes (0x90/0x80): beide dialecten van de note port
 //             [--tempo bpm]       een transport dat speelt vanaf tel 0 op dit tempo (de sequencer volgt de host)
+//             [--indeling stereo|mono|mono-stereo]  kies vóór activate de audio-ports-config met 2 → 2, 1 → 1 of
+//                                 1 → 2 kanalen (zonder: de poorten zoals de plugin ze geeft). Ingangskanaal c leest
+//                                 WAV-kanaal c (of het laatste); de uitvoer-WAV heeft de kanalen van de uitgang.
+//             [--in-place]        uitgangskanaal c is dezelfde buffer als ingangskanaal c (zoals Logic het doet)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -113,6 +117,7 @@ int main(int argc, char** argv) {
   struct Auto { uint64_t sample; int64_t id; double waarde; };
   std::vector<Auto> automatie;
   bool alsMidi = false; double tempo = 0;
+  std::string indeling; bool inPlace = false;
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -136,6 +141,8 @@ int main(int argc, char** argv) {
     }
     else if (a == "--midi") alsMidi = true;
     else if (a == "--tempo" && i + 1 < argc) tempo = std::atof(argv[++i]);
+    else if (a == "--indeling" && i + 1 < argc) indeling = argv[++i];
+    else if (a == "--in-place") inPlace = true;
     else fout("onbekende optie " + a);
   }
 
@@ -196,16 +203,44 @@ int main(int argc, char** argv) {
     for (size_t b = a; b > 0 && automatie[b - 1].sample > automatie[b].sample; --b) std::swap(automatie[b - 1], automatie[b]);
   // een instrument heeft geen audio-ingang: dan geven we er ook geen
   auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
+  if (!indeling.empty()) {
+    uint32_t wilIn = 2, wilUit = 2;
+    if (indeling == "mono") wilIn = wilUit = 1;
+    else if (indeling == "mono-stereo") wilIn = 1;
+    else if (indeling != "stereo") fout("--indeling stereo|mono|mono-stereo");
+    auto* cfg = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+    if (!cfg) fout("--indeling: de plugin heeft geen audio-ports-config");
+    bool gekozen = false;
+    for (uint32_t i = 0; i < cfg->count(pl) && !gekozen; ++i) {
+      clap_audio_ports_config_t c{};
+      if (!cfg->get(pl, i, &c) || !c.has_main_input || !c.has_main_output) continue;
+      if (c.main_input_channel_count == wilIn && c.main_output_channel_count == wilUit) {
+        if (!cfg->select(pl, c.id)) fout("--indeling: select gaf false");
+        gekozen = true;
+      }
+    }
+    if (!gekozen) fout("--indeling: geen audio-ports-config met " + std::to_string(wilIn) + " → " + std::to_string(wilUit));
+  }
   const uint32_t nIn = ap ? ap->count(pl, true) : 1;
+  uint32_t kanIn = 2, kanUit = 2;
+  if (ap) {
+    clap_audio_port_info_t pi{};
+    if (nIn && ap->get(pl, 0, true, &pi)) kanIn = pi.channel_count;
+    if (ap->get(pl, 0, false, &pi)) kanUit = pi.channel_count;
+  }
+  if (!nIn) kanIn = 0;
+  if (!indeling.empty()) std::fprintf(stderr, "pb-render: indeling %s: %u → %u kanalen%s\n", indeling.c_str(), kanIn, kanUit,
+                                      inPlace ? ", in-place" : "");
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
-  const uint32_t kan = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  const uint32_t wavKan = (uint32_t)in.k.size();
   const size_t n = in.k[0].size();
-  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kan, std::vector<float>(n));
-  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
-  std::vector<float*> pi(kan), pu(kan);
-  for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
+  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kanUit, std::vector<float>(n));
+  std::vector<std::vector<float>> bi(kanIn, std::vector<float>(maxBlok)), bu(kanUit, std::vector<float>(maxBlok));
+  std::vector<float*> pi(kanIn ? kanIn : 1, nullptr), pu(kanUit);
+  for (uint32_t c = 0; c < kanIn; ++c) pi[c] = bi[c].data();
+  for (uint32_t c = 0; c < kanUit; ++c) pu[c] = (inPlace && c < kanIn) ? bi[c].data() : bu[c].data();
   Events blokEv; blokEv.ev.reserve(automatie.size());
   clap_input_events_t blokIn = {&blokEv, evSize, evGet};
   size_t volgende = 0;
@@ -214,8 +249,8 @@ int main(int argc, char** argv) {
   while (pos < n) {
     uint32_t m = blokken[bnr++ % blokken.size()];
     if (pos + m > n) m = (uint32_t)(n - pos);
-    for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
-    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
+    for (uint32_t c = 0; c < kanIn; ++c) std::memcpy(pi[c], &in.k[c < wavKan ? c : wavKan - 1][pos], m * 4);
+    clap_audio_buffer_t ai = {pi.data(), nullptr, kanIn, 0, 0}, au = {pu.data(), nullptr, kanUit, 0, 0};
     // de events van dit blok, met hun tijd binnen het blok (buiten doeProcess opgebouwd: geen allocatie in RT)
     blokEv.ev.clear();
     while (volgende < automatie.size() && automatie[volgende].sample < pos + m) {
@@ -246,7 +281,7 @@ int main(int argc, char** argv) {
     }
     clap_process_t pr = {steady, m, tempo > 0 ? &tr : nullptr, &ai, &au, nIn ? 1u : 0u, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
-    for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
+    for (uint32_t c = 0; c < kanUit; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;
   }
   pl->stop_processing(pl);
