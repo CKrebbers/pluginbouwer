@@ -18,6 +18,14 @@
 | AUv3 op iPad/iPhone | idem (gratis account: 7 dagen geldig) | gratis account, elke week opnieuw | blijvend op je toestel |
 | CI op macOS | 0 (publieke repo) | — | een privérepo telt macOS-minuten zwaarder **[factor niet bevestigd]** |
 
-## Wat je kunt leren (niet nodig om te bouwen)
+## Presets (fase 4)
+De fabriekspresets staan in `presets/`, één bestand per preset, bijvoorbeeld `presets/donker.json`:
+`{ "naam": "Donker", "uitleg": "…", "waarden": { "Filter": 350, "Loslaten": 600 } }`. Een parameter die je weglaat,
+krijgt zijn standaard (SPEC.md). Een nieuwe preset is een nieuw bestand; de bestandsnaam (kleine letters, cijfers, `-`)
+mag daarna niet meer veranderen, want hij is de sleutel waarmee een host de preset terugvindt. Een tikfout in een
+parameternaam of een waarde buiten het bereik laat de bouw (en dus CI) falen, met de reden erbij.
+In Logic staan ze in het presetmenu bovenin het pluginvenster; een verse plugin begint op "Untitled" (de standaarden).
+
+ (niet nodig om te bouwen)
 - Wat een null-test is: twee renders van elkaar aftrekken; stilte = gelijk.
 - Een terugkoppeling: hoe de lusversterking (terugkoppeling × filter × saturatie) bepaalt of hij uitsterft of doorgaat.

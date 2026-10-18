@@ -12,6 +12,10 @@
 # toetst het paneel door het .clap (tekening, slepen, Shift, dubbelklik, gebaren via flush/process) op Linux en macOS;
 # pb-scherm opent het echte Cocoa-paneel via de gui-extensie in een venster, stuurt er NSEvents naar en maakt de
 # schermafbeeldingen (artefact macos-schermafbeelding; de software-tekening van Linux als linux-schermafbeelding).
+# Fase 4: fabriekspresets uit presets/*.json (in het binary gebakken). clap-validator moet ook de drie preset-toetsen
+# PASSED geven (preset-discovery-crawl, -descriptor-consistency, -load); pb-presettoets toetst preset-discovery en
+# preset-load door het .clap (Linux, macOS); elke presetnaam moet in de uitvoer van auval -strict -v staan (de AU leest
+# dezelfde factory via patches/clap-wrapper-auv2-presets.patch). Een samenvatting staat als laatste stap van macos.
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -64,7 +68,7 @@ jobs:
         run: cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets
 
       - name: pb-render door het .clap (rookproef)
         run: |
@@ -89,13 +93,15 @@ jobs:
           ontbreekt=0
           for toets in state-reproducibility-basic state-reproducibility-binary state-reproducibility-buffered \
                        state-invalid-empty state-invalid-random param-fuzz-basic param-fuzz-bounds \
-                       param-fuzz-sample-accurate param-set-events param-conversions param-default-values; do
+                       param-fuzz-sample-accurate param-set-events param-conversions param-default-values \
+                       preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
             uitslag=$(awk -v t="$toets" '$1==t {print $2}' clap-validator-uitslagen.txt | tail -1)
             echo "clap-validator $toets: ${uitslag:-niet gevonden}"
             [ "$uitslag" = PASSED ] || ontbreekt=1
           done
-          [ "$ontbreekt" -eq 0 ] || { echo "clap-validator: een state- of param-toets is niet PASSED"; exit 1; }
+          [ "$ontbreekt" -eq 0 ] || { echo "clap-validator: een state-, param- of preset-toets is niet PASSED"; exit 1; }
           echo "### clap-validator: state-reproducibility (3), state-invalid (2), param-fuzz (3), param-set-events, param-conversions, param-default-values PASSED" >> "$GITHUB_STEP_SUMMARY"
+          echo "### clap-validator: preset-discovery-crawl, preset-discovery-descriptor-consistency, preset-discovery-load PASSED" >> "$GITHUB_STEP_SUMMARY"
 
       - name: pluginval strictness 10 op de VST3 onder xvfb (bewijs)
         run: |
@@ -125,6 +131,12 @@ jobs:
           mkdir -p schermafbeelding
           ./build/pb-paneeltoets "build/plugins/$NAAM.clap" schermafbeelding | tee paneeltoets.log
           echo "### $(tail -1 paneeltoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Presettoets door het .clap (pb-presettoets; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-presettoets "build/plugins/$NAAM.clap" | tee presettoets.log
+          echo "### $(tail -1 presettoets.log) (Linux)" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -204,7 +216,7 @@ jobs:
         run: cmake -S plugin -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Bouwen
-        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-scherm -j 4
+        run: cmake --build build --target toetsenpad_all pb-render pb-statetoets pb-paneeltoets pb-presettoets pb-scherm -j 4
 
       - name: Ad-hoc signeren
         run: |
@@ -247,6 +259,13 @@ jobs:
           set -e
           echo "### auval: $(grep -E 'AU VALIDATION' auval.log | tail -1)" >> "$GITHUB_STEP_SUMMARY"
           [ "$status" -eq 0 ] && grep -q "AU VALIDATION SUCCEEDED" auval.log
+          # fase 4: elke presetnaam uit presets/*.json staat in de uitvoer van auval (de factory presets van de AU)
+          sh gereedschap/presetnamen.sh presets > presetnamen.txt
+          ontbreekt=0
+          while IFS= read -r naam; do
+            if grep -qF -- "$naam" auval.log; then echo "auval toont preset: $naam"; else echo "auval toont preset NIET: $naam"; ontbreekt=1; fi
+          done < presetnamen.txt
+          [ -s presetnamen.txt ] && [ "$ontbreekt" -eq 0 ]
 
       - name: pluginval strictness 10 --rtcheck enabled op de AU, 3 keer (bewijs)
         run: |
@@ -286,6 +305,12 @@ jobs:
           ./build/pb-paneeltoets "build/plugins/$NAAM.clap" schermafbeelding | tee paneeltoets.log
           echo "### $(tail -1 paneeltoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Presettoets door het .clap, macOS arm64 (pb-presettoets; bewijs)
+        run: |
+          set -o pipefail
+          ./build/pb-presettoets "build/plugins/$NAAM.clap" | tee presettoets.log
+          echo "### $(tail -1 presettoets.log) (macOS)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Het Cocoa-paneel via de gui-extensie, NSEvents en schermafbeelding (pb-scherm; bewijs)
         run: |
           set -o pipefail
@@ -299,3 +324,14 @@ jobs:
         with:
           name: macos-schermafbeelding
           path: schermafbeelding/
+
+      - name: Samenvatting auval en presets (valkuil 18; bewijs)
+        if: always()
+        run: |
+          set +e
+          echo "auval: $(grep -E 'AU VALIDATION' auval.log | tail -1)"
+          echo "auval, regels met een presetnaam:"
+          while IFS= read -r naam; do grep -F -- "$naam" auval.log | sed 's/^/  /' | sort -u; done < presetnamen.txt
+          echo "presets: $(paste -sd ',' presetnamen.txt)"
+          tail -1 presettoets.log
+          exit 0

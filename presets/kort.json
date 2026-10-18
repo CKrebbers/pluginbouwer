@@ -1,0 +1,5 @@
+{
+  "naam": "Kort en droog",
+  "uitleg": "Een korte loslaattijd: elke toets stopt bijna meteen, goed voor snelle lijnen.",
+  "waarden": { "Filter": 1800, "Loslaten": 40 }
+}

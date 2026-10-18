@@ -10,6 +10,10 @@
 // nooit aan (valkuil 14): een knop zet BEGIN/WAARDE/EIND in een lock-vrije rij en vraagt request_flush; process of
 // params.flush stuurt ze als GESTURE_BEGIN/PARAM_VALUE/GESTURE_END naar de host en past de waarde zelf toe, zoals een
 // event van de host. Het paneel leest alleen de atomaire spiegel.
+// Fase 4: fabriekspresets uit presets/*.json (CMake bakt ze in als presets_tabel.h; ARCHITECTUUR.md "Presets"). De
+// preset-discovery-factory heeft per preset een eigen provider met één locatie van soort PLUGIN en een container van
+// één preset (valkuil 15); preset-load laadt hem langs hetzelfde pad als state.load (ontbrekende namen naar hun
+// standaard), daarna rescan en loaded. De AU leest dezelfde factory (patches/clap-wrapper-auv2-presets.patch).
 //
 // Draden (ARCHITECTUUR.md "Threads", valkuil 11): init, activate, state en tekst draaien op de mainthread; process
 // alleen op de audiothread. Zolang de plugin actief is raakt alleen de audiothread het Ontwerp aan; de mainthread leest
@@ -17,6 +21,7 @@
 // overneemt. In process geen allocatie, locks of syscalls (RTSan bewaakt het in CI).
 #include <clap/clap.h>
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -30,6 +35,7 @@
 #include "paneel.h"
 #include "paneel_toets.h"
 #include "pb_noten.h"
+#include "presets_tabel.h"
 #include "toetsenpad_entry.h"
 #ifdef __APPLE__
 #include "paneel_mac.h"
@@ -109,6 +115,7 @@ struct Toetsenpad {
   clap_plugin_t plugin{};
   const clap_host_t* host = nullptr;
   const clap_host_params_t* hostParams = nullptr;
+  const clap_host_preset_load_t* hostPresetLoad = nullptr;
   Ontwerp ontwerp;
   pb::NootStapel stapel;                // alleen de audiothread (of de mainthread als de plugin niet actief is)
   std::vector<unsigned char> geheugen;  // het blok voor het Ontwerp, gereserveerd in activate (mainthread)
@@ -450,6 +457,20 @@ bool stateSave(const clap_plugin_t* pl, const clap_ostream_t* os) {
   return true;
 }
 
+// Alle parameters tegelijk (state.load en preset-load; mainthread). Actief: in de spiegel, process of flush neemt ze
+// over vóór de events van het volgende blok; niet actief: meteen het Ontwerp in. Daarna rescan, en als de plugin
+// actief is request_flush.
+void zetAlleWaarden(Toetsenpad* t, const double* w) {
+  for (int i = 0; i < N; ++i) t->spiegel[i].store(w[i], std::memory_order_relaxed);
+  if (t->actief) {
+    t->stateKlaar.store(true, std::memory_order_release);  // process of flush neemt ze over
+  } else {
+    for (int i = 0; i < N; ++i) t->ontwerp.zetParam(i, w[i]);
+  }
+  if (t->hostParams) t->hostParams->rescan(t->host, CLAP_PARAM_RESCAN_VALUES);
+  if (t->actief && t->hostParams) t->hostParams->request_flush(t->host);
+}
+
 bool stateLoad(const clap_plugin_t* pl, const clap_istream_t* is) {
   auto* t = zelf(pl);
   std::vector<unsigned char> b;
@@ -479,24 +500,155 @@ bool stateLoad(const clap_plugin_t* pl, const clap_istream_t* is) {
     std::memcpy(&v, &u, 8);
     w[i] = klem(i, v);
   }
-
-  for (int i = 0; i < N; ++i) t->spiegel[i].store(w[i], std::memory_order_relaxed);
-  if (t->actief) {
-    t->stateKlaar.store(true, std::memory_order_release);  // process of flush neemt ze over
-  } else {
-    for (int i = 0; i < N; ++i) t->ontwerp.zetParam(i, w[i]);
-  }
-  if (t->hostParams) t->hostParams->rescan(t->host, CLAP_PARAM_RESCAN_VALUES);
-  if (t->actief && t->hostParams) t->hostParams->request_flush(t->host);
+  zetAlleWaarden(t, w);
   return true;
 }
 
 const clap_plugin_state_t STATE = {stateSave, stateLoad};
 
+// --- fabriekspresets (ARCHITECTUUR.md "Presets") -------------------------------------------------------------------
+// De tabel komt uit presets/*.json (presets_tabel.h, gemaakt door CMake). Een onbekende parameternaam of een waarde
+// buiten het bereik is een bouwfout: dat toetsen deze static_asserts tegen PARAMS.
+constexpr bool zelfdeTekst(const char* a, const char* b) {
+  while (*a && *a == *b) ++a, ++b;
+  return *a == *b;
+}
+constexpr int presetIndex(const char* naam) {
+  for (int i = 0; i < N; ++i)
+    if (zelfdeTekst(Ontwerp::PARAMS[i].naam, naam)) return i;
+  return -1;
+}
+constexpr bool presetNamenBestaan() {
+  for (const auto& p : pb_presets::PRESETS)
+    for (int k = 0; k < p.aantal; ++k)
+      if (presetIndex(p.waarden[k].naam) < 0) return false;
+  return true;
+}
+constexpr bool presetWaardenInBereik() {
+  for (const auto& p : pb_presets::PRESETS)
+    for (int k = 0; k < p.aantal; ++k) {
+      const int i = presetIndex(p.waarden[k].naam);
+      if (i >= 0 && !(p.waarden[k].waarde >= Ontwerp::PARAMS[i].min && p.waarden[k].waarde <= Ontwerp::PARAMS[i].max))
+        return false;
+    }
+  return true;
+}
+constexpr bool presetNaamTweeKeer() {
+  for (const auto& p : pb_presets::PRESETS)
+    for (int k = 0; k < p.aantal; ++k)
+      for (int j = 0; j < k; ++j)
+        if (zelfdeTekst(p.waarden[j].naam, p.waarden[k].naam)) return true;
+  return false;
+}
+static_assert(presetNamenBestaan(), "presets/*.json: een naam in \"waarden\" is geen parameter (SPEC.md)");
+static_assert(presetWaardenInBereik(), "presets/*.json: een waarde ligt buiten het bereik van zijn parameter");
+static_assert(!presetNaamTweeKeer(), "presets/*.json: een parameter staat twee keer in \"waarden\"");
+
+constexpr int P = pb_presets::AANTAL;
+
+const pb_presets::Preset* presetBijSleutel(const char* sleutel) {
+  if (!sleutel) return nullptr;
+  for (const auto& p : pb_presets::PRESETS)
+    if (!std::strcmp(p.sleutel, sleutel)) return &p;
+  return nullptr;
+}
+
+// preset-load (mainthread): alleen locaties van soort PLUGIN (location == nullptr) met de sleutel als load key
+bool presetLoadFromLocation(const clap_plugin_t* pl, uint32_t kind, const char* location, const char* loadKey) {
+  auto* t = zelf(pl);
+  const pb_presets::Preset* p = kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !location ? presetBijSleutel(loadKey)
+                                                                                         : nullptr;
+  if (!p) {
+    if (t->hostPresetLoad && t->hostPresetLoad->on_error)
+      t->hostPresetLoad->on_error(t->host, kind, location, loadKey, 0, "PB Toetsenpad: onbekende preset");
+    return false;
+  }
+  double w[N];
+  for (int i = 0; i < N; ++i) w[i] = Ontwerp::PARAMS[i].standaard;  // ontbrekende namen: hun standaard
+  for (int k = 0; k < p->aantal; ++k) w[presetIndex(p->waarden[k].naam)] = p->waarden[k].waarde;
+  zetAlleWaarden(t, w);
+  if (t->hostPresetLoad && t->hostPresetLoad->loaded) t->hostPresetLoad->loaded(t->host, kind, location, loadKey);
+  return true;
+}
+const clap_plugin_preset_load_t PRESET_LOAD = {presetLoadFromLocation};
+
+// preset-discovery: per preset een provider (valkuil 15: clap-validator 0.4.1 loopt vast op een container met meer
+// dan één preset). Alles hieronder is constant geïnitialiseerd (valkuil 16: de AU roept init al aan tijdens de
+// statische initialisatie).
+#define PB_PROVIDER_ID(sleutel) PB_CLAP_ID ".preset." sleutel,
+constexpr const char* PROVIDER_IDS[P] = {PB_PRESET_SLEUTELS(PB_PROVIDER_ID)};
+#undef PB_PROVIDER_ID
+
+constexpr std::array<clap_preset_discovery_provider_descriptor_t, P> maakProviderDescs() {
+  std::array<clap_preset_discovery_provider_descriptor_t, P> d{};
+  for (int i = 0; i < P; ++i) d[i] = {CLAP_VERSION_INIT, PROVIDER_IDS[i], pb_presets::PRESETS[i].naam, PB_MAKER};
+  return d;
+}
+constexpr std::array<clap_preset_discovery_provider_descriptor_t, P> PROVIDER_DESCS = maakProviderDescs();
+
+const clap_universal_plugin_id_t PLUGIN_ID = {"clap", PB_CLAP_ID};
+
+struct Provider {
+  clap_preset_discovery_provider_t p;
+  const clap_preset_discovery_indexer_t* indexer;
+  int index;
+};
+const pb_presets::Preset& presetVan(const clap_preset_discovery_provider_t* p) {
+  return pb_presets::PRESETS[static_cast<const Provider*>(p->provider_data)->index];
+}
+
+bool providerInit(const clap_preset_discovery_provider_t* p) {
+  const auto* pr = static_cast<const Provider*>(p->provider_data);
+  const clap_preset_discovery_location_t loc = {CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, presetVan(p).naam,
+                                                CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr};
+  return pr->indexer->declare_location(pr->indexer, &loc);
+}
+void providerDestroy(const clap_preset_discovery_provider_t* p) { delete static_cast<const Provider*>(p->provider_data); }
+// één preset per locatie, met load key: een container van één (valkuil 15)
+bool providerGetMetadata(const clap_preset_discovery_provider_t* p, uint32_t kind, const char* location,
+                         const clap_preset_discovery_metadata_receiver_t* r) {
+  if (kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || location) return false;
+  const pb_presets::Preset& pr = presetVan(p);
+  if (!r->begin_preset(r, pr.naam, pr.sleutel)) return true;
+  r->add_plugin_id(r, &PLUGIN_ID);
+  r->set_flags(r, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT);
+  r->add_creator(r, PB_MAKER);
+  r->set_description(r, pr.uitleg);
+  return true;
+}
+const void* providerGetExtension(const clap_preset_discovery_provider_t*, const char*) { return nullptr; }
+
+uint32_t presetFactoryCount(const clap_preset_discovery_factory_t*) { return (uint32_t)P; }
+const clap_preset_discovery_provider_descriptor_t* presetFactoryDescriptor(const clap_preset_discovery_factory_t*,
+                                                                         uint32_t index) {
+  return index < (uint32_t)P ? &PROVIDER_DESCS[index] : nullptr;
+}
+const clap_preset_discovery_provider_t* presetFactoryCreate(const clap_preset_discovery_factory_t*,
+                                                           const clap_preset_discovery_indexer_t* indexer,
+                                                           const char* providerId) {
+  if (!indexer || !providerId) return nullptr;
+  for (int i = 0; i < P; ++i) {
+    if (std::strcmp(PROVIDER_IDS[i], providerId)) continue;
+    auto* pr = new Provider{{&PROVIDER_DESCS[i], nullptr, providerInit, providerDestroy, providerGetMetadata,
+                             providerGetExtension},
+                            indexer, i};
+    pr->p.provider_data = pr;
+    return &pr->p;
+  }
+  return nullptr;
+}
+const clap_preset_discovery_factory_t PRESET_FACTORY = {presetFactoryCount, presetFactoryDescriptor,
+                                                        presetFactoryCreate};
+
 // --- plugin --------------------------------------------------------------------------------------------------------
 bool pluginInit(const clap_plugin_t* p) {
   auto* t = zelf(p);
   t->hostParams = static_cast<const clap_host_params_t*>(t->host->get_extension(t->host, CLAP_EXT_PARAMS));
+  t->hostPresetLoad =
+      static_cast<const clap_host_preset_load_t*>(t->host->get_extension(t->host, CLAP_EXT_PRESET_LOAD));
+  if (!t->hostPresetLoad)
+    t->hostPresetLoad =
+        static_cast<const clap_host_preset_load_t*>(t->host->get_extension(t->host, CLAP_EXT_PRESET_LOAD_COMPAT));
   return true;
 }
 
@@ -758,6 +910,7 @@ const void* pluginGetExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD;
 #ifdef __APPLE__
   if (!std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
 #endif
@@ -802,5 +955,9 @@ const clap_plugin_factory_t FACTORY = {factoryCount, factoryDescriptor, factoryC
 bool toetsenpad_entry_init(const char*) { return true; }
 void toetsenpad_entry_deinit() {}
 const void* toetsenpad_entry_get_factory(const char* factoryId) {
-  return !std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID) ? &FACTORY : nullptr;
+  if (!std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID)) return &FACTORY;
+  if (!std::strcmp(factoryId, CLAP_PRESET_DISCOVERY_FACTORY_ID) ||
+      !std::strcmp(factoryId, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT))
+    return &PRESET_FACTORY;
+  return nullptr;
 }
