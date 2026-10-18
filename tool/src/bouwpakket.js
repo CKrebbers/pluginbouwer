@@ -225,7 +225,12 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
   met meer presets).
 - AU: \`patches/clap-wrapper-auv2-presets.patch\` leest dezelfde factory en geeft ze als factory presets
   (\`GetPresets\`, \`NewFactoryPresetSet\`). VST3 krijgt van clap-wrapper geen presetlijst.
-- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.${notenParams(ontwerp) ? `
+- Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0. pluginval meldt dan
+  \`!!! WARNING: Current program is -1... Is this correct?\`: verwacht, geen fout. Een eigen presetnaam van de host
+  (\`NewCustomPresetSet\`) komt via de patch in ClassInfo, anders klaagt auval "Preset name is not retained".
+- clap-validator 0.4.1 bewaart gevonden presets per locatie, en met één provider per preset (alle PLUGIN-locaties
+  heten hetzelfde) laadt \`preset-discovery-load\` alleen de laatste: PASSED bewijst niet dat elke preset laadt. Laad
+  ze in een eigen toets door het binary allemaal (proef F4).${notenParams(ontwerp) ? `
 - Een preset zet alleen de klank. ${c.params[notenParams(ontwerp).noot].naam} en ${c.params[notenParams(ontwerp).poort].naam} staan er niet in en
   gaan bij het laden dus naar hun standaard, zoals elke ontbrekende naam (${c.params[notenParams(ontwerp).poort].naam} 0: stil tot je een toets speelt;
   de toetsen spelen ze, en ${c.params[notenParams(ontwerp).poort].naam} 1 in een preset zou zonder toets klinken).` : ''}

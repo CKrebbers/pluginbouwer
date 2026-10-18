@@ -1,11 +1,12 @@
 Herkomst: proef F2 (tak proef/f2, fase 4, 17 okt 2026), door een vers Claude Code-gesprek gemaakt. AU factory presets uit de
-preset-discovery-factory van de CLAP (locaties van soort PLUGIN), laden via preset-load. Na clap-wrapper-auv2-params-voor-init.
+preset-discovery-factory van de CLAP (locaties van soort PLUGIN), laden via preset-load. Na clap-wrapper-auv2-params-voor-init. Proef F4 (fase 4): NewCustomPresetSet erbij, zodat
+een eigen presetnaam van de host in ClassInfo terechtkomt (auval: "Preset name is not retained in retrieved class data").
 
 diff --git a/src/detail/auv2/auv2_base_classes.h b/src/detail/auv2/auv2_base_classes.h
 index b3a85a8..ad7931f 100644
 --- a/src/detail/auv2/auv2_base_classes.h
 +++ b/src/detail/auv2/auv2_base_classes.h
-@@ -563,6 +563,12 @@ class WrapAsAUV2 : public ausdk::AUBase,
+@@ -563,6 +563,14 @@ class WrapAsAUV2 : public ausdk::AUBase,
    OSStatus SaveState(CFPropertyListRef *ptPList) override;
    OSStatus RestoreState(CFPropertyListRef plist) override;
  
@@ -14,6 +15,8 @@ index b3a85a8..ad7931f 100644
 +  // the CLAP preset-load extension. Collected once, after the instance is created.
 +  OSStatus GetPresets(CFArrayRef *outData) const override;
 +  OSStatus NewFactoryPresetSet(const AUPreset &inNewFactoryPreset) override;
++  // a user preset name (number -1) set by the host: SaveState (ClassInfo) carries it, as auval expects
++  OSStatus NewCustomPresetSet(const AUPreset &inNewCustomPreset) override;
 +
    // render
    OSStatus Render(AudioUnitRenderActionFlags &inFlags, const AudioTimeStamp &inTimeStamp,
@@ -43,7 +46,7 @@ index 8ee03fd..d23666c 100644
        }
        else
        {
-@@ -1419,6 +1420,163 @@ void WrapAsAUV2::onIdle()
+@@ -1419,6 +1420,173 @@ void WrapAsAUV2::onIdle()
    }
  }
  
@@ -202,6 +205,16 @@ index 8ee03fd..d23666c 100644
 +  if (_current_program_name) CFRelease(_current_program_name);
 +  _current_program_name = CFStringCreateCopy(nullptr, preset.presetName);
 +  return noErr;
++}
++
++OSStatus WrapAsAUV2::NewCustomPresetSet(const AUPreset &inNewCustomPreset)
++{
++  if (inNewCustomPreset.presetName)
++  {
++    if (_current_program_name) CFRelease(_current_program_name);
++    _current_program_name = CFStringCreateCopy(nullptr, inNewCustomPreset.presetName);
++  }
++  return AUBase::NewCustomPresetSet(inNewCustomPreset);
 +}
 +
  OSStatus WrapAsAUV2::SaveState(CFPropertyListRef *ptPList)

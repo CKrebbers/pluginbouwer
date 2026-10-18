@@ -74,7 +74,8 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   safety" crashte één op de drie runs. Vierde patch `plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch`
   (gevonden door verse sessie F1, fase 3); CI draait pluginval op de AU daarom met `--repeat 3`.
 - **AU-fabriekspresets**: clap-wrapper v0.16.0 kent ze niet. Vijfde patch `plugin/patches/clap-wrapper-auv2-presets.patch`
-  (uit proef F2) leest de preset-discovery-factory (locaties PLUGIN). Onze eigen plugin heeft nog geen presets; de
+  (uit proef F2) leest de preset-discovery-factory (locaties PLUGIN); sinds proef F4 ook `NewCustomPresetSet`
+  (een eigen presetnaam van de host blijft in ClassInfo). Onze eigen plugin heeft nog geen presets; de
   patch staat erop zodat CI bewijst dat de vijf samen bouwen. clap-validator 0.4.1 loopt vast op een preset-container
   met meer dan één preset (F2 en F3 los van elkaar; patch in upstream/).
 - **AU mono**: clap-wrapper v0.16.0 kent voor AUv2 alleen de vaste poort. Zesde patch
