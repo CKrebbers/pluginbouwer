@@ -1,5 +1,6 @@
 // pb_noten.h — MIDI-noten naar de toetsen-knoop van een instrument (18 okt 2026). De schil (plugin/src/plugin.cpp)
-// gebruikt dit; de null-test rekent hetzelfde na in JS (tests/lib/noten.mjs, met exp_ via de WASM-export pb_t_exp).
+// gebruikt dit (ARCHITECTUUR.md "Noten" van een bouwpakket zegt hoe); de verwachte uitvoer van de null-test rekent
+// precies hetzelfde na, met dezelfde exp_ (bit voor bit pb_math.h).
 //
 // Monofoon en legato, zoals de toetsen in de tool: de laatst ingedrukte noot klinkt; laat je hem los terwijl er nog
 // een vastgehouden wordt, dan gaat de toon terug naar die (de poort blijft open). Noot n wordt toon 2^((n − 57)/12):

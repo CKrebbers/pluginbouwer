@@ -55,16 +55,20 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 ## Tekst ↔ waarde (paneel, host, clap `value_to_text`/`text_to_value`)
 | id | naam | label op het paneel | standaard als tekst | regel |
 |---|---|---|---|---|
-| 1 | Tijd | Tijd | 375 ms | onder 100: 1 decimaal ("20,0 ms"); vanaf 100 hele ms ("375 ms") |
+| 1 | Tijd | Tijd | 375 ms | onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms") |
 | 2 | Terugkoppeling | Terug | 50 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
-| 3 | Toon | Toon | 3,00 kHz | onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz") |
-| 4 | Laag weg | Laag weg | 100 Hz | onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz") |
+| 3 | Toon | Toon | 3,00 kHz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
+| 4 | Laag weg | Laag weg | 100 Hz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
 | 5 | Resonantie | Resonantie | Q 0,71 | "Q " en 2 decimalen ("Q 0,71") |
 | 6 | Verzadiging | Verzadiging | 6,0 dB | 1 decimaal ("6,0 dB") |
 | 7 | Haperen | Haperen | 25 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 8 | Mix | Mix | 38 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 9 | Ruis | Ruis | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 
+- De grenzen gelden voor de afgeronde tekst: 999,7 Hz wordt "1,00 kHz" en 99,97 ms wordt "100 ms" (nooit "1000 Hz" of
+  "100,0 ms"). Elke andere eenheid dan Hz, ms, dB of Q (ook `×` en geen eenheid) is eenheidloos: procenten.
+- Rondreis: `text_to_value(value_to_text(v))` geeft een waarde die weer dezelfde tekst geeft; hij hoeft niet precies v te
+  zijn, want de tekst is afgerond (de standaard 0,70703125 is "Q 0,71" en komt terug als 0,71).
 - Decimaalteken een komma (Nederlands), spatie voor de eenheid. `text_to_value` neemt komma én punt, met of zonder
   eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten
   het bereik = klemmen, onleesbaar = false.
@@ -97,4 +101,4 @@ volgende stap als het hoorbaar is.
 
 ## Validators (CI, het log is het bewijs)
 pluginval strictness 10 (AU en VST3; met `--rtcheck enabled` op macOS), auval -strict, clap-validator, RTSan met een
-kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+kanarie die moet falen, null-test door het gebouwde binary (pluginval test en pb-render).

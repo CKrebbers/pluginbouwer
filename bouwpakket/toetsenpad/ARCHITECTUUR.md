@@ -62,7 +62,7 @@ Gebruik `dsp/pb_noten.h` (gegeven): `pb::NootStapel` (monofoon, legato, hooguit 
 `pb::nootVerhouding(n)` = 2^((n − 57)/12) via `pb_math.h`. De verwachte uitvoer in `testsignalen/noten/` rekent precies
 dit, dus wijk er niet van af:
 1. Bij elk noot-event (op zijn sample, het blok wordt daar gesplitst zoals bij een parameter-event):
-   noot-aan → `stapel.aan(key)`, noot-uit → `stapel.uit(key)`, `CLAP_EVENT_NOTE_CHOKE` → `stapel.leeg()`; een key
+   noot-aan → `stapel.aan(key)`, noot-uit → `stapel.uit(key)`, `CLAP_EVENT_NOTE_CHOKE` → `stapel.leeg()` (welke key ook, ook −1); een key
    buiten 0..127 negeren (geen stap 2).
 2. Daarna altijd: is er een bovenste noot `n = stapel.boven()` (≥ 0), dan
    `zetParam(0, nootVerhouding(n))` en daarna `zetParam(1, 1.0)`; anders alleen `zetParam(1, 0.0)`.

@@ -52,8 +52,9 @@ const svg = (tag, attrs = {}, ...kids) => {
 };
 const nl = (x, d = 1) => (Math.abs(x) === Infinity ? (x < 0 ? '−∞' : '∞') : Number(x).toFixed(d)).replace('-', '−').replace('.', ',');
 const waardeTekst = (v, eenheid) => {
-  if (eenheid === 'Hz') return v >= 1000 ? nl(v / 1000, v >= 10000 ? 1 : 2) + ' kHz' : Math.round(v) + ' Hz';
-  if (eenheid === 'ms') return v >= 100 ? Math.round(v) + ' ms' : nl(v, 1) + ' ms';
+  // grenzen op de afgeronde tekst, zoals tool/src/bouwpakket.js waardeTekst (999,7 Hz = "1,00 kHz")
+  if (eenheid === 'Hz') return v >= 999.5 ? nl(v / 1000, v >= 9995 ? 1 : 2) + ' kHz' : Math.round(v) + ' Hz';
+  if (eenheid === 'ms') return v >= 99.95 ? Math.round(v) + ' ms' : nl(v, 1) + ' ms';
   if (eenheid === 'dB') return nl(v, 1) + ' dB';
   if (eenheid === 'Q') return 'Q ' + nl(v, 2);
   return Math.round(v * 100) + ' %';

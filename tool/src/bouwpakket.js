@@ -10,22 +10,23 @@ import { notenParams, heeftSequencer, HOSTTEMPO, NOTEN } from './testsignalen.js
 const isInstrument = (o) => !o.knopen.some((k) => k.type === 'in');
 const auType = (o) => (isInstrument(o) ? 'aumu' : 'aufx');
 
-const PROMPT_VERSIE = 'v3 (17 okt 2026; instrument 18 okt)';
+const PROMPT_VERSIE = 'v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden)';
 
 const fmt = (x, d = 2) => (x === undefined || x === null || Number.isNaN(x) ? '—' : (Math.abs(x) === Infinity ? (x < 0 ? '−∞' : '∞') : Number(x).toFixed(d)).replace('-', '−').replace('.', ','));
 
 // Tekst op het paneel en in de host: dezelfde regels als de tool (app.js waardeTekst), plus % voor eenheidloos.
 const nlG = (v, d) => v.toFixed(d).replace('.', ',');
 export function waardeTekst(v, eenheid) {
-  if (eenheid === 'Hz') return v >= 1000 ? nlG(v / 1000, v >= 10000 ? 1 : 2) + ' kHz' : Math.round(v) + ' Hz';
-  if (eenheid === 'ms') return v >= 100 ? Math.round(v) + ' ms' : nlG(v, 1) + ' ms';
+  // de grenzen gelden voor de AFGERONDE tekst: 999,7 Hz wordt "1,00 kHz", nooit "1000 Hz" (proef G1 en G3, 18 okt)
+  if (eenheid === 'Hz') return v >= 999.5 ? nlG(v / 1000, v >= 9995 ? 1 : 2) + ' kHz' : Math.round(v) + ' Hz';
+  if (eenheid === 'ms') return v >= 99.95 ? Math.round(v) + ' ms' : nlG(v, 1) + ' ms';
   if (eenheid === 'dB') return nlG(v, 1) + ' dB';
   if (eenheid === 'Q') return 'Q ' + nlG(v, 2);
   return Math.round(v * 100) + ' %';
 }
 const TEKST_REGEL = {
-  Hz: 'onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz")',
-  ms: 'onder 100: 1 decimaal ("20,0 ms"); vanaf 100 hele ms ("375 ms")',
+  Hz: 'onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz")',
+  ms: 'onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms")',
   dB: '1 decimaal ("6,0 dB")',
   Q: '"Q " en 2 decimalen ("Q 0,71")',
   '': 'eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %")',
@@ -102,6 +103,10 @@ ${p.join('\n')}
 |---|---|---|---|---|
 ${c.params.map((q, i) => `| ${i + 1} | ${q.naam} | ${kortLabel(ontwerp.parameters[i])} | ${waardeTekst(q.standaard, q.eenheid || '')} | ${TEKST_REGEL[q.eenheid || ''] ?? TEKST_REGEL['']} |`).join('\n')}
 
+- De grenzen gelden voor de afgeronde tekst: 999,7 Hz wordt "1,00 kHz" en 99,97 ms wordt "100 ms" (nooit "1000 Hz" of
+  "100,0 ms"). Elke andere eenheid dan Hz, ms, dB of Q (ook \`×\` en geen eenheid) is eenheidloos: procenten.
+- Rondreis: \`text_to_value(value_to_text(v))\` geeft een waarde die weer dezelfde tekst geeft; hij hoeft niet precies v te
+  zijn, want de tekst is afgerond (de standaard 0,70703125 is "Q 0,71" en komt terug als 0,71).
 - Decimaalteken een komma (Nederlands), spatie voor de eenheid. \`text_to_value\` neemt komma én punt, met of zonder
   eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten
   het bereik = klemmen, onleesbaar = false.
@@ -134,7 +139,7 @@ volgende stap als het hoorbaar is.
 `}
 ## Validators (CI, het log is het bewijs)
 pluginval strictness 10 (AU en VST3; met \`--rtcheck enabled\` op macOS), auval -strict${isInstrument(ontwerp) ? ' (type \`aumu\`)' : ''}, clap-validator, RTSan met een
-kanarie die moet falen, ASan/UBSan, null-test door het gebouwde binary (pluginval test en pb-render).
+kanarie die moet falen, null-test door het gebouwde binary (pluginval test en pb-render).
 `;
 }
 
@@ -247,7 +252,7 @@ Gebruik \`dsp/pb_noten.h\` (gegeven): \`pb::NootStapel\` (monofoon, legato, hoog
 \`pb::nootVerhouding(n)\` = 2^((n − 57)/12) via \`pb_math.h\`. De verwachte uitvoer in \`testsignalen/noten/\` rekent precies
 dit, dus wijk er niet van af:
 1. Bij elk noot-event (op zijn sample, het blok wordt daar gesplitst zoals bij een parameter-event):
-   noot-aan → \`stapel.aan(key)\`, noot-uit → \`stapel.uit(key)\`, \`CLAP_EVENT_NOTE_CHOKE\` → \`stapel.leeg()\`; een key
+   noot-aan → \`stapel.aan(key)\`, noot-uit → \`stapel.uit(key)\`, \`CLAP_EVENT_NOTE_CHOKE\` → \`stapel.leeg()\` (welke key ook, ook −1); een key
    buiten 0..127 negeren (geen stap 2).
 2. Daarna altijd: is er een bovenste noot \`n = stapel.boven()\` (≥ 0), dan
    \`zetParam(${np.noot}, nootVerhouding(n))\` en daarna \`zetParam(${np.poort}, 1.0)\`; anders alleen \`zetParam(${np.poort}, 0.0)\`.
@@ -356,7 +361,16 @@ ${isInstrument(ontwerp) ? `19. **Note port alleen in het CLAP-dialect.** Met \`C
 23. **pluginval's AU-host meldt een tempo** (JUCE zonder playhead: 120 bpm). Een sequencer die het hosttempo volgt, klinkt
    in \`pluginval test\` op de AU dus anders dan de WASM zonder transport: toets die gevallen in een eigen AU-host zonder
    host-callbacks. (Zonder sequencer speelt het niet.)
-` : ''}## Hoe je weet dat het klopt
+` : ''}${(() => { const n = isInstrument(ontwerp) ? 24 : 19; return `${n}. **Linken faalt op Linux zonder PIC**: \`relocation R_X86_64_PC32 … recompile with -fPIC\` bij het .clap. De impl is een
+   statische bibliotheek die in drie gedeelde modules gaat, en clap-wrapper zet \`CMAKE_POSITION_INDEPENDENT_CODE\` alleen
+   in zijn eigen scope: \`set(CMAKE_POSITION_INDEPENDENT_CODE ON)\` in jouw project (twee verse gesprekken, 18 okt).
+${n + 1}. **Het bewijs staat in de samenvatting, niet in de staart van het log**: \`ci-null.sh\` schrijft zijn tabellen naar
+   \`GITHUB_STEP_SUMMARY\` en naar stderr, en de GitHub-tools geven alleen de staart van een job. Laat elke bewijsstap
+   (auval, pluginval, clap-validator, null-test) aan het eind van de job nog één samenvattende regel schrijven.
+   \`ci-null.sh pluginval\` zet \`$PV\` zonder aanhalingstekens neer: \`"xvfb-run -a …/pluginval"\` werkt als pluginval-commando.
+${n + 2}. **"Oneindig" bestaat niet in een AU**: CLAP meldt een oneindige staart als \`INT32_MAX\` of meer, en de AU van
+   clap-wrapper deelt dat door de samplerate (op 48 kHz ±12 uur). Dat is goed genoeg; verwacht in Logic geen "oneindig".
+`; })()}## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in \`VERSLAG.md\`; zet een toets nooit uit om groen te worden.
 `;
@@ -478,7 +492,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 > \`dsp/ontwerpen/keten_${id}.h\` (include-pad \`dsp/\`); in deze fase ${inst ? 'is het een instrument zonder audio-ingang (SPEC.md "Instrument": 0 ingangen, 1 stereo-uitgang, features instrument en synthesizer, AU-type `aumu` via `AUV2_INSTRUMENT_TYPE`) en schrijft process stilte' : 'geeft process de invoer door'} (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf \`.github/workflows/ci.yml\` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, \`gereedschap/pb-render\`
-> gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
+> gebouwd met \`-fsanitize=realtime\`, met een kanarie die moet falen; nog zonder \`--state-rondje\`, de state komt in fase 1), en macOS arm64 (bouwen, ad-hoc signeren,
 > installeren in ~/Library/Audio/Plug-Ins, \`killall -9 AudioComponentRegistrar\`, \`auval -strict -v ${auType(ontwerp)} ${au} Vrve\`,
 > pluginval strictness 10 met \`--rtcheck enabled\` op AU (met \`--repeat 3\`) en VST3${inst ? ' (de VST3 van een instrument via `gereedschap/pluginval-rt.sh`, valkuil 22)' : ''}, de plugins als artefact
 > \`macos-keten_${id}\`; een artefactnaam mag geen \`:\` \`/\` \`*\` \`?\` \`"\` \`<\` \`>\` \`|\` bevatten, zet de matrixnaam dus niet ongefilterd in de naam). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
@@ -490,7 +504,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 ---
 ## Fase 1 — DSP aansluiten; null-test door het binary
 **Prompt**
-> Sluit het Ontwerp uit \`dsp/\` aan in process: parameters als CLAP-params (id = nummer in SPEC.md, bereik en standaard
+> Wat de schil uit een eerdere fase al heeft, hoef je niet opnieuw te bouwen: toets het. Sluit het Ontwerp uit \`dsp/\` aan in process: parameters als CLAP-params (id = nummer in SPEC.md, bereik en standaard
 > uit \`PARAMS\`), events op hun sample (blok splitsen bij elk event), \`latency\` en \`tail\` uit het Ontwerp, state zoals
 > ARCHITECTUUR.md. Voeg aan CI de null-test toe: \`sh gereedschap/ci-null.sh clap <build>\` (pb-render, blok 512,
 > wisselende blokken, state-rondje) en \`sh gereedschap/ci-null.sh pluginval <plugin> <pluginval> <label>\` voor de VST3
@@ -507,13 +521,15 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 ---
 ## Fase 2 — parameters, automatisering, state
 **Prompt**
-> Maak de parameters af: tekst ↔ waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, \`params.flush\` buiten
-> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets (in CI, door het binary):
+> Wat de schil uit een eerdere fase al heeft, hoef je niet opnieuw te bouwen: toets het. Maak de parameters af: tekst ↔
+> waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, \`params.flush\` buiten process. Eis in CI met
+> \`node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^state-reproducibility' '^param-fuzz' '^param-conversions'\`
+> dat die toetsen van clap-validator PASSED zijn (SKIPPED telt niet), en maak een eigen toets (in CI, door het binary):
 > (a) een met de hand gemaakte state-blob zonder de laatste parameter (\`aantal\` = N − 1, zoals een oudere build hem
 > schreef) laadt en die parameter houdt zijn standaard; (b) een blob met een extra onbekend id en versie 2 laadt;
 > (c) andere magic, versie 0 of een afgekapte blob geeft false en verandert niets. Er hoeft geen tweede build te zijn.
-> Daarnaast: \`value_to_text\` van de standaard geeft precies de tekst uit de tabel, en \`text_to_value\` daarvan terug
-> geeft de waarde. Automatisering in een DAW verandert niets aan de null-test.
+> Daarnaast: \`value_to_text\` van de standaard geeft precies de tekst uit de tabel, en \`text_to_value\` daarvan geeft
+> een waarde met weer dezelfde tekst (SPEC.md, "Rondreis"). Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
 **Uitslag**: ${u('2')}
 
@@ -530,7 +546,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 **Prompt**
 > Fabriekspresets uit \`presets/\` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
 > (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
-> (SKIPPED telt niet) en dat elke presetnaam in de uitvoer van \`auval -strict -v\` staat.
+> (SKIPPED telt niet; \`node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^preset-discovery'\`) en dat elke presetnaam in de uitvoer van \`auval -strict -v\` staat.
 **Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
 **Uitslag**: ${u('4')}
 
@@ -641,4 +657,5 @@ export const PAKKET_BRONNEN = {
   'plugin/patches/clap-wrapper-auv2-setparameter-draadveilig.patch': 'patches/clap-wrapper-auv2-setparameter-draadveilig.patch',
   'plugin/cmake/pas-patches-toe.sh': 'gereedschap/pas-patches-toe.sh',
   'tools/pluginval-rt.sh': 'gereedschap/pluginval-rt.sh',
+  'tools/pakket/cv-eis.mjs': 'gereedschap/cv-eis.mjs',
 };

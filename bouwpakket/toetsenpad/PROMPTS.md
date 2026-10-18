@@ -1,4 +1,4 @@
-# PROMPTS — Toetsenpad (v3 (17 okt 2026; instrument 18 okt))
+# PROMPTS — Toetsenpad (v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden))
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
 Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de
@@ -13,7 +13,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 > `dsp/ontwerpen/keten_toetsenpad.h` (include-pad `dsp/`); in deze fase is het een instrument zonder audio-ingang (SPEC.md "Instrument": 0 ingangen, 1 stereo-uitgang, features instrument en synthesizer, AU-type `aumu` via `AUV2_INSTRUMENT_TYPE`) en schrijft process stilte (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
 > Schrijf `.github/workflows/ci.yml` met: Linux (bouwen met clang, clap-validator 0.4.1 uit de bron via cargo,
 > pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb), RTSan (clang 20 via apt.llvm.org, `gereedschap/pb-render`
-> gebouwd met `-fsanitize=realtime`, met een kanarie die moet falen), en macOS arm64 (bouwen, ad-hoc signeren,
+> gebouwd met `-fsanitize=realtime`, met een kanarie die moet falen; nog zonder `--state-rondje`, de state komt in fase 1), en macOS arm64 (bouwen, ad-hoc signeren,
 > installeren in ~/Library/Audio/Plug-Ins, `killall -9 AudioComponentRegistrar`, `auval -strict -v aumu PTgg Vrve`,
 > pluginval strictness 10 met `--rtcheck enabled` op AU (met `--repeat 3`) en VST3 (de VST3 van een instrument via `gereedschap/pluginval-rt.sh`, valkuil 22), de plugins als artefact
 > `macos-keten_toetsenpad`; een artefactnaam mag geen `:` `/` `*` `?` `"` `<` `>` `|` bevatten, zet de matrixnaam dus niet ongefilterd in de naam). Push en maak CI groen. Zet niets uit om groen te worden; een valkuil uit CLAUDE.md eerst.
@@ -25,7 +25,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 ---
 ## Fase 1 — DSP aansluiten; null-test door het binary
 **Prompt**
-> Sluit het Ontwerp uit `dsp/` aan in process: parameters als CLAP-params (id = nummer in SPEC.md, bereik en standaard
+> Wat de schil uit een eerdere fase al heeft, hoef je niet opnieuw te bouwen: toets het. Sluit het Ontwerp uit `dsp/` aan in process: parameters als CLAP-params (id = nummer in SPEC.md, bereik en standaard
 > uit `PARAMS`), events op hun sample (blok splitsen bij elk event), `latency` en `tail` uit het Ontwerp, state zoals
 > ARCHITECTUUR.md. Voeg aan CI de null-test toe: `sh gereedschap/ci-null.sh clap <build>` (pb-render, blok 512,
 > wisselende blokken, state-rondje) en `sh gereedschap/ci-null.sh pluginval <plugin> <pluginval> <label>` voor de VST3
@@ -41,13 +41,15 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 ---
 ## Fase 2 — parameters, automatisering, state
 **Prompt**
-> Maak de parameters af: tekst ↔ waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, `params.flush` buiten
-> process. Toets met clap-validator (state-reproducibility, param-fuzz) en een eigen toets (in CI, door het binary):
+> Wat de schil uit een eerdere fase al heeft, hoef je niet opnieuw te bouwen: toets het. Maak de parameters af: tekst ↔
+> waarde volgens de tabel "Tekst ↔ waarde" in SPEC.md, `params.flush` buiten process. Eis in CI met
+> `node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^state-reproducibility' '^param-fuzz' '^param-conversions'`
+> dat die toetsen van clap-validator PASSED zijn (SKIPPED telt niet), en maak een eigen toets (in CI, door het binary):
 > (a) een met de hand gemaakte state-blob zonder de laatste parameter (`aantal` = N − 1, zoals een oudere build hem
 > schreef) laadt en die parameter houdt zijn standaard; (b) een blob met een extra onbekend id en versie 2 laadt;
 > (c) andere magic, versie 0 of een afgekapte blob geeft false en verandert niets. Er hoeft geen tweede build te zijn.
-> Daarnaast: `value_to_text` van de standaard geeft precies de tekst uit de tabel, en `text_to_value` daarvan terug
-> geeft de waarde. Automatisering in een DAW verandert niets aan de null-test.
+> Daarnaast: `value_to_text` van de standaard geeft precies de tekst uit de tabel, en `text_to_value` daarvan geeft
+> een waarde met weer dezelfde tekst (SPEC.md, "Rondreis"). Automatisering in een DAW verandert niets aan de null-test.
 **Stopcriterium**: clap-validator en pluginval 10 groen, state-toets groen.
 **Uitslag**: nog niet getoetst
 
@@ -64,7 +66,7 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 **Prompt**
 > Fabriekspresets uit `presets/` (JSON met parameterwaarden per naam) als CLAP preset-discovery én als AU factory presets
 > (ARCHITECTUUR.md "Presets", valkuilen 15 en 16). Eis in CI dat de drie preset-toetsen van clap-validator PASSED zijn
-> (SKIPPED telt niet) en dat elke presetnaam in de uitvoer van `auval -strict -v` staat.
+> (SKIPPED telt niet; `node gereedschap/cv-eis.mjs <clap-validator> <plugin.clap> '^preset-discovery'`) en dat elke presetnaam in de uitvoer van `auval -strict -v` staat.
 **Stopcriterium**: clap-validator preset-tests groen (PASSED); auval toont de presets.
 **Uitslag**: nog niet getoetst
 

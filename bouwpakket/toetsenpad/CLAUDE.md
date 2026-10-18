@@ -80,6 +80,15 @@ Logic Pro (MacBook Air M1). Wat hij zelf moet doen staat in LEERPAD.md.
 23. **pluginval's AU-host meldt een tempo** (JUCE zonder playhead: 120 bpm). Een sequencer die het hosttempo volgt, klinkt
    in `pluginval test` op de AU dus anders dan de WASM zonder transport: toets die gevallen in een eigen AU-host zonder
    host-callbacks. (Zonder sequencer speelt het niet.)
+24. **Linken faalt op Linux zonder PIC**: `relocation R_X86_64_PC32 … recompile with -fPIC` bij het .clap. De impl is een
+   statische bibliotheek die in drie gedeelde modules gaat, en clap-wrapper zet `CMAKE_POSITION_INDEPENDENT_CODE` alleen
+   in zijn eigen scope: `set(CMAKE_POSITION_INDEPENDENT_CODE ON)` in jouw project (twee verse gesprekken, 18 okt).
+25. **Het bewijs staat in de samenvatting, niet in de staart van het log**: `ci-null.sh` schrijft zijn tabellen naar
+   `GITHUB_STEP_SUMMARY` en naar stderr, en de GitHub-tools geven alleen de staart van een job. Laat elke bewijsstap
+   (auval, pluginval, clap-validator, null-test) aan het eind van de job nog één samenvattende regel schrijven.
+   `ci-null.sh pluginval` zet `$PV` zonder aanhalingstekens neer: `"xvfb-run -a …/pluginval"` werkt als pluginval-commando.
+26. **"Oneindig" bestaat niet in een AU**: CLAP meldt een oneindige staart als `INT32_MAX` of meer, en de AU van
+   clap-wrapper deelt dat door de samplerate (op 48 kHz ±12 uur). Dat is goed genoeg; verwacht in Logic geen "oneindig".
 ## Hoe je weet dat het klopt
 De poorten in PROMPTS.md. Een poort is groen als CI groen is, niet als jij denkt dat het goed is. Loopt iets vast:
 beschrijf wat je zag en wat je probeerde in `VERSLAG.md`; zet een toets nooit uit om groen te worden.
