@@ -1,0 +1,342 @@
+{
+  "naam": "Toetsenpad",
+  "id": "toetsenpad",
+  "voorbeeld": "instrument",
+  "uitleg": "Zelf spelen: twee zaagtanden een octaaf uit elkaar, een filter dat per noot opent, chorus en galm. Speel met a s d f g h j k l ; ' of met de knoppen onder Horen.",
+  "knopen": [
+    {
+      "id": "toetsen",
+      "type": "toetsen",
+      "x": 20,
+      "y": 40
+    },
+    {
+      "id": "o1",
+      "type": "osc",
+      "x": 200,
+      "y": 120,
+      "waarden": {
+        "freq": 220
+      },
+      "vast": {
+        "golf": 1
+      }
+    },
+    {
+      "id": "o2",
+      "type": "osc",
+      "x": 200,
+      "y": 290,
+      "waarden": {
+        "freq": 110,
+        "fijn": 6
+      },
+      "vast": {
+        "golf": 1
+      }
+    },
+    {
+      "id": "som",
+      "type": "som",
+      "x": 370,
+      "y": 200
+    },
+    {
+      "id": "omh",
+      "type": "omhulling",
+      "x": 200,
+      "y": 460,
+      "waarden": {
+        "aanzet": 12,
+        "verval": 400,
+        "aanhoud": 0.625,
+        "loslaten": 450
+      }
+    },
+    {
+      "id": "filter",
+      "type": "svf",
+      "x": 480,
+      "y": 200,
+      "waarden": {
+        "freq": 900,
+        "q": 1.5
+      }
+    },
+    {
+      "id": "vca",
+      "type": "vermenigvuldig",
+      "x": 650,
+      "y": 200
+    },
+    {
+      "id": "chorus",
+      "type": "chorus",
+      "x": 650,
+      "y": 380,
+      "waarden": {
+        "tijd": 12,
+        "diepte": 4,
+        "snelheid": 0.5,
+        "terug": 0
+      }
+    },
+    {
+      "id": "mix",
+      "type": "mix",
+      "x": 830,
+      "y": 200,
+      "waarden": {
+        "mix": 0.5
+      }
+    },
+    {
+      "id": "galm",
+      "type": "galm",
+      "x": 830,
+      "y": 380,
+      "waarden": {
+        "tijd": 2.5,
+        "demping": 6000,
+        "grootte": 1
+      }
+    },
+    {
+      "id": "mix2",
+      "type": "mix",
+      "x": 980,
+      "y": 200,
+      "waarden": {
+        "mix": 0.25
+      }
+    },
+    {
+      "id": "vol",
+      "type": "versterker",
+      "x": 1100,
+      "y": 200,
+      "waarden": {
+        "hoeveel": 0.35
+      }
+    },
+    {
+      "id": "uit",
+      "type": "uit",
+      "x": 1230,
+      "y": 200
+    }
+  ],
+  "kabels": [
+    {
+      "van": [
+        "toetsen",
+        "toon"
+      ],
+      "naar": [
+        "o1",
+        "toon"
+      ]
+    },
+    {
+      "van": [
+        "toetsen",
+        "toon"
+      ],
+      "naar": [
+        "o2",
+        "toon"
+      ]
+    },
+    {
+      "van": [
+        "toetsen",
+        "poort"
+      ],
+      "naar": [
+        "omh",
+        "poort"
+      ]
+    },
+    {
+      "van": [
+        "o1",
+        "uit"
+      ],
+      "naar": [
+        "som",
+        "a"
+      ]
+    },
+    {
+      "van": [
+        "o2",
+        "uit"
+      ],
+      "naar": [
+        "som",
+        "b"
+      ]
+    },
+    {
+      "van": [
+        "som",
+        "uit"
+      ],
+      "naar": [
+        "filter",
+        "in"
+      ]
+    },
+    {
+      "van": [
+        "filter",
+        "laag"
+      ],
+      "naar": [
+        "vca",
+        "a"
+      ]
+    },
+    {
+      "van": [
+        "omh",
+        "omhulling"
+      ],
+      "naar": [
+        "vca",
+        "b"
+      ]
+    },
+    {
+      "van": [
+        "vca",
+        "uit"
+      ],
+      "naar": [
+        "chorus",
+        "in"
+      ]
+    },
+    {
+      "van": [
+        "vca",
+        "uit"
+      ],
+      "naar": [
+        "mix",
+        "droog"
+      ]
+    },
+    {
+      "van": [
+        "chorus",
+        "uit"
+      ],
+      "naar": [
+        "mix",
+        "nat"
+      ]
+    },
+    {
+      "van": [
+        "mix",
+        "uit"
+      ],
+      "naar": [
+        "galm",
+        "in"
+      ]
+    },
+    {
+      "van": [
+        "mix",
+        "uit"
+      ],
+      "naar": [
+        "mix2",
+        "droog"
+      ]
+    },
+    {
+      "van": [
+        "galm",
+        "uit"
+      ],
+      "naar": [
+        "mix2",
+        "nat"
+      ]
+    },
+    {
+      "van": [
+        "mix2",
+        "uit"
+      ],
+      "naar": [
+        "vol",
+        "in"
+      ]
+    },
+    {
+      "van": [
+        "vol",
+        "uit"
+      ],
+      "naar": [
+        "uit",
+        "in"
+      ]
+    }
+  ],
+  "parameters": [
+    {
+      "naam": "Noot",
+      "knoop": "toetsen",
+      "knop": "toon",
+      "min": 0.25,
+      "max": 4,
+      "standaard": 1,
+      "glijMs": 5
+    },
+    {
+      "naam": "Poort",
+      "knoop": "toetsen",
+      "knop": "poort",
+      "min": 0,
+      "max": 1,
+      "standaard": 0,
+      "glijMs": 0
+    },
+    {
+      "naam": "Filter",
+      "knoop": "filter",
+      "knop": "freq",
+      "min": 100,
+      "max": 8000,
+      "standaard": 900,
+      "glijMs": 20
+    },
+    {
+      "naam": "Loslaten",
+      "knoop": "omh",
+      "knop": "loslaten",
+      "min": 10,
+      "max": 4000,
+      "standaard": 450,
+      "glijMs": 20
+    }
+  ],
+  "modulaties": [
+    {
+      "bron": [
+        "omh",
+        "omhulling"
+      ],
+      "doel": [
+        "filter",
+        "freq"
+      ],
+      "diepte": 0.25
+    }
+  ]
+}
