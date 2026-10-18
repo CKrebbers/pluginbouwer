@@ -74,6 +74,17 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
   nadoen), `pb-render --indeling … --in-place`, `pb-aurender` (macOS: de .component zoals een AU-host), en
   pluginval test per samplerate.
 
+## Installatiepakket (fase 6)
+`gereedschap/maak-pkg.sh` (in de macos-job, na het ad-hoc signeren): de drie bundels gaan met `ditto` in een wortel
+`Components/`, `VST3/`, `CLAP/` met `--install-location /Library/Audio/Plug-Ins`. De component-plist komt uit
+`pkgbuild --analyze`; per bundel wordt `BundleIsRelocatable` verwijderd en als `false` toegevoegd (de sleutel ontbreekt
+soms), en het script eist daarna dat `PackageInfo` geen `<relocate>`-bundel heeft. postinstall:
+`killall -9 AudioComponentRegistrar`. Identifier `nl.varve.pluginbouwer.dub-echo.pkg`, versie uit `project()` in
+`plugin/CMakeLists.txt`. Het `.pkg` is ongesigneerd. De job `installeren` (macos-15, bouwt en checkt niets uit) haalt
+alleen het artefact `macos-installatiepakket` op, legt een lokbundel met dezelfde identifier in `/Users/Shared/elders`,
+installeert twee keer (install, dan upgrade), controleert plek en ad-hoc handtekening van alle drie, dat de lokbundel
+onaangeroerd is, en draait `auval -strict`.
+
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.
 - Toeval (bandbeweging) uit een geseede xorshift op gehele getallen.
