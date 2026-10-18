@@ -75,8 +75,7 @@ Stopcriterium: in de tool een voorbeeld kiezen = meteen geluid, ook zonder eigen
   pluginval AU met --repeat 3), vijfde en zesde patch (AU-fabriekspresets, AU-kanaalindelingen), bypass zonder subnormalen,
   pakket v3 (tekst ↔ waarde, stateversie, frontpaneel.svg, presets in het binary, fase-6-prompt, valkuilen 13–18)
 - [x] upstream klaargezet: upstream/clap-wrapper/LEESMIJ.md (zeven punten clap-wrapper, één clap-validator) — **plakken: Clay**
-- [ ] PR 1 (geluid-maken) samengevoegd met main op tak integratie/geluid-maken (toetsen 105/105, tool in Chrome klinkt);
-  het artifact draait die versie — **samenvoegen in main: Clay beslist**
+- [x] PR 1 (geluid-maken) via integratie/geluid-maken in main (18 okt; toetsen 105/105, tool in Chrome klinkt)
 - [x] Referentie: echte band (Aalto-dataset, Akai GX-4000D) gemeten: ref/referentie/RAPPORT.md. Beweging van onze standaard
   2,2 × de Akai en schaalt met de delaytijd; H3 past beter op Jiles-Atherton; de band maakt H2 die wij niet maken.
 
@@ -101,7 +100,7 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
    (https://github.com/CKrebbers/pluginbouwer/actions/runs/39048545213), installeer (Privacy en beveiliging → "Open toch"),
    haal eerst een oude kopie uit `~/Library/Audio/Plug-Ins` weg. Dan de checklist van fase 7 in PROMPTS.md. Stop: elk punt
    groen, of een lijst van wat afwijkt. Elke afwijking wordt een valkuil in het pakket en zo nodig een patch (ik).
-2. **PR 1 (geluid-maken) in main (Clay beslist, ik voer uit).** Via `integratie/geluid-maken`: CI groen, het artifact draait
+2. **[x] PR 1 (geluid-maken) in main (18 okt, op Clay's "alles zelf uitvoeren").** Via `integratie/geluid-maken`: CI groen, het artifact draait
    het al. Zonder deze stap maakt de tool op main geen geluid en kan het pakket geen instrument exporteren. Daarna: TASKS
    herschikken (F = geluid maken, G = pakket), pakket en tool opnieuw maken met de motor van 15 blokken.
 3. **Pakket v3 bewijzen (ik, verse sessies; begint zodra Clay "ga" zegt).** v3 draagt 18 valkuilen en 6 patches die nog nooit
