@@ -7,6 +7,8 @@
 #           null-test door het .clap, de VST3 en de AU, state- en teksttoets (pb-statetoets), het paneel (fase 3):
 #           pluginval zonder --skip-gui-tests (de editortoetsen moeten echt een editor openen), pb-paneeltoets, en
 #           pb-paneel door het gesigneerde .clap met schermafbeeldingen als artefact macos-frontpaneel
+#   fase 4: de fabriekspresets uit presets/: de drie preset-toetsen van clap-validator moeten PASSED zijn,
+#           pb-presettoets door het .clap (Linux en macOS), en elke presetnaam staat in de uitvoer van auval -strict -v
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -78,12 +80,13 @@ jobs:
           echo "clap-validator exit: $status"
           test "$status" -eq 0
           grep -E "tests run, [0-9]+ passed, 0 failed" cv.txt
-          # fase 2: de state- en parametertoetsen moeten echt draaien (PASSED; SKIPPED telt niet)
+          # fase 2 en 4: de state-, parameter- en presettoetsen moeten echt draaien (PASSED; SKIPPED telt niet)
           awk '/┌─ [a-z]/{t=$NF} /└── /{print t, $3}' cv.txt > cv-status.txt
           for t in state-invalid-empty state-invalid-random state-reproducibility-basic state-reproducibility-binary \
                    state-reproducibility-buffered param-conversions param-default-values param-set-events \
                    param-set-no-cookies param-set-wrong-namespace param-fuzz-basic param-fuzz-bounds \
-                   param-fuzz-sample-accurate param-fuzz-modulation; do
+                   param-fuzz-sample-accurate param-fuzz-modulation \
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
             grep -qx "$t PASSED" cv-status.txt || { echo "FOUT: clap-validator $t is niet PASSED"; exit 1; }
             echo "clap-validator $t: PASSED"
           done
@@ -111,6 +114,12 @@ jobs:
         run: |
           mkdir -p paneel-svg
           build/pb-paneeltoets frontpaneel.svg paneel-svg
+
+      - name: Fabriekspresets door het .clap (pb-presettoets; fase 4)
+        run: |
+          python3 gereedschap/presets-lijst.py presets > presets.txt
+          cat presets.txt
+          build/pb-presettoets "build/plugins/PB Toetsenpad.clap" presets.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -285,8 +294,21 @@ jobs:
           path: schermafbeeldingen/
           if-no-files-found: error
 
-      - name: auval -strict (aumu PTgg Vrve)
+      - name: Fabriekspresets door het gesigneerde .clap (pb-presettoets; fase 4)
+        run: |
+          python3 gereedschap/presets-lijst.py presets > presets.txt
+          build/pb-presettoets "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap" presets.txt
+
+      - name: auval -strict (aumu PTgg Vrve), met de fabriekspresets
         run: |
           set -o pipefail
           auval -strict -v aumu PTgg Vrve 2>&1 | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
+          # fase 4: elke presetnaam uit presets/ staat in de uitvoer (de AU geeft ze als factory presets)
+          python3 gereedschap/presets-lijst.py presets --namen > presetnamen.txt
+          test -s presetnamen.txt
+          echo "--- presets in de uitvoer van auval"
+          while IFS= read -r naam; do
+            grep -nF -- "$naam" auval.log || { echo "FOUT: preset '$naam' staat niet in de uitvoer van auval"; exit 1; }
+            echo "auval toont preset: $naam"
+          done < presetnamen.txt

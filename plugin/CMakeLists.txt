@@ -2,7 +2,8 @@
 #   cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
 # Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (de CLAP-host van de null-test) en
 # build/pb-statetoets (state- en teksttoets, fase 2), build/pb-paneeltoets (het paneelmodel, fase 3) en op macOS
-# build/pb-paneel (het paneel door het binary: openen, bedienen, schermafbeeldingen; fase 3).
+# build/pb-paneel (het paneel door het binary: openen, bedienen, schermafbeeldingen; fase 3), build/pb-presettoets (de
+# fabriekspresets uit presets/ door het .clap; fase 4).
 #   -DPB_RTSAN=ON    pb-render met -fsanitize=realtime (clang ≥ 20)
 #   -DPB_KANARIE=ON  process alloceert (de kanarie: RTSan MOET dan falen)
 cmake_minimum_required(VERSION 3.21)
@@ -39,9 +40,14 @@ FetchContent_Declare(clap-wrapper
 )
 FetchContent_MakeAvailable(clap-wrapper)
 
+# De fabriekspresets (fase 4): presets/*.json als tabel in het binary (presets.cmake; ARCHITECTUUR.md "Presets")
+include(${CMAKE_CURRENT_SOURCE_DIR}/presets.cmake)
+pb_fabriekspresets(${PAKKET}/presets ${CMAKE_BINARY_DIR}/gegenereerd/fabriekspresets.inc)
+
 # De impl: de schil plus de gegeven DSP (include-pad dsp/). De DSP-vlaggen gelden voor alles wat de DSP compileert.
 add_library(toetsenpad-impl STATIC src/plugin.cpp src/paneel.cpp)
-target_include_directories(toetsenpad-impl PUBLIC ${PAKKET}/dsp ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(toetsenpad-impl PUBLIC ${PAKKET}/dsp ${CMAKE_CURRENT_SOURCE_DIR}/src
+                                           PRIVATE ${CMAKE_BINARY_DIR}/gegenereerd)
 target_link_libraries(toetsenpad-impl PUBLIC clap)
 target_compile_options(toetsenpad-impl PRIVATE -ffp-contract=off -fno-fast-math -fno-math-errno)
 
@@ -105,6 +111,11 @@ set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_
 add_executable(pb-paneeltoets toetsen/pb-paneeltoets.cpp)
 target_link_libraries(pb-paneeltoets PRIVATE toetsenpad-impl)
 set_target_properties(pb-paneeltoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# pb-presettoets: de fabriekspresets door het gebouwde .clap (preset-discovery en preset-load, fase 4)
+add_executable(pb-presettoets toetsen/pb-presettoets.cpp)
+target_link_libraries(pb-presettoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-presettoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 if (APPLE)
   # pb-paneel: een kleine CLAP-host met een venster; opent het paneel van het gebouwde .clap, bedient het met de muis

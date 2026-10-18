@@ -1,0 +1,5 @@
+{
+  "naam": "Basis",
+  "uitleg": "De standaardklank: filter op 900 Hz, loslaten 450 ms.",
+  "waarden": { "Filter": 900, "Loslaten": 450 }
+}

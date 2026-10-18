@@ -72,6 +72,15 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
 - AU: `patches/clap-wrapper-auv2-presets.patch` leest dezelfde factory en geeft ze als factory presets
   (`GetPresets`, `NewFactoryPresetSet`). VST3 krijgt van clap-wrapper geen presetlijst.
 - Een verse plugin staat op de standaarden; laat de AU daarom op "Untitled" (−1) beginnen, niet op preset 0.
+- Bouw: `plugin/presets.cmake` maakt `fabriekspresets.inc` (op volgorde van sleutel); een kapot bestand, een veld dat
+  ontbreekt of een waarde die geen getal is faalt bij configure, een onbekende parameternaam of een waarde buiten het
+  bereik (of niet exact in float32) faalt bij compileren (`static_assert` in `plugin.cpp` tegen `Ontwerp::PARAMS`).
+- Toetsen: clap-validator (`preset-discovery-crawl`, `-descriptor-consistency`, `-load` moeten PASSED zijn). Hij bewaart
+  gevonden presets per plek, en alle providers melden dezelfde plek (PLUGIN, zonder pad): hij laadt er dus maar één.
+  Daarom `pb-presettoets` (door het .clap, Linux en macOS): elke provider en elke preset, laden niet actief en actief,
+  ontbrekende namen naar de standaard, bit voor bit dezelfde klank als dezelfde waarden via params.flush, en een
+  onbekende sleutel geeft false en on_error. `gereedschap/presets-lijst.py` zet `presets/` om naar wat de toetsen
+  verwachten. Op macOS moet elke presetnaam in de uitvoer van `auval -strict -v` staan.
 
 ## Instrument
 - Geen audio-ingang: `audio-ports` meldt 0 ingangen en 1 uitgang; `audio-ports-config` (fase 5) alleen stereo en mono

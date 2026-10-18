@@ -1,4 +1,5 @@
-// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 3: parameters met tekst ↔ waarde, state, params.flush, paneel).
+// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 4: parameters met tekst ↔ waarde, state, params.flush, paneel,
+// fabriekspresets via preset-discovery en preset-load).
 //
 // Een instrument: geen audio-ingang, één stereo-uitgang, één note port (alleen het CLAP-dialect, valkuil 19).
 // Het Ontwerp uit dsp/ontwerpen/keten_toetsenpad.h levert naam, id, maker, parameters, latency en staart; process
@@ -105,6 +106,7 @@ struct Plugin {
   clap_plugin_t clap{};
   const clap_host_t* host = nullptr;
   const clap_host_params_t* hostParams = nullptr;
+  const clap_host_preset_load_t* hostPresetLoad = nullptr;
   Ontwerp ontwerp;
   pb::NootStapel stapel;
   std::vector<unsigned char> geheugen;   // het blok van Ontwerp::geheugenNodig, gereserveerd in activate
@@ -436,6 +438,27 @@ uint32_t lees32(const unsigned char* p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+// Nieuwe waarden voor alle parameters (mainthread): state.load en preset-load gaan allebei hierlangs.
+void laadWaarden(Plugin* s, const double* waarden) {
+  if (s->actief.load()) {
+    for (int i = 0; i < N; ++i) {
+      s->klaar[i].store(waarden[i], std::memory_order_relaxed);
+      s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
+    }
+    s->klaarVlag.store(true, std::memory_order_release);
+  } else {
+    // niet actief: alleen de mainthread raakt het Ontwerp aan
+    for (int i = 0; i < N; ++i) {
+      s->ontwerp.zetParam(i, waarden[i]);
+      s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
+    }
+  }
+  if (s->hostParams) {
+    s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
+    if (s->actief.load()) s->hostParams->request_flush(s->host);
+  }
+}
+
 bool stSave(const clap_plugin_t* pl, const clap_ostream_t* os) {
   Plugin* s = zelf(pl);
   std::vector<unsigned char> b;
@@ -486,26 +509,84 @@ bool stLoad(const clap_plugin_t* pl, const clap_istream_t* is) {
     std::memcpy(&v, &u, 8);
     if (std::isfinite(v)) waarden[i] = klem(v, i);
   }
-  if (s->actief.load()) {
-    for (int i = 0; i < N; ++i) {
-      s->klaar[i].store(waarden[i], std::memory_order_relaxed);
-      s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
-    }
-    s->klaarVlag.store(true, std::memory_order_release);
-  } else {
-    // niet actief: alleen de mainthread raakt het Ontwerp aan
-    for (int i = 0; i < N; ++i) {
-      s->ontwerp.zetParam(i, waarden[i]);
-      s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
-    }
-  }
-  if (s->hostParams) {
-    s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
-    if (s->actief.load()) s->hostParams->request_flush(s->host);
-  }
+  laadWaarden(s, waarden);
   return true;
 }
 const clap_plugin_state_t STATE = {stSave, stLoad};
+
+// --- fabriekspresets (fase 4): presets/*.json, door CMake als tabel in het binary (presets.cmake) -----------------
+// Geen JSON-lezer en niets naast de plugin. Alles hier is constant (geen globale objecten die init vult; valkuil 16).
+struct PresetWaarde {
+  const char* naam;  // de parameternaam uit PARAMS
+  double waarde;
+};
+struct FabrieksPreset {
+  const char* sleutel;     // de bestandsnaam zonder .json: de load key
+  const char* naam;
+  const char* uitleg;
+  const char* aanbieder;   // het id van de preset-discovery-provider van deze preset
+  const PresetWaarde* waarden;
+  int aantal;
+};
+#include "fabriekspresets.inc"
+constexpr int N_PRESETS = (int)(sizeof FABRIEKSPRESETS / sizeof FABRIEKSPRESETS[0]);
+
+constexpr bool zelfdeTekst(const char* a, const char* b) {
+  while (*a && *a == *b) ++a, ++b;
+  return *a == *b;
+}
+constexpr int indexVanNaam(const char* naam) {
+  for (int i = 0; i < N; ++i)
+    if (zelfdeTekst(Ontwerp::PARAMS[i].naam, naam)) return i;
+  return -1;
+}
+// Een onbekende naam, een dubbele naam of een waarde buiten het bereik is een bouwfout (ARCHITECTUUR.md "Presets").
+// Exact in float32, zoals de grenzen en standaarden (SPEC.md): een AU geeft parameters als float door.
+constexpr bool presetsKloppen() {
+  for (int p = 0; p < N_PRESETS; ++p) {
+    const FabrieksPreset& f = FABRIEKSPRESETS[p];
+    for (int k = 0; k < f.aantal; ++k) {
+      const int i = indexVanNaam(f.waarden[k].naam);
+      if (i < 0) return false;
+      const double v = f.waarden[k].waarde;
+      if (!(v >= Ontwerp::PARAMS[i].min && v <= Ontwerp::PARAMS[i].max)) return false;
+      if ((double)(float)v != v) return false;
+      for (int j = 0; j < k; ++j)
+        if (zelfdeTekst(f.waarden[j].naam, f.waarden[k].naam)) return false;
+    }
+    for (int q = 0; q < p; ++q)
+      if (zelfdeTekst(FABRIEKSPRESETS[q].sleutel, f.sleutel)) return false;
+  }
+  return true;
+}
+static_assert(presetsKloppen(), "presets/*.json: een onbekende parameternaam, een dubbele naam, of een waarde buiten "
+                                "het bereik (of niet exact in float32)");
+
+int presetVan(const char* sleutel) {
+  if (!sleutel) return -1;
+  for (int p = 0; p < N_PRESETS; ++p)
+    if (!std::strcmp(FABRIEKSPRESETS[p].sleutel, sleutel)) return p;
+  return -1;
+}
+
+// preset-load (mainthread): hetzelfde pad als state.load; wat de preset niet noemt gaat naar zijn standaard
+bool plLaadPreset(const clap_plugin_t* pl, uint32_t soort, const char* plek, const char* sleutel) {
+  Plugin* s = zelf(pl);
+  const int p = soort == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? presetVan(sleutel) : -1;
+  if (p < 0) {
+    if (s->hostPresetLoad && s->hostPresetLoad->on_error)
+      s->hostPresetLoad->on_error(s->host, soort, plek, sleutel, 0, "PB Toetsenpad: onbekende preset");
+    return false;
+  }
+  double waarden[N];
+  for (int i = 0; i < N; ++i) waarden[i] = Ontwerp::PARAMS[i].standaard;
+  const FabrieksPreset& f = FABRIEKSPRESETS[p];
+  for (int k = 0; k < f.aantal; ++k) waarden[indexVanNaam(f.waarden[k].naam)] = f.waarden[k].waarde;
+  laadWaarden(s, waarden);
+  if (s->hostPresetLoad && s->hostPresetLoad->loaded) s->hostPresetLoad->loaded(s->host, soort, plek, sleutel);
+  return true;
+}
+const clap_plugin_preset_load_t PRESET_LOAD = {plLaadPreset};
 
 // --- latency en tail ---------------------------------------------------------------------------------------------
 uint32_t latGet(const clap_plugin_t* p) { return zelf(p)->ontwerp.latentie(); }
@@ -524,6 +605,11 @@ const clap_plugin_tail_t TAIL = {tailGet};
 bool plInit(const clap_plugin_t* p) {
   Plugin* s = zelf(p);
   s->hostParams = static_cast<const clap_host_params_t*>(s->host->get_extension(s->host, CLAP_EXT_PARAMS));
+  s->hostPresetLoad =
+      static_cast<const clap_host_preset_load_t*>(s->host->get_extension(s->host, CLAP_EXT_PRESET_LOAD));
+  if (!s->hostPresetLoad)
+    s->hostPresetLoad =
+        static_cast<const clap_host_preset_load_t*>(s->host->get_extension(s->host, CLAP_EXT_PRESET_LOAD_COMPAT));
   return true;
 }
 
@@ -752,6 +838,7 @@ const void* plGetExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD;
 #ifdef __APPLE__
   if (!std::strcmp(id, CLAP_EXT_GUI)) return &GUI;
 #endif
@@ -780,6 +867,69 @@ const clap_plugin_t* fabCreate(const clap_plugin_factory_t*, const clap_host_t* 
 }
 const clap_plugin_factory_t FACTORY = {fabCount, fabDescriptor, fabCreate};
 
+// --- preset-discovery: één provider per preset, elk met een container van één (valkuil 15) -----------------------
+// clap-validator 0.4.1 loopt vast op een container met meer presets. Elke provider meldt de plek van soort
+// CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN (de preset zit in de plugin zelf) en daar één preset met zijn sleutel als load
+// key. De AU-wrapper (patches/clap-wrapper-auv2-presets.patch) leest dezelfde factory voor zijn factory presets.
+struct PresetAanbieders {
+  clap_preset_discovery_provider_descriptor_t d[N_PRESETS];
+};
+constexpr PresetAanbieders maakAanbieders() {
+  PresetAanbieders a{};
+  for (int p = 0; p < N_PRESETS; ++p)
+    a.d[p] = {CLAP_VERSION_INIT, FABRIEKSPRESETS[p].aanbieder, FABRIEKSPRESETS[p].naam, Ontwerp::META.maker};
+  return a;
+}
+constexpr PresetAanbieders AANBIEDERS = maakAanbieders();
+
+struct Aanbieder {
+  clap_preset_discovery_provider_t clap{};
+  const clap_preset_discovery_indexer_t* indexer = nullptr;
+  int preset = 0;
+};
+Aanbieder* aanbieder(const clap_preset_discovery_provider_t* p) { return static_cast<Aanbieder*>(p->provider_data); }
+
+bool aanInit(const clap_preset_discovery_provider_t* p) {
+  const Aanbieder* a = aanbieder(p);
+  const clap_preset_discovery_location_t plek = {CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, Ontwerp::META.naam,
+                                                 CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, nullptr};
+  return a->indexer->declare_location(a->indexer, &plek);
+}
+void aanWeg(const clap_preset_discovery_provider_t* p) { delete aanbieder(p); }
+bool aanMetadata(const clap_preset_discovery_provider_t* p, uint32_t soort, const char* plek,
+                 const clap_preset_discovery_metadata_receiver_t* r) {
+  if (soort != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || plek != nullptr) return false;
+  const FabrieksPreset& f = FABRIEKSPRESETS[aanbieder(p)->preset];
+  if (!r->begin_preset(r, f.naam, f.sleutel)) return true;
+  const clap_universal_plugin_id_t id = {"clap", Ontwerp::META.clapId};
+  r->add_plugin_id(r, &id);
+  r->set_flags(r, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT);
+  r->add_creator(r, Ontwerp::META.maker);
+  r->set_description(r, f.uitleg);
+  return true;
+}
+const void* aanExtensie(const clap_preset_discovery_provider_t*, const char*) { return nullptr; }
+
+uint32_t pdCount(const clap_preset_discovery_factory_t*) { return (uint32_t)N_PRESETS; }
+const clap_preset_discovery_provider_descriptor_t* pdDescriptor(const clap_preset_discovery_factory_t*, uint32_t i) {
+  return i < (uint32_t)N_PRESETS ? &AANBIEDERS.d[i] : nullptr;
+}
+const clap_preset_discovery_provider_t* pdCreate(const clap_preset_discovery_factory_t*,
+                                                 const clap_preset_discovery_indexer_t* indexer, const char* id) {
+  if (!indexer || !id) return nullptr;
+  for (int p = 0; p < N_PRESETS; ++p) {
+    if (std::strcmp(AANBIEDERS.d[p].id, id)) continue;
+    Aanbieder* a = new (std::nothrow) Aanbieder();
+    if (!a) return nullptr;
+    a->indexer = indexer;
+    a->preset = p;
+    a->clap = {&AANBIEDERS.d[p], a, aanInit, aanWeg, aanMetadata, aanExtensie};
+    return &a->clap;
+  }
+  return nullptr;
+}
+const clap_preset_discovery_factory_t PRESET_FACTORY = {pdCount, pdDescriptor, pdCreate};
+
 }  // namespace
 
 bool pbPaneelKoppeling(const clap_plugin_t* plugin, pb::paneel::Koppeling* k) {
@@ -804,5 +954,8 @@ bool pbEntryInit(const char*) { return true; }
 void pbEntryDeinit() {}
 const void* pbEntryGetFactory(const char* factoryId) {
   if (!std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID)) return &FACTORY;
+  if (!std::strcmp(factoryId, CLAP_PRESET_DISCOVERY_FACTORY_ID) ||
+      !std::strcmp(factoryId, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT))
+    return &PRESET_FACTORY;
   return nullptr;
 }

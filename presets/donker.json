@@ -1,0 +1,5 @@
+{
+  "naam": "Donker",
+  "uitleg": "Filter dicht, rustig uitklinken.",
+  "waarden": { "Filter": 350, "Loslaten": 900 }
+}
