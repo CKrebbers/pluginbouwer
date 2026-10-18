@@ -105,10 +105,12 @@ test('harmonischen (exponential sine sweep) tegen de ideale saturatie op 16×', 
   const rel = (h) => ({ H3: h[3] - h[1], H5: h[5] - h[1], H2: h[2] - h[1] });
   meting.harmonischen = { wasm: rel(hw), ideaal: rel(hr) };
   bewaar();
-  // grens 1 dB op H3 en H5 (PROMPT.md); H2 moet ver weg zijn (tanh is oneven) in beide
+  // grens 1 dB op H3 en H5 (PROMPT.md), en sinds 17 okt ook op H2: de tape is licht asymmetrisch (β, zoals een echte
+  // band; ref/referentie/RAPPORT.md §2), dus H2 hoort er te zijn en moet kloppen met de ideale asymmetrische saturatie
   assert.ok(Math.abs(rel(hw).H3 - rel(hr).H3) <= 1, `H3: ${rel(hw).H3.toFixed(2)} tegen ${rel(hr).H3.toFixed(2)} dB`);
   assert.ok(Math.abs(rel(hw).H5 - rel(hr).H5) <= 1, `H5: ${rel(hw).H5.toFixed(2)} tegen ${rel(hr).H5.toFixed(2)} dB`);
-  assert.ok(rel(hw).H2 < -60 && rel(hr).H2 < -60, `H2 hoort er niet te zijn: ${rel(hw).H2.toFixed(1)} / ${rel(hr).H2.toFixed(1)} dB`);
+  assert.ok(Math.abs(rel(hw).H2 - rel(hr).H2) <= 1, `H2: ${rel(hw).H2.toFixed(2)} tegen ${rel(hr).H2.toFixed(2)} dB`);
+  assert.ok(rel(hw).H2 > -60, `H2 hoort er te zijn (asymmetrie): ${rel(hw).H2.toFixed(1)} dB`);
 });
 
 // ---------------------------------------------------------------------------------------------------- aliasing

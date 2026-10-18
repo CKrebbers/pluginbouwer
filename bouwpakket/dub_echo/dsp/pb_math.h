@@ -16,6 +16,7 @@ namespace pb {
 constexpr double PI = 3.14159265358979323846;
 constexpr double TWO_PI = 6.28318530717958647692;
 constexpr double LN2 = 0.69314718055994530942;
+constexpr double SQRT2 = 1.41421356237309504880;
 
 inline double fabs_(double x) { return x < 0 ? -x : x; }
 inline double sqrt_(double x) { return __builtin_sqrt(x); }   // wordt f64.sqrt / fsqrt, geen libm-aanroep

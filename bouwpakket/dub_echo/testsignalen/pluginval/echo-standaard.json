@@ -13,7 +13,8 @@
       "Resonantie": 0.25,
       "Verzadiging": 0.25,
       "Haperen": 0.25,
-      "Mix": 0.25
+      "Mix": 0.25,
+      "Ruis": 0.25
     }
   },
   "sample_rate": 48000,

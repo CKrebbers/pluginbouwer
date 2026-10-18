@@ -20,7 +20,7 @@ import sys
 import numpy as np
 
 STANDAARD = {"Tijd": 375.0, "Terugkoppeling": 0.5, "Toon": 3000.0, "Laag weg": 100.0, "Resonantie": 0.70703125,
-             "Verzadiging": 6.0, "Haperen": 0.0, "Mix": 0.375}
+             "Verzadiging": 6.0, "Haperen": 0.0, "Mix": 0.375, "Ruis": 0.0}
 
 
 def lagrange3(buf, schrijfpos, d):
@@ -73,6 +73,13 @@ class HoogEenPool:
         return x - y
 
 
+# asymmetrie van de tape (17 okt 2026, ref/referentie/RAPPORT.md §2): tanh(u + β) − tanh(β), gedeeld door 1 − tanh²(β)
+BETA = 0.099609375
+TB = math.tanh(BETA)
+INORM = 1.0 / (1.0 - TB * TB)
+LCB = math.log(math.cosh(BETA))
+
+
 def logcosh(x):
     a = abs(x)
     return a + math.log1p(math.exp(-2 * a)) - math.log(2.0)
@@ -82,6 +89,8 @@ def render(x, sr, p, ideaal=0):
     p = {**STANDAARD, **p}
     if p["Haperen"] != 0:
         raise ValueError("de referentie kent geen bandbeweging: zet Haperen op 0")
+    if p.get("Ruis", 0) != 0:
+        raise ValueError("de referentie kent geen bandruis: zet Ruis op 0")
     g = 10 ** (p["Verzadiging"] / 20)
     fb, mix = p["Terugkoppeling"], p["Mix"]
     d = p["Tijd"] * 1e-3 * sr - (0 if ideaal else 0.5)
@@ -106,9 +115,9 @@ def render(x, sr, p, ideaal=0):
             w = sat[t]
         else:
             ug = u * g
-            F = logcosh(ug)
+            F = logcosh(ug + BETA) - LCB - TB * ug
             dd = ug - x1
-            w = ((F - F1) / dd if abs(dd) > 1e-6 else math.tanh(0.5 * (ug + x1))) / g
+            w = ((F - F1) / dd if abs(dd) > 1e-6 else math.tanh(0.5 * (ug + x1) + BETA) - TB) * INORM / g
             x1, F1 = ug, F
         pos = (pos + 1) % len(buf)
         buf[pos] = w
@@ -146,7 +155,7 @@ def ideale_saturatie(x, g, os):
     op = np.zeros(len(x) * os)
     op[::os] = x * os
     op = fftconv(op, h)[(taps - 1) // 2:][: len(x) * os]
-    y = np.tanh(g * op) / g
+    y = (np.tanh(g * op + BETA) - TB) * INORM / g
     y = fftconv(y, h)[(taps - 1) // 2:][: len(x) * os]
     return y[::os]
 

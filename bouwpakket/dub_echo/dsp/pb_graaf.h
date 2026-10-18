@@ -12,6 +12,9 @@
 //   Uitbreidingen van 15 okt 2026, terugwaarts gelijk (oude rijen lezen en klinken bit voor bit hetzelfde):
 //   param ≥ 1000 = param − 1000 met "waarde" als schaal (één parameter op meer knoppen, bv. een octaaf hoger);
 //   modPoort ≥ 8 = modPoort − 8, exponentieel (× 2^(diepte·m), diepte in octaven) voor frequentie- en tijdknoppen.
+//   Van 17 okt 2026, ook terugwaarts gelijk: een vertraging waarvan de ingang "beweging" van een bandsnelheid komt,
+//   leest op T − (E(t) − E(t − T)) (pb_tape.h BandGeheugen); van elke andere bron zoals vroeger T·(1 + beweging).
+//   Tape: knop 2 (asymmetrie β) = 0 in oude rijen, en dan rekent hij precies zoals vroeger.
 #pragma once
 #include "pb_biquad.h"
 #include "pb_delay.h"
@@ -26,7 +29,9 @@ enum class Blok : int32_t {
   bandbeweging = 8, mix = 9, biquad = 10, lfo = 11, laagdoor1 = 12,
   // erbij op 15 okt 2026 (pb_bronnen.h): bronnen, bespelen en meer effecten
   osc = 13, ruis = 14, sequencer = 15, toetsen = 16, omhulling = 17, snaar = 18, trommel = 19, vermenigvuldig = 20,
-  galm = 21, chorus = 22, compressor = 23, vergruizer = 24, vouwer = 25, panner = 26, willekeur = 27, aantal
+  galm = 21, chorus = 22, compressor = 23, vergruizer = 24, vouwer = 25, panner = 26, willekeur = 27,
+  // erbij op 17 okt 2026 (pb_tape.h, naar een echte band: ref/referentie/RAPPORT.md)
+  bandsnelheid = 28, bandruis = 29, aantal
 };
 constexpr int MAX_KNOPEN = 32, MAX_IN = 2, MAX_UIT = 3, MAX_KP = 4, MAX_PARAMS = 32, MAX_VERTRAGING = 6;
 
@@ -94,7 +99,19 @@ inline int leesBeschrijving(const double* d, int n, GraafBeschrijving& g) {
 }
 
 inline bool isGedeeld(Blok b) {
-  return b == Blok::bandbeweging || b == Blok::lfo || b == Blok::sequencer || b == Blok::toetsen || b == Blok::willekeur;
+  return b == Blok::bandbeweging || b == Blok::lfo || b == Blok::sequencer || b == Blok::toetsen || b == Blok::willekeur ||
+         b == Blok::bandsnelheid;
+}
+
+// de langste vertraging die op bandsnelheid k aangesloten is (in samples): zo lang moet zijn E-geschiedenis zijn
+inline double bandMaxSamples(const GraafBeschrijving& g, int k, double sr) {
+  double m = 8;
+  for (int j = 0; j < g.nKnopen; ++j)
+    if (g.knoop[j].soort == Blok::vertraging && g.knoop[j].in[1].knoop == k) {
+      double v = g.knoop[j].vast[0] * 0.001 * sr * 1.02 + 8;
+      if (v > m) m = v;
+    }
+  return m;
 }
 
 // geheugen dat een beschrijving nodig heeft op samplerate sr (vertragingslijnen, 2 kanalen)
@@ -106,6 +123,7 @@ inline unsigned long graafGeheugen(const GraafBeschrijving& g, double sr) {
       case Blok::snaar: n += 2 * Vertraging::geheugen(Snaar::maxSamples(sr)); break;
       case Blok::chorus: n += 2 * Vertraging::geheugen(Chorus::maxSamples(sr)); break;
       case Blok::galm: n += 2 * Galm::N * Vertraging::geheugen(Galm::maxSamples(sr)); break;
+      case Blok::bandsnelheid: n += BandGeheugen::geheugen(bandMaxSamples(g, k, sr)); break;
       default: break;
     }
   }
@@ -125,6 +143,10 @@ struct Graaf {
   TapeVerzadiging sat[MAX_KNOPEN][2];
   Vertraging vt[MAX_KNOPEN][2];
   TapeBeweging band[MAX_KNOPEN];
+  TapeSnelheid snel[MAX_KNOPEN];
+  BandGeheugen bandE[MAX_KNOPEN];
+  BandRuis bruis[MAX_KNOPEN][2];
+  double beta[MAX_KNOPEN], tbeta[MAX_KNOPEN], lcbeta[MAX_KNOPEN], inorm[MAX_KNOPEN];
   double lfoFase[MAX_KNOPEN];
   double drive[MAX_KNOPEN], invDrive[MAX_KNOPEN];
   // pb_bronnen.h
@@ -155,6 +177,8 @@ struct Graaf {
       const auto& kn = b->knoop[k];
       if (kn.soort == Blok::vertraging) for (auto& v : vt[k]) v.koppel(g, kn.vast[0] * 0.001 * sr * 1.02 + 8);
       if (kn.soort == Blok::bandbeweging) band[k].zet(sr);
+      if (kn.soort == Blok::bandsnelheid) { snel[k].zet(sr); bandE[k].koppel(g, bandMaxSamples(*b, k, sr)); }
+      if (kn.soort == Blok::bandruis) for (auto& r : bruis[k]) r.zet(sr);
       if (kn.soort == Blok::snaar) for (auto& v : snaar[k]) v.koppel(g, sr);
       if (kn.soort == Blok::chorus) for (auto& v : chorus[k]) v.koppel(g, sr);
       if (kn.soort == Blok::galm) for (auto& v : galm[k]) v.koppel(g, sr);
@@ -170,9 +194,9 @@ struct Graaf {
         bq[k][c].reset(); svf[k][c].reset(); een[k][c].reset(); sat[k][c].reset(); vt[k][c].reset();
         osc[k][c].reset(); ruis[k][c].reset(zaad(k, c)); omh[k][c].reset(); snaar[k][c].reset(zaad(k, c));
         trom[k][c].reset(zaad(k, c)); galm[k][c].reset(); chorus[k][c].reset(c); comp[k][c].reset(); gruis[k][c].reset();
-        vouw[k][c].reset();
+        vouw[k][c].reset(); bruis[k][c].reset(zaad(k, c));
       }
-      band[k].reset(); lfoFase[k] = 0; seq[k].reset(); wil[k].reset(zaad(k, 0));
+      band[k].reset(); snel[k].reset(); bandE[k].reset(); beta[k] = 0; tbeta[k] = 0; lcbeta[k] = 0; inorm[k] = 1; lfoFase[k] = 0; seq[k].reset(); wil[k].reset(zaad(k, 0));
     }
     vers = true;
   }
@@ -207,7 +231,11 @@ struct Graaf {
   void herbereken(int k, bool alles) {
     const auto& kn = b->knoop[k];
     switch (kn.soort) {
-      case Blok::tape: drive[k] = dbNaarVersterking(basis(k, 0)); invDrive[k] = 1.0 / drive[k]; break;
+      case Blok::tape:
+        drive[k] = dbNaarVersterking(basis(k, 0)); invDrive[k] = 1.0 / drive[k];
+        beta[k] = basis(k, 1); tbeta[k] = beta[k] != 0.0 ? tanh_(beta[k]) : 0.0; lcbeta[k] = beta[k] != 0.0 ? logcosh_(beta[k]) : 0.0;
+        inorm[k] = 1.0 / (1.0 - tbeta[k] * tbeta[k]);
+        break;
       case Blok::hoogdoor1: case Blok::laagdoor1: if (!beweegt(k, 0)) for (auto& e : een[k]) e.zet(basis(k, 0), sr); break;
       case Blok::svf: if (!beweegt(k, 0) && !beweegt(k, 1)) for (auto& s : svf[k]) s.zet(basis(k, 0), basis(k, 1), sr); break;
       case Blok::biquad:
@@ -234,6 +262,7 @@ struct Graaf {
       for (int k = 0; k < N; ++k) {
         const auto& kn = b->knoop[k];
         if (kn.soort == Blok::bandbeweging) { double v = band[k].stap() * basis(k, 0); uitw[k][0][0] = uitw[k][1][0] = v; }
+        else if (kn.soort == Blok::bandsnelheid) { double v = snel[k].stap() * basis(k, 0); uitw[k][0][0] = uitw[k][1][0] = v; bandE[k].schrijf(v); }
         else if (kn.soort == Blok::lfo) {
           lfoFase[k] += TWO_PI * basis(k, 0) / sr; if (lfoFase[k] >= TWO_PI) lfoFase[k] -= TWO_PI;
           double v = sin_(lfoFase[k]); uitw[k][0][0] = uitw[k][1][0] = v;
@@ -268,9 +297,19 @@ struct Graaf {
             }
             case Blok::som: u[0] = ingang(k, 0, c) + ingang(k, 1, c); break;
             case Blok::versterker: u[0] = flush(waardeMod(k, 0, c) * ingang(k, 0, c)); break;
-            case Blok::tape: u[0] = sat[k][c].stap(ingang(k, 0, c) * drive[k]) * invDrive[k]; break;
+            case Blok::tape:
+              u[0] = beta[k] == 0.0 ? sat[k][c].stap(ingang(k, 0, c) * drive[k]) * invDrive[k]
+                                    : sat[k][c].stapAsym(ingang(k, 0, c) * drive[k], beta[k], tbeta[k], lcbeta[k]) * inorm[k] * invDrive[k];
+              break;
             case Blok::vertraging: {
-              double d = waardeMod(k, 0, c) * 0.001 * sr * (1.0 + ingang(k, 1, c)) - kn.vast[1];
+              const int bron = kn.in[1].knoop;
+              double d;
+              if (bron >= 0 && b->knoop[bron].soort == Blok::bandsnelheid) {
+                double Ts = waardeMod(k, 0, c) * 0.001 * sr;
+                d = Ts - bandE[bron].verschil(Ts) - kn.vast[1];
+              } else {
+                d = waardeMod(k, 0, c) * 0.001 * sr * (1.0 + ingang(k, 1, c)) - kn.vast[1];
+              }
               vt[k][c].schrijf(ingang(k, 0, c));
               u[0] = vt[k][c].leesLagrange(d);
               break;
@@ -302,6 +341,7 @@ struct Graaf {
               break;
             }
             case Blok::ruis: u[0] = ruis[k][c].stap(waardeMod(k, 0, c)); break;
+            case Blok::bandruis: u[0] = bruis[k][c].stap() * waardeMod(k, 0, c); break;
             case Blok::omhulling:
               u[0] = omh[k][c].stap(ingang(k, 0, c), waardeMod(k, 0, c), waardeMod(k, 1, c), waardeMod(k, 2, c), waardeMod(k, 3, c), sr);
               break;

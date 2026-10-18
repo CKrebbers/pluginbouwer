@@ -407,6 +407,18 @@ def curve(rijen, flo, fhi, harm='H3', stap=2.0):
             for _, v in sorted(bak.items()) if len(v) >= 3}
 
 
+class TanhAsym:
+    """De saturatie van de dub-echo sinds 17 okt (pb_tape.h stapAsym, zonder ADAA): (tanh(g·x + β) − tanh β)/(1 − tanh² β)/g."""
+
+    def __init__(self, fs, verzadiging_db, beta):
+        self.g = 10 ** (verzadiging_db / 20)
+        self.b, self.tb = beta, math.tanh(beta)
+        self.n = 1.0 / (1.0 - self.tb * self.tb)
+
+    def stap(self, x):
+        return (math.tanh(self.g * x + self.b) - self.tb) * self.n / self.g
+
+
 def model_curve(maker, f, niveaus_db):
     """H3 en H5 van een model op een sinus (periodiek, 0,25 s inlopen, dan 0,25 s meten)."""
     uit = {}
@@ -448,6 +460,13 @@ def fit(echt, model, harm='H3'):
     return best
 
 
+def fout_bij(echt, model, c, harm):
+    mk = np.array(sorted(model))
+    mv = np.array([model[k][harm] for k in mk])
+    f = [np.interp(L + c, mk, mv) - v for L, v in echt.items() if mk[0] <= L + c <= mk[-1]]
+    return round(math.sqrt(np.mean(np.square(f))), 2) if f else None
+
+
 def helling(curve_):
     ks = sorted(curve_)
     if len(ks) < 3:
@@ -476,7 +495,8 @@ def main():
     rapport['sinussen'] = {}
     niveaus = list(np.arange(-60, 24.01, 3.0))
     modellen = {
-        'tanh (dub-echo, verzadiging 6 dB)': lambda: Tanh(FS, 6.0),
+        'tanh (dub-echo tot 17 okt, verzadiging 6 dB)': lambda: Tanh(FS, 6.0),
+        'tanh asymmetrisch (dub-echo nu, β = 0,0996)': lambda: TanhAsym(FS, 6.0, 0.099609375),
         'Jiles-Atherton (CHOWTape-standaard)': lambda: JATape(FS, 0.5, 0.5, 0.5),
     }
     print('modellen op 1 kHz …', flush=True)
@@ -490,11 +510,17 @@ def main():
             c2 = curve(rijen, lo, hi, 'H2')
             c5 = curve(rijen, lo, hi, 'H5')
             fits = {naam: fit(c3, mc) for naam, mc in mcurves.items()} if (lo, hi) == (300, 4000) else {}
+            fits2 = {naam: fit(c2, mc, 'H2') for naam, mc in mcurves.items()} if (lo, hi) == (300, 4000) else {}
             per[f'{lo}-{hi} Hz'] = {
                 'H3': c3, 'H2': c2, 'H5': c5,
                 'helling_H3_db_per_db_onderste_helft': helling(dict(list(c3.items())[:max(3, len(c3) // 2)])),
                 'fit_H3': {naam: (None if f is None else {'verschuiving_db': f[0], 'rms_fout_db': round(f[1], 2), 'punten': f[2]})
                            for naam, f in fits.items()},
+                'fit_H2': {naam: (None if f is None else {'verschuiving_db': f[0], 'rms_fout_db': round(f[1], 2), 'punten': f[2]})
+                           for naam, f in fits2.items()},
+                # H2 op de verschuiving van de H3-fit: één ijking van het niveau voor beide harmonischen
+                'H2_bij_H3_ijking_rms_db': {naam: fout_bij(c2, mcurves[naam], fits[naam][0], 'H2')
+                                            for naam in fits if fits[naam] is not None},
             }
         rapport['sinussen'][band] = {'vensters': len(rijen), 'frequenties_hz': frequenties[:60], 'per_band': per}
     for naam, c in mcurves.items():

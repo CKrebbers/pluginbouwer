@@ -130,12 +130,50 @@ Wat dit zegt:
 - **Hoog:** de sis loopt op naar −78 tot −76 dBFS per terts boven 10 kHz.
 - **Onze dub-echo:** maakt geen ruis. Een blok "bandruis" kan dit spectrum als doel nemen (Bibliotheek later).
 
-## 4. Wat dit verandert
+## 4. Wat er gebouwd is (18 okt 2026)
 
-Nu (deze commit):
-- Niets aan de DSP. Alle verwachte uitvoer en alle toetsen blijven zoals ze zijn.
+Clay vroeg om alles zelf uit te voeren. Een ABX met zijn oren kon dus niet; de maatstaf is daarom de echte band zelf:
+een wijziging gaat erin als ze de dub-echo meetbaar dichter bij de Akai brengt, en het verschil boven de
+hoorbaarheidsgrens ligt. Wat er niet boven ligt, blijft eruit.
 
-Voorstellen (in TASKS.md, elk eerst met een ABX-toets):
-- **Beweging:** naar snelheid (los van T) en de Akai als ijkpunt voor haperen 0,25.
-- **Saturatie:** Jiles-Atherton, plus een kleine even term voor H2.
-- **Bandruis:** als blok, met het spectrum hierboven.
+| | ervoor | nu | Akai | besluit |
+|---|---|---|---|---|
+| beweging, haperen 0,25, als echo (RMS) | 0,32 % (375 ms) tot 1,04 % (1200 ms) | 0,12–0,13 % bij elke delaytijd | 0,136–0,151 % | gebouwd: **bandsnelheid** |
+| capstanlijn | 6,5 Hz | 7,69 Hz | 7,7 Hz | idem |
+| H2 bij de H3-ijking (RMS-fout, 300 Hz–4 kHz) | geen H2 (≈ 280 dB) | 3,8 dB (3,75 ips), 8,1 dB (7,5 ips) | — | gebouwd: **asymmetrie β = 0,0996** |
+| H3 (RMS-fout) | 4,0 / 5,6 dB | 4,0 / 5,6 dB (β verandert H3 < 0,3 dB) | — | JA zou 3,0 / 3,1 dB geven: niet gebouwd |
+| sis per terts, 500 Hz–16 kHz | geen | binnen 0,6 dB (bij Ruis 1) | — | gebouwd: **bandruis**, parameter 9 (standaard 0) |
+
+**Beweging** (`pb_tape.h` TapeSnelheid en BandGeheugen; blok `bandsnelheid`):
+- De band krijgt een snelheid ε(t): breedbandige ruis van 0,3 tot 20 Hz plus een lijn op 7,7 Hz. De ruis draait op
+  1000 per s, dus de statistiek is op elke samplerate gelijk.
+- De vertraging leest op T − (E(t) − E(t − T)), met E = Σε. De toonhoogte jankt dan met ε(t) − ε(t − T), zoals bij
+  een band tussen opname- en weergavekop, en niet meer met T·b′(t).
+- Gemeten op de motor met dezelfde pijplijn als de Akai: zie de tabel en `ref/referentie/ons-na.json`. Haperen 1 =
+  0,48 % (een versleten band).
+- Hoorbaarheid: het verschil (0,32 tegen 0,13 %, en tot 1 % bij lange echo's) ligt ruim boven de grens waarop
+  flutter op aangehouden tonen hoorbaar wordt (rond 0,1 %). Daarom gebouwd.
+
+**Asymmetrie** (`stapAsym`, knop 2 van het tape-blok):
+- tanh(u + β) − tanh β, gedeeld door 1 − tanh²β, zodat de lusversterking voor zachte signalen 1 blijft.
+- β is gefit op de H2-curves van beide banden. De echte H2 ligt bij −20 dBFS 17 dB boven H3 (−41 tegen −58 dB), dus
+  ruim hoorbaar als kleur. Daarom gebouwd.
+
+**Bandruis** (`BandRuis`, blok `bandruis`): een parameter die standaard uit staat. Bij 1 ligt hij op −67 dBFS RMS,
+zichtbaar in stille stukken en opstapelend in de herhalingen. De fabriekspresets "Lange dub" (0,25) en "Versleten
+band" (1) gebruiken hem.
+
+**Jiles-Atherton niet**:
+- Het verschil met tanh zit vooral onder −18 dBFS invoer, waar de H3 van de Akai rond −58 dB ligt. Op −20 dBFS is
+  dat −78 dBFS absoluut; de sis van de band zelf ligt per terts op −85 tot −76 dBFS. Het verschil verdwijnt dus in
+  de ruis van een echte band.
+- Daar tegenover staan RK4 per sample met coth, vier keer per sample, plus oversampling tegen aliasing. Dat kost
+  ongeveer tienmaal de CPU van de huidige saturatie.
+- Blijft in TASKS onder "Bibliotheek later", als eigen blok.
+
+Toetsen:
+- `tests/band.test.mjs`: de bandsnelheid tegen de Akai (RMS, lijn op 7,7 Hz, los van T, haperen lineair) en de
+  bandruis per terts op 48 en 96 kHz.
+- `tests/dubecho.test.mjs`: H2 binnen 1 dB van de ideale asymmetrische saturatie op 16×.
+- `tests/graaf.test.mjs`: keten = handgeschreven, bit voor bit.
+- De null-tests door het binary: bit voor bit, ook met ruis en automatisering.

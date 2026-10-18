@@ -103,12 +103,14 @@ function gewijzigd(wat, { live = null, alGeladen = false } = {}) {
   }, live ? 0 : 60);
 }
 // Meten gebeurt met de bandbeweging en modulaties stil: die maken zijbanden rond elke toon, en dat is beweging, geen
-// aliasing of vervorming. De staart komt uit dezelfde render.
+// aliasing of vervorming. Bandruis ook uit: dat is ruis, geen vervorming. De staart komt uit dezelfde render.
+const STIL = { bandbeweging: 'diepte', bandsnelheid: 'diepte', bandruis: 'niveau' };
 function stilOntwerp(o) {
   const v = kloon(o);
-  for (const kn of v.knopen) if (kn.type === 'bandbeweging') {
-    kn.waarden = { ...(kn.waarden || {}), diepte: 0 };
-    for (const p of v.parameters) if (p.knoop === kn.id && p.knop === 'diepte') p.standaard = 0;
+  for (const kn of v.knopen) if (STIL[kn.type]) {
+    const knop = STIL[kn.type];
+    kn.waarden = { ...(kn.waarden || {}), [knop]: 0 };
+    for (const p of v.parameters) if (p.knoop === kn.id && p.knop === knop) p.standaard = 0;
   }
   for (const m of v.modulaties || []) m.diepte = 0;
   return v;

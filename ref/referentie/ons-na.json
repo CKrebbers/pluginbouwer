@@ -1,0 +1,50 @@
+{
+ "haperen 0.25, tijd 160 ms": {
+  "rms_procent": 0.132,
+  "piek_procent": 0.333,
+  "wow_rms_procent": 0.079,
+  "flutter_rms_procent": 0.106,
+  "wow_piek_hz": 2.612,
+  "flutter_piek_hz": 7.69,
+  "band_hz": [
+   0.2,
+   47.5
+  ]
+ },
+ "haperen 0.25, tijd 375 ms": {
+  "rms_procent": 0.12,
+  "piek_procent": 0.311,
+  "wow_rms_procent": 0.074,
+  "flutter_rms_procent": 0.094,
+  "wow_piek_hz": 1.733,
+  "flutter_piek_hz": 7.69,
+  "band_hz": [
+   0.2,
+   47.5
+  ]
+ },
+ "haperen 0.25, tijd 1200 ms": {
+  "rms_procent": 0.132,
+  "piek_procent": 0.338,
+  "wow_rms_procent": 0.074,
+  "flutter_rms_procent": 0.11,
+  "wow_piek_hz": 5.566,
+  "flutter_piek_hz": 7.69,
+  "band_hz": [
+   0.2,
+   47.5
+  ]
+ },
+ "haperen 1, tijd 375 ms": {
+  "rms_procent": 0.478,
+  "piek_procent": 1.24,
+  "wow_rms_procent": 0.296,
+  "flutter_rms_procent": 0.374,
+  "wow_piek_hz": 1.733,
+  "flutter_piek_hz": 7.69,
+  "band_hz": [
+   0.2,
+   47.5
+  ]
+ }
+}

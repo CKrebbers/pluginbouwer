@@ -23,12 +23,12 @@ export function varianten(ontwerp, { zaad = 1, wildheid = 'subtiel', aantal = 6 
       const kn = v.knopen.find((k) => k.id === p.knoop); if (kn) kn.waarden = { ...(kn.waarden || {}), [p.knop]: p.standaard };
     }
     if (wildheid !== 'subtiel' && r() < 0.5) {
-      // een blok erbij: bandbeweging op een vertraging zonder beweging, of een tweede filter in de lus
+      // een blok erbij: bandsnelheid op een vertraging zonder beweging, of een tweede filter in de lus
       const lijn = v.knopen.find((k) => k.type === 'vertraging');
       if (lijn && !v.kabels.some((k) => k.naar[0] === lijn.id && k.naar[1] === 'beweging')) {
-        v.knopen.push({ id: 'band' + n, type: 'bandbeweging', x: lijn.x, y: lijn.y - 140, waarden: { diepte: 0.5 } });
-        v.kabels.push({ van: ['band' + n, 'beweging'], naar: [lijn.id, 'beweging'] });
-        wat.push('bandbeweging erbij');
+        v.knopen.push({ id: 'band' + n, type: 'bandsnelheid', x: lijn.x, y: lijn.y - 140, waarden: { diepte: 0.5 } });
+        v.kabels.push({ van: ['band' + n, 'snelheid'], naar: [lijn.id, 'beweging'] });
+        wat.push('bandsnelheid erbij');
       } else if (lijn && r() < 0.5) {
         const naLijn = v.kabels.find((k) => k.van[0] === lijn.id);
         if (naLijn) {

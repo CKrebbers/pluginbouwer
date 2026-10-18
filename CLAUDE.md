@@ -115,6 +115,12 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   het BIB-bereik mee); daarvóór was de diepte op een vaste knop maar ±1 in eigen eenheid, dus onhoorbaar.
 - **Elk BIB-bereik exact in float32**, ook voor knoppen die (nog) geen parameter zijn: anders weigert de compiler zodra
   je "in plugin" aanzet.
+- **ADAA met een verschoven kromme**: de primitieve moet F(0) = 0 hebben, want `reset()` zet F1 op 0. Bij
+  tanh(u + β) is dat log cosh(u + β) − log cosh(β) − tanh(β)·u; zonder de constante gaf de eerste sample een sprong
+  van log cosh(β)/u (×1700 op een impuls van 1e-3; tests/dubecho "lineair" ving het).
+- **Bandsnelheid, niet bandbeweging**: de vertraging met een bandsnelheid op "beweging" leest op T − (E(t) − E(t−T)).
+  De vertraging zwerft dan ±10 samples (haperen 0,25) tot ±40 (1) rond T; een meting die pulsen zoekt moet het venster
+  laten meelopen (tests/band.test.mjs). Bandbeweging (T·(1 + b)) blijft voor oude ontwerpen.
 - **Als artifact op claude.ai** doet een downloadlink niets: bewaren gaat via de `downloads`-capability
   (`claude.use('downloads')`), de losse pagina gebruikt een gewone link. `tool/bouw.mjs` maakt beide versies.
 

@@ -9,6 +9,7 @@
     "Resonantie": 1.25,
     "Verzadiging": 12,
     "Haperen": 0.3125,
-    "Mix": 0.5
+    "Mix": 0.5,
+    "Ruis": 0
   }
 }

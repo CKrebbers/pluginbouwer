@@ -12,7 +12,8 @@
 export const SOORT = { in: 0, uit: 1, som: 2, versterker: 3, tape: 4, vertraging: 5, hoogdoor1: 6, svf: 7,
   bandbeweging: 8, mix: 9, biquad: 10, lfo: 11, laagdoor1: 12,
   osc: 13, ruis: 14, sequencer: 15, toetsen: 16, omhulling: 17, snaar: 18, trommel: 19, vermenigvuldig: 20,
-  galm: 21, chorus: 22, compressor: 23, vergruizer: 24, vouwer: 25, panner: 26, willekeur: 27 };
+  galm: 21, chorus: 22, compressor: 23, vergruizer: 24, vouwer: 25, panner: 26, willekeur: 27,
+  bandsnelheid: 28, bandruis: 29 };
 
 // De patronen van de sequencer, in de volgorde van PATRONEN in dsp/pb_bronnen.h (tests/bronnen.test.mjs controleert
 // het aantal). Zestien stappen van een zestiende.
@@ -20,7 +21,7 @@ export const PATRONEN = ['vier op de vloer', 'achterslag (2 en 4)', 'tegentijd (
   'arpeggio', 'clave', 'halftijd kick', 'halftijd snare', 'aanhouden (drone)', 'toeval (pentatonisch)'];
 export const GOLVEN = ['sinus', 'zaag', 'blok', 'driehoek'];
 // blokken die zelf geluid maken: een ontwerp met een van deze heeft geen ingang nodig
-export const BRONNEN = ['osc', 'ruis', 'snaar', 'trommel'];
+export const BRONNEN = ['osc', 'ruis', 'snaar', 'trommel', 'bandruis'];
 
 // De bibliotheek. Per blok wat het doet in gewone woorden, poorten, knoppen (in hun eigen eenheid), en wat het kost.
 // CPU komt uit tools/meet-blokken.mjs (meting-blokken.json); latency en aliasing uit de toetsen. "bouw" = hoeveel
@@ -35,8 +36,9 @@ export const BIB = {
   versterker: { naam: 'Volume', groep: 'techniek', soort: 'utility', uitleg: 'Maakt een signaal harder of zachter. In een terugkoppeling is dit hoeveel er terug gaat.',
     in: ['in'], uit: ['uit'], knoppen: [{ id: 'hoeveel', naam: 'hoeveel', eenheid: '', min: 0, max: 1.25, std: 0.5, glijMs: 30 }], bouw: 1, latency: 0 },
   tape: { naam: 'Tapeverzadiging', groep: 'klank', soort: 'effect', cat: 'saturatie en analoge modellen',
-    uitleg: 'De band loopt warm dicht als het hard wordt: zacht afgeronde pieken (tanh), met anti-aliasing (ADAA, Parker 2016). Remt een terugkoppeling die doorslaat.',
-    in: ['in'], uit: ['uit'], knoppen: [{ id: 'verzadiging', naam: 'verzadiging', eenheid: 'dB', min: 0, max: 24, std: 6, glijMs: 20 }],
+    uitleg: 'De band loopt warm dicht als het hard wordt: zacht afgeronde pieken (tanh), met anti-aliasing (ADAA, Parker 2016). Remt een terugkoppeling die doorslaat. Asymmetrie geeft de tweede harmonische die een echte band maakt (0,1 ≈ een Akai GX-4000D).',
+    in: ['in'], uit: ['uit'], knoppen: [{ id: 'verzadiging', naam: 'verzadiging', eenheid: 'dB', min: 0, max: 24, std: 6, glijMs: 20 },
+      { id: 'asymmetrie', naam: 'asymmetrie', eenheid: '', min: 0, max: 0.5, std: 0, glijMs: 20 }],
     bouw: 3, latency: 0.5, let: 'Een halve sample vertraging en −3 dB op ¼ van de samplerate (ADAA voor kleine signalen). Met de toon open aliast hij hoorbaar bij veel verzadiging: 2× oversampling is dan de volgende stap.' },
   vertraging: { naam: 'Vertraging', groep: 'klank', soort: 'effect', cat: 'delay en echo',
     uitleg: 'Speelt het signaal later terug. De tijd mag bewegen; tussen samples wordt geïnterpoleerd (Lagrange, 3e orde).',
@@ -59,8 +61,14 @@ export const BIB = {
       { id: 'q', naam: 'resonantie', eenheid: 'Q', min: 0.25, max: 10, std: 0.70703125, glijMs: 20 }],
     vasteEig: [{ id: 'soort', naam: 'soort', keuzes: ['laagdoor', 'hoogdoor', 'banddoor', 'kerf'], std: 0 }], bouw: 1, latency: 0 },
   bandbeweging: { naam: 'Bandbeweging', groep: 'besturing', soort: 'modulatie', cat: 'randomisatie',
-    uitleg: 'Wow en flutter: de band loopt nooit helemaal gelijk. Sluit aan op "beweging" van een vertraging.',
+    uitleg: 'Het eerste model van wow en flutter (0,6 en 6,5 Hz): de vertraging beweegt mee met de delaytijd, dus een lange echo jankt meer dan een korte. Een echte band doet dat niet: gebruik liever Bandsnelheid. Blijft voor oude ontwerpen.',
     in: [], uit: ['beweging'], knoppen: [{ id: 'diepte', naam: 'haperen', eenheid: '', min: 0, max: 1, std: 0.25, glijMs: 20 }], bouw: 2, latency: 0, gedeeld: true },
+  bandsnelheid: { naam: 'Bandsnelheid', groep: 'besturing', soort: 'modulatie', cat: 'randomisatie',
+    uitleg: 'Wow en flutter zoals een echte band: de snelheid wijkt af (breedbandig plus een lijn op 7,7 Hz, gemeten aan een Akai GX-4000D). Sluit aan op "beweging" van een vertraging: die leest dan wat de band tussen de koppen deed, dus de toonhoogte jankt even veel bij een korte als bij een lange echo. Haperen 0,25 ≈ de Akai, 1 = een versleten band.',
+    in: [], uit: ['snelheid'], knoppen: [{ id: 'diepte', naam: 'haperen', eenheid: '', min: 0, max: 1, std: 0.25, glijMs: 20 }], bouw: 2, latency: 0, gedeeld: true },
+  bandruis: { naam: 'Bandruis', groep: 'klank', soort: 'instrument', cat: 'ruis',
+    uitleg: 'De sis van een echte band (Akai GX-4000D, zonder brom): ongeveer roze tot 1 kHz, daarboven oplopend. Niveau 1 = die band (−67 dBFS). Tel hem op bij wat er van de band komt.',
+    in: [], uit: ['uit'], knoppen: [{ id: 'niveau', naam: 'niveau', eenheid: '', min: 0, max: 1, std: 1, glijMs: 20 }], bouw: 2, latency: 0 },
   lfo: { naam: 'LFO', groep: 'besturing', soort: 'modulatie', cat: 'LFO', uitleg: 'Een langzame golf die een knop laat bewegen. Sleep hem op een knop.',
     in: [], uit: ['golf'], knoppen: [{ id: 'snelheid', naam: 'snelheid', eenheid: 'Hz', min: 0.015625, max: 20, std: 0.5, glijMs: 20, exp: true }], bouw: 1, latency: 0, gedeeld: true },
   mix: { naam: 'Mix', groep: 'techniek', soort: 'utility', uitleg: 'Mengt het droge signaal en het effect.',

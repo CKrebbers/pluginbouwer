@@ -86,8 +86,6 @@ multitap), reverb (Dattorro-plaat, FDN, veer, convolutie), modulatie (chorus, fl
 (pitchshift, freeze), spectraal (STFT, vocoder), ruimtelijk (mid/side, breedte, panner); besturing (LFO, envelopes,
 MSEG, macro's, sidechain, MIDI/MPE, tempo-sync, randomisatie); techniek (oversampling, latency melden, presets, undo);
 UI (XY-vlak, meters, scopes, presetbrowser).
-Uit ref/referentie/RAPPORT.md (eerst ABX): bandbeweging als snelheid ε(t) los van de delaytijd, met de Akai als ijkpunt
-(0,15 % RMS, flutter 7,7 Hz) voor haperen 0,25; een kleine even term voor H2; een blok bandruis (−61 dBFS, brom + sis).
 Bandhysterese (Jiles-Atherton zoals CHOWTape; zie TWEEDE-MENING.md: vervorming bij zachte niveaus en niveau-afhankelijke fase die
 onze tanh mist; eerst een ABX-toets of het in de dub-echo hoorbaar is).
 
@@ -106,7 +104,8 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
 3. **Pakket v3 bewijzen (ik, verse sessies; begint zodra Clay "ga" zegt).** v3 draagt 18 valkuilen en 6 patches die nog nooit
    samen door een vers gesprek zijn gegaan. Eén keten (proef/f4), fase 0–6, pass@1. Stop: elke fase de eerste push groen;
    elke extra ronde is een gat in het pakket en wordt gedicht. Kosten: ~7 sessies in plaats van 21.
-4. **De klank: eerst ABX, dan pas bouwen (ik bouw de ABX in de tool, Clay luistert).** Drie kandidaten uit
+4. **[x] De klank naar de Akai (18 okt; maatstaf de echte band in plaats van een ABX, zie ref/referentie/RAPPORT.md §4):
+   bandsnelheid, asymmetrie (H2) en bandruis gebouwd, Jiles-Atherton met reden niet.** Oorspronkelijk plan: Drie kandidaten uit
    ref/referentie/RAPPORT.md, elk als A/B in de tab ABX: (a) bandbeweging als snelheid los van de delaytijd, Akai als ijkpunt
    voor haperen 0,25; (b) Jiles-Atherton plus een kleine even term voor H2; (c) een blok bandruis. Alleen wat Clay blind
    onderscheidt gaat de DSP in. Per kandidaat die erin gaat: referentie opnieuw meten, verwachte uitvoer vernieuwen,
