@@ -1,0 +1,122 @@
+Herkomst: proef E2 (tak proef/e2, fase 0, 15 okt 2026), door een vers Claude Code-gesprek gevonden en gemaakt;
+E1 en E3 vonden hetzelfde los daarvan. clap-wrapper v0.16.0 houdt in src/clap_proxy.cpp twee static thread_local
+tellers bij; in een dynamisch geladen plugin maakt dyld (macOS) die lui aan met calloc bij de eerste aanraking per
+thread, dus op de audiothread (AlwaysAudioThread in WrapAsAUV2::Render en WrapAsVST3::process). pluginval --rtcheck
+vangt het. Hier: een pthread-key, gemaakt bij het laden; get/setspecific alloceren niet. Windows houdt thread_local.
+
+diff --git a/src/clap_proxy.cpp b/src/clap_proxy.cpp
+index 49c94c8..9afdbbf 100644
+--- a/src/clap_proxy.cpp
++++ b/src/clap_proxy.cpp
+@@ -505,12 +505,42 @@ void Plugin::log(clap_log_severity severity, const char *msg)
+ #endif
+ }
+ 
+-static thread_local uint32_t g_main_thread_override = 0;
+-static thread_local uint32_t g_audio_thread_override = 0;
++#if !defined(_WIN32)
++ThreadCounter::ThreadCounter()
++{
++  pthread_key_create(&_key, nullptr);
++}
++uint32_t ThreadCounter::get() const
++{
++  return (uint32_t)(uintptr_t)pthread_getspecific(_key);
++}
++void ThreadCounter::add(int32_t delta)
++{
++  pthread_setspecific(_key, (void *)(uintptr_t)(uint32_t)((int32_t)get() + delta));
++}
++#else
++static thread_local uint32_t g_thread_counters[2] = {0, 0};
++static uint32_t g_thread_counters_used = 0;
++ThreadCounter::ThreadCounter() : _slot(g_thread_counters_used++)
++{
++}
++uint32_t ThreadCounter::get() const
++{
++  return g_thread_counters[_slot];
++}
++void ThreadCounter::add(int32_t delta)
++{
++  g_thread_counters[_slot] = (uint32_t)((int32_t)g_thread_counters[_slot] + delta);
++}
++#endif
++
++// created when the plugin binary is loaded (on the loading thread), never on the audio thread
++static ThreadCounter g_main_thread_override;
++static ThreadCounter g_audio_thread_override;
+ 
+ bool Plugin::is_main_thread() const
+ {
+-  if (g_main_thread_override > 0)
++  if (g_main_thread_override.get() > 0)
+   {
+     return true;
+   }
+@@ -519,7 +549,7 @@ bool Plugin::is_main_thread() const
+ 
+ bool Plugin::is_audio_thread() const
+ {
+-  if (g_audio_thread_override > 0)
++  if (g_audio_thread_override.get() > 0)
+   {
+     return true;
+   }
+diff --git a/src/clap_proxy.h b/src/clap_proxy.h
+index d1c9830..eeb14c4 100644
+--- a/src/clap_proxy.h
++++ b/src/clap_proxy.h
+@@ -19,6 +19,9 @@
+ #include <memory>
+ #include <thread>
+ #include <atomic>
++#if !defined(_WIN32)
++#include <pthread.h>
++#endif
+ 
+ #if WIN
+ #include <windows.h>
+@@ -125,20 +128,38 @@ struct ClapPluginExtensions
+ #endif
+ };
+ 
++// A per-thread counter. On POSIX it lives in a pthread key created at load time: a C++ thread_local in a
++// dynamically loaded plugin is allocated lazily by dyld/glibc on its first use in each thread, and that
++// first use is the audio thread's process call (a real-time violation that pluginval --rtcheck catches).
++class ThreadCounter
++{
++ public:
++  ThreadCounter();
++  uint32_t get() const;
++  void add(int32_t delta);
++
++ private:
++#if !defined(_WIN32)
++  pthread_key_t _key;
++#else
++  uint32_t _slot;
++#endif
++};
++
+ class Raise
+ {
+  public:
+-  Raise(uint32_t &counter) : ctx(counter)
++  Raise(ThreadCounter &counter) : ctx(counter)
+   {
+-    ++ctx;
++    ctx.add(1);
+   }
+   ~Raise()
+   {
+-    ctx--;
++    ctx.add(-1);
+   }
+ 
+  private:
+-  uint32_t &ctx;
++  ThreadCounter &ctx;
+ };
+ 
+ /// <summary>
