@@ -2222,18 +2222,24 @@ glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Si
 
 Indeling: één rij van ${c.params.length} draaiknoppen (270°, −135° tot +135°), label erboven, waarde in gewone eenheden
 eronder (tekst zoals SPEC.md "Tekst ↔ waarde"), in de volgorde van SPEC.md. Dubbelklik = standaard. Slepen: 200 px
-omhoog = het hele bereik, lineair in de CLAP-waarde (zoals de host normaliseert); Shift + slepen = 10× fijner. "De
-gekozen knop" = de laatst aangeraakte; zijn boog is tape. Beginmaat 640 × 250.
+omhoog = het hele bereik (schermpunten, ook als het paneel geschaald is), lineair in de CLAP-waarde (zoals de host
+normaliseert); Shift + slepen = 10× fijner. "De gekozen knop" = de laatst aangeraakte; zijn boog is tape. Beginmaat
+${paneelMaat(c.params.length).B} × ${paneelMaat(c.params.length).H} (precies \`frontpaneel.svg\`); kleiner of groter schaalt het paneel gelijkmatig.
 Kolom per knop 76 px. Labels (hooguit 11 tekens, de volle naam in de tooltip en bij de host): ${ontwerp.parameters.map((p) => kortLabel(p)).join(' · ')}.
-Minimaal 560 × 220 px, schaalbaar. De mockup is \`frontpaneel.svg\` in dit pakket (op ware grootte, alle knoppen op
+Minimaal 560 × 220 px, schaalbaar. Labels in de gewone tekststijl (IBM Plex Mono 11 px, inkt).
+Toets het paneel in CI door de view in een eigen sRGB-bitmap te laten tekenen en daar de bytes te lezen (niet
+\`NSBitmapImageRep colorAtX:\` met een kleurconversie: die geeft een gammaverschil), met steekproeven midden op een boog;
+reken met een tolerantie, want je eigen toetscode wordt niet met \`-ffp-contract=off\` gecompileerd (arm64 maakt er FMA van). De mockup is \`frontpaneel.svg\` in dit pakket (op ware grootte, alle knoppen op
 hun standaard); dezelfde staat in de tool (stand Ontwerpen, "Frontpaneel").
 `;
 }
 
 // De mockup als SVG: één rij knoppen op hun standaard, maten en kleuren uit design.md.
+// één maat voor design.md en de mockup (proef F4: design.md zei 640 × 250, de mockup was 732 × 220)
+function paneelMaat(n) { const kol = 76, mx = 24; return { kol, mx, B: Math.max(560, mx * 2 + n * kol), H: 220 }; }
 function frontpaneelSvg(ontwerp) {
   const c = compileer(ontwerp);
-  const n = c.params.length, kol = 76, mx = 24, B = Math.max(560, mx * 2 + n * kol), H = 220;
+  const n = c.params.length, { kol, mx, B, H } = paneelMaat(n);
   const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const pt = (r, a) => [r * Math.sin(a), -r * Math.cos(a)].map((x) => x.toFixed(2));
   const boog = (r, a0, a1) => { const [x0, y0] = pt(r, a0), [x1, y1] = pt(r, a1); return `M${x0} ${y0} A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1} ${y1}`; };
@@ -2474,7 +2480,7 @@ const PAKKET_BRONNEN = {
   'tools/pakket/cv-eis.mjs': 'gereedschap/cv-eis.mjs',
 };
 
-return { PAKKET_BRONNEN, architectuur, bouwpakket, claudeMd, cpuSchatting, designMd, frontpaneelSvg, kortLabel, leerpad, presetBestanden, promptsMd, spec, tasksMd, waardeTekst };
+return { PAKKET_BRONNEN, architectuur, bouwpakket, claudeMd, cpuSchatting, designMd, frontpaneelSvg, kortLabel, leerpad, paneelMaat, presetBestanden, promptsMd, spec, tasksMd, waardeTekst };
 })();
 
 // ---- tool/src/zip.js
