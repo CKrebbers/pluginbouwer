@@ -1,0 +1,212 @@
+# CI van PB Toetsenpad — het log is het bewijs (SPEC.md "Validators"; PROMPTS.md fase 0).
+#   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron), pluginval strictness 10 op de VST3 onder xvfb
+#   rtsan:  pb-render met -fsanitize=realtime (clang 20) door het .clap; een kanarie-bouw die MOET falen
+#   macos:  arm64, ad-hoc gesigneerd, geïnstalleerd, auval -strict, pluginval 10 --rtcheck op AU en VST3, artefact
+# Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PLUGINVAL_VERSIE: v2.0.0-beta3
+  CLAP_VALIDATOR_VERSIE: 0.4.1
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pakketten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang xvfb libasound2-dev libfreetype-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libgl1 libcurl4t64
+
+      - name: clap-validator uit de cache
+        id: cv-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/clap-validator
+          key: clap-validator-${{ env.CLAP_VALIDATOR_VERSIE }}-ubuntu-24.04
+
+      - name: clap-validator bouwen (cargo, uit de bron)
+        if: steps.cv-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" --locked \
+            --root ~/clap-validator
+
+      - name: pluginval
+        run: |
+          mkdir -p ~/pluginval && cd ~/pluginval
+          curl -sSfL -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_Linux.zip"
+          unzip -o -q pv.zip && chmod +x pluginval
+
+      - name: Bouwen (clang)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ls -la build/plugins build/pb-render
+
+      - name: pb-render door het .clap (rookproef)
+        run: |
+          mkdir -p uit
+          build/pb-render "build/plugins/PB Toetsenpad.clap" testsignalen/noten/in.wav uit/noten.wav --blok 512 \
+            --noten testsignalen/noten/noten.txt
+
+      - name: clap-validator
+        run: |
+          set +e
+          ~/clap-validator/bin/clap-validator validate "build/plugins/PB Toetsenpad.clap" > cv.log 2>&1
+          status=$?
+          set -e
+          # valkuil 8: de uitvoer is altijd gekleurd; eerst de ANSI-codes weg
+          sed 's/\x1b\[[0-9;]*m//g' cv.log > cv.txt
+          cat cv.txt
+          echo "clap-validator exit: $status"
+          test "$status" -eq 0
+          grep -E "tests run, [0-9]+ passed, 0 failed" cv.txt
+
+      - name: pluginval strictness 10 (VST3, xvfb)
+        run: |
+          set -o pipefail
+          # valkuil 18: het pluginpad vóór de andere opties
+          xvfb-run -a ~/pluginval/pluginval validate "build/plugins/PB Toetsenpad.vst3" --strictness-level 10 \
+            --timeout-ms 600000 2>&1 | tee pv-vst3.log
+          grep -q "^SUCCESS" pv-vst3.log
+
+  rtsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang 20 (apt.llvm.org)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build lsb-release wget software-properties-common gnupg
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 20
+          sudo apt-get install -y libclang-rt-20-dev
+          clang++-20 --version
+
+      - name: Bouwen met RTSan (pb-render -fsanitize=realtime)
+        env:
+          CC: clang-20
+          CXX: clang++-20
+        run: |
+          cmake -S plugin -B build-rtsan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON
+          cmake --build build-rtsan --target toetsenpad_clap pb-render
+
+      - name: Kanarie bouwen (malloc in process)
+        env:
+          CC: clang-20
+          CXX: clang++-20
+        run: |
+          cmake -S plugin -B build-kanarie -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON -DPB_KANARIE=ON
+          cmake --build build-kanarie --target toetsenpad_clap pb-render
+
+      - name: RTSan schoon (blok 512, wisselend, noten CLAP en MIDI, automatisering, state-rondje)
+        run: |
+          set -e
+          R=build-rtsan/pb-render; C="build-rtsan/plugins/PB Toetsenpad.clap"; T=testsignalen; mkdir -p uit/rtsan
+          for blok in 512 3,128,1,4096,77; do
+            "$R" "$C" $T/noten/in.wav uit/rtsan/noten.wav --blok $blok --noten $T/noten/noten.txt
+            "$R" "$C" $T/noten/in.wav uit/rtsan/midi.wav --blok $blok --noten $T/noten/noten.txt --midi
+            "$R" "$C" $T/automatie/in.wav uit/rtsan/auto.wav --blok $blok --automatie $T/automatie/events.txt
+            "$R" "$C" $T/sinus-441.in.wav uit/rtsan/sinus.wav --blok $blok
+          done
+          echo "RTSan: geen schending in process"
+
+      - name: Kanarie moet falen
+        run: |
+          set +e
+          build-kanarie/pb-render "build-kanarie/plugins/PB Toetsenpad.clap" testsignalen/noten/in.wav uit/kanarie.wav \
+            --blok 512 > kanarie.log 2>&1
+          status=$?
+          set -e
+          cat kanarie.log
+          echo "kanarie exit: $status"
+          if [ "$status" -eq 0 ]; then echo "FOUT: de kanarie werd niet gevangen"; exit 1; fi
+          grep -q "RealtimeSanitizer" kanarie.log
+          grep -q "malloc" kanarie.log
+          echo "Kanarie gevangen zoals bedoeld: RTSan werkt."
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gereedschap
+        run: |
+          command -v ninja || brew install ninja
+          mkdir -p ~/pluginval && cd ~/pluginval
+          curl -sSfL -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
+          unzip -o -q pv.zip
+          ls ~/pluginval/pluginval.app/Contents/MacOS/pluginval
+
+      - name: Bouwen (arm64)
+        run: |
+          cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build build
+          ls -la build/plugins
+
+      - name: Ad-hoc signeren
+        run: |
+          for b in build/plugins/*.clap build/plugins/*.vst3 build/plugins/*.component; do
+            codesign --force --deep --sign - "$b"
+            codesign --verify --verbose "$b"
+          done
+
+      - name: Artefact inpakken (ditto bewaart rechten en symlinks)
+        run: |
+          mkdir -p artefact
+          for b in build/plugins/*.clap build/plugins/*.vst3 build/plugins/*.component; do
+            ditto -c -k --keepParent "$b" "artefact/$(basename "$b").zip"
+          done
+          ls -la artefact
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-keten_toetsenpad
+          path: artefact/
+
+      - name: Installeren in ~/Library/Audio/Plug-Ins
+        run: |
+          P=~/Library/Audio/Plug-Ins
+          mkdir -p "$P/Components" "$P/VST3" "$P/CLAP"
+          rm -rf "$P/Components/PB Toetsenpad.component" "$P/VST3/PB Toetsenpad.vst3" "$P/CLAP/PB Toetsenpad.clap"
+          cp -R "build/plugins/PB Toetsenpad.component" "$P/Components/"
+          cp -R "build/plugins/PB Toetsenpad.vst3" "$P/VST3/"
+          cp -R "build/plugins/PB Toetsenpad.clap" "$P/CLAP/"
+          # valkuil 5: anders vindt auval de AU niet
+          killall -9 AudioComponentRegistrar || true
+          sleep 2
+          auval -a | grep -i "Vrve" || true
+
+      - name: pluginval strictness 10 --rtcheck (VST3, via pluginval-rt.sh; valkuil 22)
+        run: |
+          sh gereedschap/pluginval-rt.sh ~/pluginval/pluginval.app/Contents/MacOS/pluginval \
+            "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3"
+
+      - name: pluginval strictness 10 --rtcheck enabled --repeat 3 (AU)
+        run: |
+          set -o pipefail
+          ~/pluginval/pluginval.app/Contents/MacOS/pluginval validate \
+            "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
+            --strictness-level 10 --rtcheck enabled --repeat 3 --timeout-ms 600000 2>&1 | tee pv-au.log
+          grep -q "^SUCCESS" pv-au.log
+
+      - name: auval -strict (aumu PTgg Vrve)
+        run: |
+          set -o pipefail
+          auval -strict -v aumu PTgg Vrve 2>&1 | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
