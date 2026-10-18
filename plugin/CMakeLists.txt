@@ -1,6 +1,7 @@
 # PB Toetsenpad — CLAP-first, met clap-wrapper v0.16.0 (gepatcht) voor VST3 en AUv2.
 #   cmake -S plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build
-# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component} en build/pb-render (de CLAP-host van de null-test).
+# Uitvoer: build/plugins/PB Toetsenpad.{clap,vst3,component}, build/pb-render (de CLAP-host van de null-test) en
+# build/pb-statetoets (state- en teksttoets, fase 2).
 #   -DPB_RTSAN=ON    pb-render met -fsanitize=realtime (clang ≥ 20)
 #   -DPB_KANARIE=ON  process alloceert (de kanarie: RTSan MOET dan falen)
 cmake_minimum_required(VERSION 3.21)
@@ -75,3 +76,8 @@ if (PB_RTSAN)
   target_compile_options(pb-render PRIVATE -fsanitize=realtime)
   target_link_options(pb-render PRIVATE -fsanitize=realtime)
 endif()
+
+# pb-statetoets: de toets van fase 2 door het gebouwde .clap (state-blobs met de hand, tekst ↔ waarde)
+add_executable(pb-statetoets toetsen/pb-statetoets.cpp)
+target_link_libraries(pb-statetoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-statetoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

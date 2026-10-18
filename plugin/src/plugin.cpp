@@ -1,4 +1,4 @@
-// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 1: de DSP aangesloten).
+// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 2: parameters met tekst ↔ waarde, state, params.flush).
 //
 // Een instrument: geen audio-ingang, één stereo-uitgang, één note port (alleen het CLAP-dialect, valkuil 19).
 // Het Ontwerp uit dsp/ontwerpen/keten_toetsenpad.h levert naam, id, maker, parameters, latency en staart; process
@@ -20,7 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
-#include <string>
 #include <vector>
 
 #include "ontwerpen/keten_toetsenpad.h"
@@ -217,50 +216,127 @@ bool eenheidloos(int i) {
   return !std::strcmp(e, "") || !std::strcmp(e, "×") || !std::strcmp(e, "%");
 }
 
-// SPEC.md "Tekst ↔ waarde": komma als decimaalteken, spatie voor de eenheid
-bool prToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t grootte) {
-  const int i = indexVan(id);
-  if (i < 0 || !uit || grootte == 0) return false;
-  const char* e = Ontwerp::PARAMS[i].eenheid;
-  char t[64];
-  if (eenheidloos(i)) std::snprintf(t, sizeof t, "%.0f %%", std::round(v * 100.0));
-  else if (!std::strcmp(e, "Hz")) {
-    if (v < 1000.0) std::snprintf(t, sizeof t, "%.0f Hz", v);
-    else if (v < 10000.0) std::snprintf(t, sizeof t, "%.2f kHz", v / 1000.0);
-    else std::snprintf(t, sizeof t, "%.1f kHz", v / 1000.0);
-  } else if (!std::strcmp(e, "ms")) {
-    if (v < 100.0) std::snprintf(t, sizeof t, "%.1f ms", v);
-    else std::snprintf(t, sizeof t, "%.0f ms", v);
-  } else std::snprintf(t, sizeof t, "%g %s", v, e);
+// v met `dec` decimalen, de komma als decimaalteken. Zelf gedaan in plaats van printf/strtod: die volgen de locale van
+// de host (een Nederlandse Logic kan een komma verwachten, een andere een punt), en de tekst moet overal gelijk zijn.
+void metDecimalen(double v, int dec, char* t, size_t grootte) {
+  std::snprintf(t, grootte, "%.*f", dec, v);
   for (char* c = t; *c; ++c)
     if (*c == '.') *c = ',';
-  std::snprintf(uit, grootte, "%s", t);
+  if (t[0] == '-') {  // "-0" en "-0,0" na afronden zijn gewoon 0
+    bool nul = true;
+    for (const char* c = t + 1; *c; ++c)
+      if (*c != '0' && *c != ',') nul = false;
+    if (nul) std::memmove(t, t + 1, std::strlen(t));
+  }
+}
+
+// de waarde van een tekst die metDecimalen schreef (komma of punt): wat afronden ervan overlaat
+double alsGetal(const char* t) {
+  double x = 0, schaal = 1;
+  bool neg = *t == '-', na = false;
+  for (const char* c = t + (neg ? 1 : 0); *c; ++c) {
+    if (*c == ',' || *c == '.') na = true;
+    else if (*c >= '0' && *c <= '9') {
+      x = x * 10 + (*c - '0');
+      if (na) schaal *= 10;
+    }
+  }
+  return (neg ? -x : x) / schaal;
+}
+
+// SPEC.md "Tekst ↔ waarde": komma als decimaalteken, spatie voor de eenheid. De grens kiest op de afgeronde waarde,
+// zodat 999,7 Hz "1,00 kHz" wordt en geen "1000 Hz".
+bool prToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t grootte) {
+  const int i = indexVan(id);
+  if (i < 0 || !uit || grootte == 0 || !std::isfinite(v)) return false;
+  const char* e = Ontwerp::PARAMS[i].eenheid;
+  char g[48];
+  const char* eenheid = e;
+  if (eenheidloos(i)) {
+    metDecimalen(v * 100.0, 0, g, sizeof g);
+    eenheid = "%";
+  } else if (!std::strcmp(e, "Hz")) {
+    metDecimalen(v, 0, g, sizeof g);
+    if (std::fabs(alsGetal(g)) >= 1000.0) {
+      metDecimalen(v / 1000.0, 2, g, sizeof g);
+      if (std::fabs(alsGetal(g)) >= 10.0) metDecimalen(v / 1000.0, 1, g, sizeof g);
+      eenheid = "kHz";
+    }
+  } else if (!std::strcmp(e, "ms")) {
+    metDecimalen(v, 1, g, sizeof g);
+    if (std::fabs(alsGetal(g)) >= 100.0) metDecimalen(v, 0, g, sizeof g);
+  } else metDecimalen(v, 2, g, sizeof g);
+  std::snprintf(uit, grootte, "%s %s", g, eenheid);
   return true;
 }
 
+// Een getal met komma of punt, zonder locale (zie metDecimalen). Exact afgerond: mantisse (geheel, < 2^53) en een
+// macht van tien zijn exact, en één deling of vermenigvuldiging rondt correct af, dus "0,38" geeft dezelfde double als
+// 0.38 in de broncode. `macht` schuift de komma (−2 voor procenten, +3 voor kHz).
+bool leesGetal(const char*& c, int macht, double* uit) {
+  bool neg = false;
+  if (*c == '+' || *c == '-') neg = *c++ == '-';
+  uint64_t m = 0;
+  int cijfers = 0, na = 0, decimalen = 0;
+  bool punt = false;
+  for (;; ++c) {
+    if (*c >= '0' && *c <= '9') {
+      if (m < (1ull << 53) / 10) {
+        m = m * 10 + (uint64_t)(*c - '0');
+        if (punt) ++decimalen;
+      } else if (!punt) ++na;  // te veel cijfers voor exact: de rest telt als nullen
+      ++cijfers;
+    } else if ((*c == ',' || *c == '.') && !punt) punt = true;
+    else break;
+  }
+  if (cijfers == 0) return false;
+  const int exp = na - decimalen + macht;
+  double x = (double)m;
+  static const double MACHT[] = {1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
+                                 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+  if (exp > 22 || exp < -22) x = exp > 0 ? HUGE_VAL : 0.0;
+  else x = exp >= 0 ? x * MACHT[exp] : x / MACHT[-exp];
+  *uit = neg ? -x : x;
+  return true;
+}
+
+bool gelijkZonderHoofdletters(const char* a, size_t n, const char* b) {
+  if (std::strlen(b) != n) return false;
+  for (size_t k = 0; k < n; ++k) {
+    char x = a[k], y = b[k];
+    if (x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
+    if (y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
+    if (x != y) return false;
+  }
+  return true;
+}
+
+// SPEC.md: komma én punt, met of zonder eenheid, "k" voor kHz, procenten voor eenheidloos; buiten het bereik klemmen,
+// onleesbaar = false
 bool prFromText(const clap_plugin_t*, clap_id id, const char* tekst, double* v) {
   const int i = indexVan(id);
-  if (i < 0 || !tekst) return false;
-  std::string s(tekst);
-  for (char& c : s)
-    if (c == ',') c = '.';
-  const char* b = s.c_str();
-  while (*b == ' ') ++b;
-  char* eind = nullptr;
-  double x = std::strtod(b, &eind);
-  if (eind == b || !std::isfinite(x)) return false;
-  while (*eind == ' ') ++eind;
-  const std::string rest(eind);
+  if (i < 0 || !tekst || !v) return false;
+  const char* c = tekst;
+  while (*c == ' ' || *c == '\t') ++c;
+  // eerst de eenheid (achteraan, na het getal), dan weten we welke macht het getal krijgt
+  const char* begin = c;
+  while (*c == '+' || *c == '-' || *c == ',' || *c == '.' || (*c >= '0' && *c <= '9')) ++c;
+  const char* rest = c;
+  while (*rest == ' ' || *rest == '\t') ++rest;
+  size_t n = std::strlen(rest);
+  while (n > 0 && (rest[n - 1] == ' ' || rest[n - 1] == '\t')) --n;
   const char* e = Ontwerp::PARAMS[i].eenheid;
+  int macht = 0;
   if (eenheidloos(i)) {
-    if (!(rest.empty() || rest == "%")) return false;
-    x /= 100.0;
+    if (!(n == 0 || gelijkZonderHoofdletters(rest, n, "%"))) return false;
+    macht = -2;
   } else if (!std::strcmp(e, "Hz")) {
-    if (rest == "k" || rest == "kHz" || rest == "khz" || rest == "K") x *= 1000.0;
-    else if (!(rest.empty() || rest == "Hz" || rest == "hz")) return false;
-  } else if (!std::strcmp(e, "ms")) {
-    if (!(rest.empty() || rest == "ms")) return false;
-  } else if (!(rest.empty() || rest == e)) return false;
+    if (gelijkZonderHoofdletters(rest, n, "k") || gelijkZonderHoofdletters(rest, n, "khz")) macht = 3;
+    else if (!(n == 0 || gelijkZonderHoofdletters(rest, n, "hz"))) return false;
+  } else if (!(n == 0 || gelijkZonderHoofdletters(rest, n, e))) return false;
+  double x;
+  const char* g = begin;
+  if (!leesGetal(g, macht, &x) || g != c || !std::isfinite(x)) return false;
   *v = klem(x, i);
   return true;
 }

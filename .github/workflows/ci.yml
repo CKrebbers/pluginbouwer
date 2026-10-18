@@ -1,9 +1,10 @@
 # CI van PB Toetsenpad — het log is het bewijs (SPEC.md "Validators"; PROMPTS.md fase 0).
-#   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron), pluginval strictness 10 op de VST3 onder xvfb,
-#           null-test door het .clap (ci-null.sh clap) en door de VST3 (ci-null.sh pluginval)
+#   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron; de state- en param-toetsen moeten PASSED zijn),
+#           pluginval strictness 10 op de VST3 onder xvfb, null-test door het .clap (ci-null.sh clap) en door de VST3
+#           (ci-null.sh pluginval), state- en teksttoets (pb-statetoets, fase 2)
 #   rtsan:  pb-render met -fsanitize=realtime (clang 20) door het .clap; een kanarie-bouw die MOET falen
 #   macos:  arm64, ad-hoc gesigneerd, geïnstalleerd, auval -strict, pluginval 10 --rtcheck op AU en VST3, artefact,
-#           null-test door het .clap, de VST3 en de AU
+#           null-test door het .clap, de VST3 en de AU, state- en teksttoets (pb-statetoets)
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -75,6 +76,15 @@ jobs:
           echo "clap-validator exit: $status"
           test "$status" -eq 0
           grep -E "tests run, [0-9]+ passed, 0 failed" cv.txt
+          # fase 2: de state- en parametertoetsen moeten echt draaien (PASSED; SKIPPED telt niet)
+          awk '/┌─ [a-z]/{t=$NF} /└── /{print t, $3}' cv.txt > cv-status.txt
+          for t in state-invalid-empty state-invalid-random state-reproducibility-basic state-reproducibility-binary \
+                   state-reproducibility-buffered param-conversions param-default-values param-set-events \
+                   param-set-no-cookies param-set-wrong-namespace param-fuzz-basic param-fuzz-bounds \
+                   param-fuzz-sample-accurate param-fuzz-modulation; do
+            grep -qx "$t PASSED" cv-status.txt || { echo "FOUT: clap-validator $t is niet PASSED"; exit 1; }
+            echo "clap-validator $t: PASSED"
+          done
 
       - name: pluginval strictness 10 (VST3, xvfb)
         run: |
@@ -91,6 +101,9 @@ jobs:
 
       - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
         run: sh gereedschap/ci-null.sh clap build
+
+      - name: State- en teksttoets (pb-statetoets door het .clap; fase 2)
+        run: build/pb-statetoets "build/plugins/PB Toetsenpad.clap"
 
   rtsan:
     runs-on: ubuntu-24.04
@@ -228,6 +241,9 @@ jobs:
         run: |
           sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
             "$HOME/pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos
+
+      - name: State- en teksttoets (pb-statetoets door het gesigneerde .clap; fase 2)
+        run: build/pb-statetoets "$HOME/Library/Audio/Plug-Ins/CLAP/PB Toetsenpad.clap"
 
       - name: auval -strict (aumu PTgg Vrve)
         run: |
