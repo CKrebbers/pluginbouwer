@@ -1,7 +1,9 @@
 # CI van PB Toetsenpad — het log is het bewijs (SPEC.md "Validators"; PROMPTS.md fase 0).
-#   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron), pluginval strictness 10 op de VST3 onder xvfb
+#   linux:  bouwen met clang, clap-validator 0.4.1 (uit de bron), pluginval strictness 10 op de VST3 onder xvfb,
+#           null-test door het .clap (ci-null.sh clap) en door de VST3 (ci-null.sh pluginval)
 #   rtsan:  pb-render met -fsanitize=realtime (clang 20) door het .clap; een kanarie-bouw die MOET falen
-#   macos:  arm64, ad-hoc gesigneerd, geïnstalleerd, auval -strict, pluginval 10 --rtcheck op AU en VST3, artefact
+#   macos:  arm64, ad-hoc gesigneerd, geïnstalleerd, auval -strict, pluginval 10 --rtcheck op AU en VST3, artefact,
+#           null-test door het .clap, de VST3 en de AU
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -82,6 +84,14 @@ jobs:
             --timeout-ms 600000 2>&1 | tee pv-vst3.log
           grep -q "^SUCCESS" pv-vst3.log
 
+      - name: Null-test VST3 (pluginval test, blok 512)
+        run: |
+          sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/PB Toetsenpad.vst3" "xvfb-run -a $HOME/pluginval/pluginval" \
+            vst3-linux
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
+        run: sh gereedschap/ci-null.sh clap build
+
   rtsan:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -113,8 +123,7 @@ jobs:
           cmake -S plugin -B build-kanarie -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON -DPB_KANARIE=ON
           cmake --build build-kanarie --target toetsenpad_clap pb-render
 
-      - name: RTSan schoon (blok 512 en wisselend; noten CLAP en MIDI, automatisering, sinus)
-        # het state-rondje komt in fase 1, als de plugin de state-extensie heeft
+      - name: RTSan schoon (blok 512 en wisselend; noten CLAP en MIDI, automatisering, sinus, state-rondje)
         run: |
           set -e
           R=build-rtsan/pb-render; C="build-rtsan/plugins/PB Toetsenpad.clap"; T=testsignalen; mkdir -p uit/rtsan
@@ -123,6 +132,7 @@ jobs:
             "$R" "$C" $T/noten/in.wav uit/rtsan/midi.wav --blok $blok --noten $T/noten/noten.txt --midi
             "$R" "$C" $T/automatie/in.wav uit/rtsan/auto.wav --blok $blok --automatie $T/automatie/events.txt
             "$R" "$C" $T/sinus-441.in.wav uit/rtsan/sinus.wav --blok $blok
+            "$R" "$C" $T/ruis-half.in.wav uit/rtsan/state.wav --blok $blok --state-rondje --p 1=2.125 --p 3=4050
           done
           echo "RTSan: geen schending in process"
 
@@ -205,6 +215,19 @@ jobs:
             "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
             --strictness-level 10 --rtcheck enabled --repeat 3 --timeout-ms 600000 2>&1 | tee pv-au.log
           grep -q "^SUCCESS" pv-au.log
+
+      - name: Null-test CLAP (pb-render; blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 (pluginval test, blok 512)
+        run: |
+          sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" \
+            "$HOME/pluginval/pluginval.app/Contents/MacOS/pluginval" vst3-macos
+
+      - name: Null-test AU (pluginval test, blok 512)
+        run: |
+          sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
+            "$HOME/pluginval/pluginval.app/Contents/MacOS/pluginval" au-macos
 
       - name: auval -strict (aumu PTgg Vrve)
         run: |
