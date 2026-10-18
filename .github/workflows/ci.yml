@@ -2,6 +2,9 @@
 #   linux   clang, clap-validator 0.4.1 (uit de bron), pluginval v2.0.0-beta3 strictness 10 op de VST3 onder xvfb
 #   rtsan   clang 20, pb-render met -fsanitize=realtime door het .clap; een kanarie (malloc in process) MOET falen
 #   macos   arm64: bouwen, ad-hoc signeren, installeren, auval -strict, pluginval 10 met --rtcheck op AU en VST3
+# Fase 1: de null-test door het gebouwde binary (gereedschap/ci-null.sh): CLAP via pb-render (blok 512, wisselend,
+# state-rondje, automatisering, noten als CLAP en MIDI) op Linux en macOS, en pluginval test op de VST3 (Linux, macOS)
+# en de AU (macOS). Grens piek <= -90 dBFS (verwacht: bit voor bit).
 # De bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: ci
 
@@ -36,6 +39,10 @@ jobs:
       - name: clap-validator bouwen uit de bron (cargo)
         if: steps.cv-cache.outputs.cache-hit != 'true'
         run: cargo install --git https://github.com/free-audio/clap-validator --tag "$CLAP_VALIDATOR_VERSIE" --locked --root ~/clap-validator clap-validator
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: pluginval ophalen
         run: |
@@ -81,6 +88,12 @@ jobs:
           echo "### pluginval VST3 Linux (strictness 10): $(tail -1 pluginval-vst3.log)" >> "$GITHUB_STEP_SUMMARY"
           [ "$status" -eq 0 ] && grep -q "^SUCCESS" pluginval-vst3.log
 
+      - name: Null-test CLAP door pb-render (blok 512, wisselend, state-rondje, automatisering, noten CLAP en MIDI; bewijs)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 Linux via pluginval test (bewijs)
+        run: xvfb-run -a sh gereedschap/ci-null.sh pluginval "$PWD/build/plugins/$NAAM.vst3" ~/pluginval/pluginval vst3-linux
+
   rtsan:
     runs-on: ubuntu-24.04
     steps:
@@ -112,8 +125,9 @@ jobs:
             ./build/pb-render "$C" testsignalen/noten/in.wav uit-noten.wav --blok "$blok" --noten testsignalen/noten/noten.txt
             ./build/pb-render "$C" testsignalen/noten/in.wav uit-midi.wav --blok "$blok" --noten testsignalen/noten/noten.txt --midi
             ./build/pb-render "$C" testsignalen/automatie/in.wav uit-auto.wav --blok "$blok" --automatie testsignalen/automatie/events.txt
+            ./build/pb-render "$C" testsignalen/noten/in.wav uit-state.wav --blok "$blok" --state-rondje --noten testsignalen/noten/noten.txt
           done
-          echo "RTSan: plugin schoon (6 renders met noten, MIDI en automatisering)"
+          echo "RTSan: plugin schoon (8 renders met noten, MIDI, automatisering en state-rondje)"
           echo "### RTSan: plugin schoon" >> "$GITHUB_STEP_SUMMARY"
 
       - name: RTSan-kanarie (malloc in process; MOET falen; bewijs)
@@ -133,6 +147,10 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: pluginval ophalen
         run: |
@@ -206,3 +224,12 @@ jobs:
         run: |
           sh gereedschap/pluginval-rt.sh "$PV" ~/Library/Audio/Plug-Ins/VST3/"$NAAM".vst3
           echo "### pluginval VST3 macOS (strictness 10, pluginval-rt.sh): SUCCESS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Null-test CLAP door pb-render, macOS arm64 (bewijs)
+        run: sh gereedschap/ci-null.sh clap build
+
+      - name: Null-test VST3 macOS via pluginval test (bewijs)
+        run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/VST3/$NAAM.vst3" "$PV" vst3-macos
+
+      - name: Null-test AU via pluginval test (valkuil 1; bewijs)
+        run: sh gereedschap/ci-null.sh pluginval "$HOME/Library/Audio/Plug-Ins/Components/$NAAM.component" "$PV" au
