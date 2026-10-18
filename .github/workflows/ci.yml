@@ -113,7 +113,8 @@ jobs:
           cmake -S plugin -B build-kanarie -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON -DPB_KANARIE=ON
           cmake --build build-kanarie --target toetsenpad_clap pb-render
 
-      - name: RTSan schoon (blok 512, wisselend, noten CLAP en MIDI, automatisering, state-rondje)
+      - name: RTSan schoon (blok 512 en wisselend; noten CLAP en MIDI, automatisering, sinus)
+        # het state-rondje komt in fase 1, als de plugin de state-extensie heeft
         run: |
           set -e
           R=build-rtsan/pb-render; C="build-rtsan/plugins/PB Toetsenpad.clap"; T=testsignalen; mkdir -p uit/rtsan
