@@ -59,13 +59,13 @@ verandert alleen dit verslag en het vinkje in TASKS.md.
 | RTSan schoon en kanarie | groen | beide stappen geslaagd |
 
 ## Pushes
-Drie: de code (`f65e904`), één fix (`7243ecf`) en dit verslag.
+Drie (plus een tekstcorrectie in dit verslag): de code (`f65e904`), één fix (`7243ecf`) en dit verslag.
 - Run 1 (`f65e904`): alles groen behalve `pb-paneel` (49/56): pluginval met GUI-toetsen op AU en VST3 en alle
   bediening via de host waren meteen goed, maar (a) donkere kleuren kwamen te licht terug (`#232629` als `#2f3336`,
   groef `#3a3e42` als `#4a4f54`): de bitmap van `bitmapImageRepForCachingDisplayInRect` staat in de kleurruimte van het
   scherm, niet sRGB. Opgelost in de toets: tekenen in een eigen sRGB-bitmap en ruwe pixels lezen (nu exact). (b) Het
   naamlabel was 139 px, de toets eiste 122–136 rond de 129 van de mockup. Silkscreen 14 px is breder dan de mockup
-  aanneemt (zie hieronder); de toets meet de naam nu zelf uit het lettertype in de repo (139,75 + 0) met Menlo
+  aanneemt (zie hieronder); de toets meet de naam nu zelf uit het lettertype in de repo (label 139,75 px) met Menlo
   (121,6) als tegenproef, zodat hij nog steeds bewijst dat het ingebedde lettertype geladen is.
 - Run 2 (`7243ecf`): alles groen.
 Lokaal (Linux x86_64) vóór de eerste push: bouwen, `pb-paneeltoets` (79/79), `pb-statetoets`, `ci-null.sh clap`,
