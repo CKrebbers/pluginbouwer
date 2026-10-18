@@ -5,6 +5,8 @@
 #pragma once
 #include "pb_graaf.h"
 
+#define PB_HEEFT_TRANSPORT 1
+
 namespace pb {
 
 struct Meta {
@@ -36,6 +38,8 @@ struct Ontwerp {
   uint32_t latentie() const { return PB_LATENTIE; }
   double staartSec() const { return graaf.staartSec(); }
   void verwerk(const float* const* in, float* const* uit, int kanalen, uint32_t n) { graaf.verwerk(in, uit, kanalen, n); }
+  // transport van de host: tempo en plek in de maat voor elke sequencer (pb_graaf.h zetTransport)
+  void zetTransport(double bpm, double beat, bool speelt) { graaf.zetTransport(bpm, beat, speelt); }
 };
 
 }  // namespace pb

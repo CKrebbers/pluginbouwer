@@ -7,6 +7,11 @@
 //   staart      na een stoot valt de uitgang onder −90 dBFS binnen de TailTime die de AU meldt
 //   state       ClassInfo bewaren, nieuwe instantie, terugzetten: zelfde parameterwaarden en bit voor bit zelfde render
 //   bypass      met BypassEffect aan is de uitgang de ingang (na 10 ms overvloeien)
+// Een instrument (au-proef aumu …, 18 okt) heeft andere poorten; zijn testsignalen maakt tools/null.mjs maak:
+//   ingang      de AU heeft geen audio-ingang
+//   noten       de noten van testsignalen/<ontwerp>/noten als MIDI, blok 512 en 64: null ≤ −90 dBFS tegen de WASM
+//   hosttempo   het tempo via de host-callbacks: null ≤ −90 dBFS tegen de WASM met hetzelfde transport
+//   state       als hierboven
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
@@ -71,6 +76,23 @@ if (opdracht === 'maak') {
   const info = JSON.parse(readFileSync(join(a1, 'info.json'), 'utf8'));
   const poorten = [];
   const poort = (naam, ok, wat) => { poorten.push({ naam, ok, wat }); console.log(`| ${naam} | ${ok ? 'groen' : '**ROOD**'} | ${wat} |`); };
+  if (info.soort === 'instrument') {
+    const tmap = join(ROOT, 'testsignalen', ontwerpNaam);
+    console.log(`AU (instrument): latency ${info.latencySec} s, TailTime ${info.tailSec} s, ${info.ingangen} audio-ingangen, ${info.params.length} parameters\n`);
+    console.log('| poort | uitslag | gemeten |\n|---|---|---|');
+    poort('geen audio-ingang', info.ingangen === 0, `${info.ingangen} ingangen`);
+    const tegen = (naam, verwacht, pad) => {
+      if (!existsSync(pad)) return poort(naam, false, 'render ontbreekt');
+      const r = nullTest(leesWav(verwacht).kanalen, leesWav(pad).kanalen);
+      poort(naam, r.piekDb <= GRENS_DB, `piek ${fmtDb(r.piekDb)}`);
+    };
+    if (existsSync(join(tmap, 'noten', 'noten.txt')))
+      for (const blok of [512, 64]) tegen(`noten als MIDI (blok ${blok})`, join(tmap, 'noten', 'verwacht.wav'), join(a1, `noten-${blok}.wav`));
+    if (existsSync(join(tmap, 'hosttempo', 'tempo.txt')))
+      tegen('hosttempo (host-callbacks)', join(tmap, 'hosttempo', 'verwacht.wav'), join(a1, 'hosttempo.wav'));
+    poort('state (ClassInfo terug in een nieuwe instantie)', info.state.parametersGelijk && info.state.renderGelijk, `parameters ${info.state.parametersGelijk ? 'gelijk' : 'ANDERS: ' + info.state.verschil}, render ${info.state.renderGelijk ? 'bit voor bit' : 'anders'}`);
+    process.exit(poorten.every((p) => p.ok) ? 0 : 1);
+  }
   console.log(`AU: latency ${info.latencySec} s, TailTime ${info.tailSec} s, ${info.params.length} parameters (${info.params.map((p) => `${p.naam} ${p.min}..${p.max}`).join(', ')})\n`);
   console.log('| poort | uitslag | gemeten |\n|---|---|---|');
   const verwacht = leesWav(join(map, 'automatie.verwacht.wav')).kanalen, kreeg = leesWav(join(a1, 'automatie.wav')).kanalen;

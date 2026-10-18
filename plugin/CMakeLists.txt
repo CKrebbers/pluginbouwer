@@ -24,6 +24,13 @@ pb_lees_define(PB_CLAP_ID PB_CLAP_ID)
 pb_lees_define(PB_VERSIE PB_VERSIE)
 pb_lees_define(PB_AU_MAKER PB_AU_MAKER)
 pb_lees_define(PB_AU_SUBTYPE PB_AU_SUBTYPE)
+# effect (aufx) of instrument (aumu); een ontwerp zonder PB_AU_TYPE is een effect
+file(STRINGS "${PB_ONTWERP_H}" pb_au_type_regel REGEX "^#define PB_AU_TYPE \"")
+string(REGEX REPLACE "^#define PB_AU_TYPE \"([^\"]*)\".*" "\\1" PB_AU_TYPE "${pb_au_type_regel}")
+if ("${PB_AU_TYPE}" STREQUAL "")
+  set(PB_AU_TYPE "aufx")
+endif()
+message(STATUS "AU-type: ${PB_AU_TYPE}")
 
 if (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0 CACHE STRING "Laagste macOS (M1)")
@@ -90,7 +97,7 @@ make_clapfirst_plugins(
   AUV2_MANUFACTURER_NAME "Varve"
   AUV2_MANUFACTURER_CODE "${PB_AU_MAKER}"
   AUV2_SUBTYPE_CODE "${PB_AU_SUBTYPE}"
-  AUV2_INSTRUMENT_TYPE "aufx"
+  AUV2_INSTRUMENT_TYPE "${PB_AU_TYPE}"
 )
 
 # De render-host voor de null-test (CLAP), los van de plugin.

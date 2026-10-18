@@ -1,0 +1,20 @@
+{
+  "name": "impuls-96k",
+  "input": {
+    "audio": "../impuls-96k.in.wav"
+  },
+  "reference": "../impuls-96k.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Noot": 0.25,
+      "Poort": 0.25,
+      "Filter": 0.25,
+      "Loslaten": 0.25
+    }
+  },
+  "sample_rate": 96000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}

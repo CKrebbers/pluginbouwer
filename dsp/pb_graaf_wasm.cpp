@@ -58,6 +58,8 @@ EXPORT int pg_laad(int h, int n) {
 }
 EXPORT void pg_reset(int h) { if (geladen[h]) G(h).reset(); }
 EXPORT void pg_zet(int h, int i, double v) { if (geladen[h]) G(h).zetParam(i, v); }
+// transport zoals een host het per blok geeft (tempo in BPM, plek in tellen, speelt): voor de null-test met hosttempo
+EXPORT void pg_transport(int h, double bpm, double beat, int speelt) { if (geladen[h]) G(h).zetTransport(bpm, beat, speelt != 0); }
 EXPORT double pg_lees(int h, int i) { return geladen[h] ? G(h).leesParam(i) : 0.0; }
 EXPORT double pg_staart(int h) { return geladen[h] ? G(h).staartSec() : 0.0; }
 EXPORT float* pg_in(int h, int c) { return inBuf[h][c]; }

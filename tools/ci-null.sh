@@ -36,6 +36,31 @@ if [ "$SOORT" = clap ]; then
       node "$WAAR/tools/null.mjs" automatie "$UIT/blok-$blok.wav" "$ONTWERP" > /dev/null
     done
   fi
+  # instrument: noten op hun sample (als CLAP-noten en als MIDI-bytes: beide dialecten van de note port) en het
+  # transport van de host (de sequencer volgt het tempo van de host, niet zijn eigen knop)
+  gelijk() {  # gelijk <verwacht> <render> <label>
+    node "$WAAR/tools/null.mjs" gelijk "$1" "$2" "$3" | tee /dev/stderr | som
+    node "$WAAR/tools/null.mjs" gelijk "$1" "$2" "$3" > /dev/null
+  }
+  if [ -f "$MAP/noten/noten.txt" ] || [ -f "$MAP/hosttempo/tempo.txt" ]; then
+    UIT="$WAAR/uit/clap-instrument"; mkdir -p "$UIT"
+    { echo "### Null-test CLAP instrument ($(uname -m)): noten en hosttempo"; echo; echo "| render | piek | RMS | bit voor bit |"; echo "|---|---|---|---|"; } | tee /dev/stderr | som
+  fi
+  if [ -f "$MAP/noten/noten.txt" ]; then
+    for blok in 512 3,128,1,4096,77; do
+      "$BUILD/pb-render" "$CLAP" "$MAP/noten/in.wav" "$UIT/noten-$blok.wav" --blok "$blok" --noten "$MAP/noten/noten.txt"
+      gelijk "$MAP/noten/verwacht.wav" "$UIT/noten-$blok.wav" "noten (CLAP), blok $blok"
+      "$BUILD/pb-render" "$CLAP" "$MAP/noten/in.wav" "$UIT/midi-$blok.wav" --blok "$blok" --noten "$MAP/noten/noten.txt" --midi
+      gelijk "$MAP/noten/verwacht.wav" "$UIT/midi-$blok.wav" "noten (MIDI), blok $blok"
+    done
+  fi
+  if [ -f "$MAP/hosttempo/tempo.txt" ]; then
+    TEMPO="$(cat "$MAP/hosttempo/tempo.txt")"
+    for blok in 512 3,128,1,4096,77; do
+      "$BUILD/pb-render" "$CLAP" "$MAP/hosttempo/in.wav" "$UIT/tempo-$blok.wav" --blok "$blok" --tempo "$TEMPO"
+      gelijk "$MAP/hosttempo/verwacht.wav" "$UIT/tempo-$blok.wav" "hosttempo $TEMPO bpm, blok $blok"
+    done
+  fi
 elif [ "$SOORT" = pluginval ]; then
   PLUGIN="$1"; PV="$2"; LABEL="$3"; ONTWERP="${4:-pijplijn_biquad}"
   MAP="$WAAR/testsignalen/$ONTWERP"

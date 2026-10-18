@@ -163,6 +163,25 @@ struct Graaf {
   Sequencer seq[MAX_KNOPEN];
   Willekeur wil[MAX_KNOPEN];
 
+  // Transport van de host (alleen in de plugin; de tool en de toetsen geven niets): tempo voor elke sequencer, en
+  // zijn plek in de maat bij de start of na een sprong (loop, terugspoelen). Daartussen loopt hij vrij op het tempo,
+  // dus de uitvoer hangt niet af van de blokgrootte (de schil roept dit per blok aan).
+  double hostTempo = 0;
+  void zetTransport(double bpm, double beat, bool speelt) {
+    hostTempo = bpm > 0 ? bpm : 0;
+    if (!b || !speelt) return;
+    double p16 = beat * 4.0;                     // in zestienden
+    p16 -= floor_(p16 / 16.0) * 16.0;
+    for (int k = 0; k < b->nKnopen; ++k) {
+      if (b->knoop[k].soort != Blok::sequencer) continue;
+      auto& q = seq[k];
+      double d = p16 - (q.stap + q.fase);
+      while (d > 8.0) d -= 16.0;
+      while (d < -8.0) d += 16.0;
+      if (d > 0.75 || d < -0.75) { q.stap = (int)floor_(p16) & 15; q.fase = p16 - floor_(p16); q.laad(); }
+    }
+  }
+
   // vast zaad per knoop en kanaal: ruis en aanslagen zijn overal hetzelfde, en links en rechts verschillen
   static uint32_t zaad(int k, int c) { return 0x9E3779B9u ^ ((uint32_t)(k * 2 + c + 1) * 0x85EBCA6Bu); }
 
@@ -196,6 +215,7 @@ struct Graaf {
         trom[k][c].reset(zaad(k, c)); galm[k][c].reset(); chorus[k][c].reset(c); comp[k][c].reset(); gruis[k][c].reset();
         vouw[k][c].reset(); bruis[k][c].reset(zaad(k, c));
       }
+      hostTempo = 0;
       band[k].reset(); snel[k].reset(); bandE[k].reset(); beta[k] = 0; tbeta[k] = 0; lcbeta[k] = 0; inorm[k] = 1; lfoFase[k] = 0; seq[k].reset(); wil[k].reset(zaad(k, 0));
     }
     vers = true;
@@ -273,7 +293,7 @@ struct Graaf {
           bool open = q.poort(basis(k, 1));
           double r = toonVerhouding(q.toon + basis(k, 3));
           for (int c = 0; c < 2; ++c) { uitw[k][c][0] = open ? 1.0 : 0.0; uitw[k][c][1] = r; uitw[k][c][2] = q.accent ? 1.0 : 0.0; }
-          q.stapVerder(basis(k, 0), basis(k, 1), basis(k, 2), sr);
+          q.stapVerder(hostTempo > 0 ? hostTempo : basis(k, 0), basis(k, 1), basis(k, 2), sr);
         }
         else if (kn.soort == Blok::toetsen) {
           // knoppen: toon (verhouding), poort (0/1); de tool zet ze als plugin-parameter

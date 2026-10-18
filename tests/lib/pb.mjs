@@ -19,7 +19,9 @@ export function laadOntwerp(naam = 'pijplijn_biquad') {
 // Rendert in (Float32Array[] per kanaal) door een verse instantie. waarden: { index: waarde } in eigen eenheid.
 // blok: vaste blokgrootte, of een array die rondloopt (voor de wisselende-blokgrootte-toets).
 // events: [[sample, index, waarde], …] gesorteerd; elk event geldt vanaf zijn sample (het blok wordt daar gesplitst).
-export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128, events = [] } = {}) {
+// tempo: een transport dat speelt vanaf tel 0 (zoals pb-render --tempo): bij elk blok pb_transport met de plek als
+// clap_beattime afgerond, precies zoals de host hem doorgeeft. Alleen voor een ketenontwerp (pb_transport bestaat).
+export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128, events = [], tempo = 0 } = {}) {
   const { e } = ontwerp;
   const h = e.pb_maak(sr);
   if (h < 0) throw new Error('geen vrije instantie');
@@ -32,6 +34,11 @@ export function render(ontwerp, invoer, { sr = 48000, waarden = {}, blok = 128, 
     if (pos >= blokEind) blokEind = pos + blokken[b++ % blokken.length];
     while (ev < events.length && events[ev][0] <= pos) { e.pb_zet(h, events[ev][1], events[ev][2]); ev++; }
     const m = Math.min(blokEind, n, ev < events.length ? events[ev][0] : n) - pos;
+    if (tempo > 0) {
+      if (!e.pb_transport) throw new Error('dit ontwerp kent geen transport');
+      const tel = pos / sr * tempo / 60, F = 2 ** 31;   // CLAP_BEATTIME_FACTOR
+      e.pb_transport(h, tempo, Math.floor(tel * F + 0.5) / F, 1);
+    }
     for (let c = 0; c < kanalen; c++) new Float32Array(e.memory.buffer, e.pb_in(h, c), m).set(invoer[c].subarray(pos, pos + m));
     e.pb_verwerk(h, kanalen, m);
     for (let c = 0; c < kanalen; c++) uit[c].set(new Float32Array(e.memory.buffer, e.pb_uit(h, c), m), pos);

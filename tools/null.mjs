@@ -1,13 +1,17 @@
 // null.mjs — de null-test tussen de WASM (browser) en het gebouwde binary.
 //   node tools/null.mjs maak [ontwerp]          testsignalen/<ontwerp>/: invoer, verwachte uitvoer (WASM) en pluginval-configs
 //   node tools/null.mjs vergelijk <map> [ontwerp] vergelijkt <map>/<geval>.wav met de verwachting; exit 1 boven de grens
+//   node tools/null.mjs gelijk <verwacht.wav> <render.wav> <label>   één render tegen één verwachting (noten, hosttempo)
+// Een instrument krijgt er twee gevallen bij: noten/ (MIDI-noten op hun sample, ook midden in een blok) en, met een
+// sequencer, hosttempo/ (het transport van de host op 140 bpm, waar de Tempo-knop iets anders zegt).
 // Grens: piek van het verschil ≤ −90 dBFS (PROMPT.md). We melden ook RMS en of het bit voor bit gelijk is.
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { laadOntwerp, render, uitNorm, schrijfWav, leesWav, nullTest, fmtDb, ROOT } from '../tests/lib/pb.mjs';
 import { toetsgevallen, maakInvoer, automatieGeval } from '../tool/src/testsignalen.js';
 import { ARCHETYPEN } from '../tool/src/archetypen.js';
 import * as SPEC from '../tests/lib/fft.mjs';
+import { NOTEN, notenAlsEvents } from '../tests/lib/noten.mjs';
 
 const GRENS_DB = -90;
 const [, , opdracht, a1, a2] = process.argv;
@@ -44,7 +48,7 @@ export function statistisch(a, b, sr) {
 }
 
 const ontwerpNaam = (opdracht === 'vergelijk' || opdracht === 'automatie' ? a2 : a1) || 'pijplijn_biquad';
-const o = laadOntwerp(ontwerpNaam);
+const o = opdracht === 'gelijk' ? null : laadOntwerp(ontwerpNaam);
 const map = join(ROOT, 'testsignalen', ontwerpNaam);
 
 if (opdracht === 'maak') {
@@ -76,7 +80,38 @@ if (opdracht === 'maak') {
   schrijfWav(join(map, 'automatie', 'in.wav'), a.invoer, a.sr);
   writeFileSync(join(map, 'automatie', 'events.txt'), a.tekst);
   schrijfWav(join(map, 'automatie', 'verwacht.wav'), render(o, a.invoer, { sr: a.sr, blok: 128, events: a.events }), a.sr);
-  console.log(`${index.length} gevallen en automatie (${a.events.length} events) in ${map}`);
+  // instrument: noten en hosttempo (zie bovenaan)
+  const kop = readFileSync(join(ROOT, 'dsp', 'ontwerpen', `${ontwerpNaam}.h`), 'utf8');
+  const def = (n) => { const m = kop.match(new RegExp(`#define ${n} (\\S+)`)); return m ? m[1] : null; };
+  const extra = [];
+  for (const d of ['noten', 'hosttempo']) rmSync(join(map, d), { recursive: true, force: true });
+  if (def('PB_NOTEN')) {
+    const sr = 48000, n = sr * 6, stil = [new Float32Array(n), new Float32Array(n)];
+    // oneven plekken, zodat de noten midden in blokken van 128, 512 en de wisselende reeks vallen
+    const noten = NOTEN.map(([t, wat, nn]) => [Math.round(t * sr) + 37, wat, nn]);
+    const events = notenAlsEvents(o.e, noten, Number(def('PB_NOOT_PARAM')), Number(def('PB_POORT_PARAM')));
+    mkdirSync(join(map, 'noten'), { recursive: true });
+    writeFileSync(join(map, 'noten', 'noten.txt'), noten.map((x) => x.join(' ')).join('\n') + '\n');
+    schrijfWav(join(map, 'noten', 'in.wav'), stil, sr);
+    schrijfWav(join(map, 'noten', 'verwacht.wav'), render(o, stil, { sr, blok: 128, events }), sr);
+    extra.push(`noten (${noten.length})`);
+  }
+  const archetype = ARCHETYPEN.find((x) => x.id === ontwerpNaam.replace(/^keten_/, ''));
+  if (o.e.pb_transport && archetype?.knopen.some((k) => k.type === 'sequencer')) {
+    const sr = 48000, n = sr * 6, stil = [new Float32Array(n), new Float32Array(n)];
+    mkdirSync(join(map, 'hosttempo'), { recursive: true });
+    schrijfWav(join(map, 'hosttempo', 'in.wav'), stil, sr);
+    schrijfWav(join(map, 'hosttempo', 'verwacht.wav'), render(o, stil, { sr, blok: 128, tempo: 140 }), sr);
+    writeFileSync(join(map, 'hosttempo', 'tempo.txt'), '140\n');
+    extra.push('hosttempo (140 bpm)');
+  }
+  console.log(`${index.length} gevallen en automatie (${a.events.length} events)${extra.length ? ', ' + extra.join(', ') : ''} in ${map}`);
+} else if (opdracht === 'gelijk') {
+  const [, , , verwacht, gekregen, label = 'render'] = process.argv;
+  const r = nullTest(leesWav(verwacht).kanalen, leesWav(gekregen).kanalen);
+  const ok = r.piekDb <= GRENS_DB;
+  console.log(`| ${label} | ${fmtDb(r.piekDb)} | ${fmtDb(r.rmsDb)} | ${r.piekDb === -Infinity ? 'ja' : 'nee'} |${ok ? '' : ' **BOVEN DE GRENS**'}`);
+  process.exit(ok ? 0 : 1);
 } else if (opdracht === 'automatie') {
   // node tools/null.mjs automatie <render.wav> [ontwerp]: de render van pb-render --automatie tegen de WASM
   if (!a1) throw new Error('gebruik: automatie <render.wav> [ontwerp]');

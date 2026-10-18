@@ -28,6 +28,16 @@ export function ketenHeader(ontwerp, { versie = '0.1.0', maker = 'Varve' } = {})
     `    {${i + 1}, ${cstr(p.naam)}, ${cstr(p.uitleg || '')}, ${cstr(p.eenheid || '')}, ${getal(p.min)}, ${getal(p.max)}, ${getal(p.standaard)}, ${getal(p.glijMs)}, pb::${vlag(p)}}`);
   const rij = [];
   for (let i = 0; i < c.rij.length; i += 9) rij.push('  ' + Array.from(c.rij.slice(i, i + 9), getal).join(', '));
+  // Een ontwerp zonder ingang is een instrument (AU-type aumu, geen audio-ingang). Met een toetsen-knoop waarvan
+  // toon en poort plugin-parameters zijn, speelt hij MIDI: de schil zet noten om in die twee (plugin/src/plugin.cpp).
+  const instrument = !ontwerp.knopen.some((k) => k.type === 'in');
+  const toetsen = ontwerp.knopen.find((k) => k.type === 'toetsen');
+  const pNoot = toetsen ? ontwerp.parameters.findIndex((p) => p.knoop === toetsen.id && p.knop === 'toon') : -1;
+  const pPoort = toetsen ? ontwerp.parameters.findIndex((p) => p.knoop === toetsen.id && p.knop === 'poort') : -1;
+  const noten = instrument && pNoot >= 0 && pPoort >= 0;
+  const soortRegels = instrument
+    ? `#define PB_INSTRUMENT 1\n#define PB_AU_TYPE "aumu"\n` + (noten ? `#define PB_NOTEN 1\n#define PB_NOOT_PARAM ${pNoot}\n#define PB_POORT_PARAM ${pPoort}\n` : '')
+    : `#define PB_AU_TYPE "aufx"\n`;
   return `// keten_${id}.h — GEGENEREERD door tools/bouwpakket.mjs uit het ontwerp "${ontwerp.naam}". Niet met de hand wijzigen:
 // verander het ontwerp in de tool en exporteer opnieuw. De rij hieronder is wat de ketenmotor (pb_graaf.h) leest,
 // in de browser en in de plugin hetzelfde.
@@ -41,7 +51,7 @@ export function ketenHeader(ontwerp, { versie = '0.1.0', maker = 'Varve' } = {})
 #define PB_UITLEG ${cstr(ontwerp.uitleg || '')}
 #define PB_AU_MAKER "Vrve"
 #define PB_AU_SUBTYPE ${cstr(au)}
-#define PB_LATENTIE ${latentie(ontwerp)}
+${soortRegels}#define PB_LATENTIE ${latentie(ontwerp)}
 #define PB_N_PARAMS ${c.params.length}
 #define PB_PARAMS \\
 ${params.join(', \\\n')}

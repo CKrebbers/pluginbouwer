@@ -4,7 +4,9 @@
 // Wat deze schil wel doet: parameters (in hun eigen eenheid, lineair zoals CLAP dat doorgeeft), events op hun sample
 // (het blok wordt bij elk event gesplitst; het Ontwerp rekent per sample, dus dat verandert niets aan de uitvoer),
 // state met versie en parameter-id's (onbekende id's worden overgeslagen, ontbrekende houden hun standaard),
-// latency en tail melden.
+// latency en tail melden. Een instrument (PB_INSTRUMENT, door de codegen gezet voor een ontwerp zonder ingang) heeft
+// geen audio-ingang; met PB_NOTEN speelt het MIDI: noten worden op hun sample Noot en Poort (dsp/pb_noten.h). Een
+// ketenontwerp krijgt het transport van de host (tempo en plek in de maat voor de sequencer).
 #include <clap/clap.h>
 #include <cstdio>
 #include <cstdlib>
@@ -13,14 +15,22 @@
 #include <new>
 
 #include PB_ONTWERP
+#include "pb_noten.h"
 #include "entry.h"
 
 namespace {
 
 using pb::Ontwerp;
 
+#ifdef PB_INSTRUMENT
+constexpr bool INSTRUMENT = true;
+const char* const FEATURES[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, CLAP_PLUGIN_FEATURE_STEREO,
+                                CLAP_PLUGIN_FEATURE_MONO, nullptr};
+#else
+constexpr bool INSTRUMENT = false;
 const char* const FEATURES[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, CLAP_PLUGIN_FEATURE_MONO,
                                 CLAP_PLUGIN_FEATURE_FILTER, nullptr};
+#endif
 
 const clap_plugin_descriptor_t DESCRIPTOR = {
     CLAP_VERSION_INIT, Ontwerp::META.clapId, Ontwerp::META.naam, Ontwerp::META.maker, Ontwerp::META.url, "", "",
@@ -53,6 +63,7 @@ struct Plug {
   float* droog[2] = {nullptr, nullptr}; uint32_t droogMax = 0;
   std::atomic<uint64_t> vuil{0};
   std::atomic<uint32_t> staartSmp{0};
+  pb::NootStapel noten;   // audiothread: welke toetsen er vastgehouden worden (instrument met PB_NOTEN)
 };
 static_assert(N_ALLE <= 64, "het vuil-masker heeft 64 bits");
 static_assert(std::atomic<double>::is_always_lock_free, "de parameterspiegel moet lock-free zijn (real-time)");
@@ -75,6 +86,19 @@ double zetIndex(Plug* s, int i, double v) {
   return s->ontwerp.leesParam(i);
 }
 
+#ifdef PB_NOTEN
+// noten naar de toetsen-knoop. De spiegel blijft staan: een noot is geen parameterwaarde die een host moet bewaren.
+void speel(Plug* s) {
+  int n = s->noten.boven();
+  if (n >= 0) { s->ontwerp.zetParam(PB_NOOT_PARAM, pb::nootVerhouding(n)); s->ontwerp.zetParam(PB_POORT_PARAM, 1.0); }
+  else s->ontwerp.zetParam(PB_POORT_PARAM, 0.0);
+}
+void noot(Plug* s, bool aan, int key) {
+  if (key < 0 || key > 127) return;
+  if (aan) s->noten.aan(key); else s->noten.uit(key);
+  speel(s);
+}
+#endif
 void verwerkEvent(Plug* s, const clap_event_header_t* h) {
   if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
   if (h->type == CLAP_EVENT_PARAM_VALUE) {
@@ -82,6 +106,20 @@ void verwerkEvent(Plug* s, const clap_event_header_t* h) {
     int i = indexVanId(ev->param_id);
     if (i >= 0) s->spiegel[i].store(zetIndex(s, i, ev->value), std::memory_order_relaxed);
   }
+#ifdef PB_NOTEN
+  else if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF) {
+    auto* ev = reinterpret_cast<const clap_event_note_t*>(h);
+    noot(s, h->type == CLAP_EVENT_NOTE_ON, ev->key);
+  } else if (h->type == CLAP_EVENT_NOTE_CHOKE) {
+    s->noten.leeg(); speel(s);
+  } else if (h->type == CLAP_EVENT_MIDI) {
+    auto* ev = reinterpret_cast<const clap_event_midi_t*>(h);
+    const uint8_t st = ev->data[0] & 0xF0;
+    if (st == 0x90 && ev->data[2] > 0) noot(s, true, ev->data[1]);
+    else if (st == 0x80 || st == 0x90) noot(s, false, ev->data[1]);
+    else if (st == 0xB0 && (ev->data[1] == 123 || ev->data[1] == 120)) { s->noten.leeg(); speel(s); }   // alle noten uit
+  }
+#endif
 }
 // een geladen state (mainthread) toepassen op het Ontwerp: alleen vanaf de draad die het Ontwerp nu bezit
 void pasVuilToe(Plug* s) {
@@ -96,9 +134,9 @@ uint32_t staartNaarSmp(const Plug* s) {
 }
 
 // ---- audio-ports: stereo, of mono als de host dat kiest -------------------------------------------------------------
-uint32_t poortenAantal(const clap_plugin_t*, bool) { return 1; }
+uint32_t poortenAantal(const clap_plugin_t*, bool isIn) { return (INSTRUMENT && isIn) ? 0 : 1; }
 bool poortInfo(const clap_plugin_t* p, uint32_t index, bool isIn, clap_audio_port_info_t* info) {
-  if (index != 0) return false;
+  if (index != 0 || (INSTRUMENT && isIn)) return false;
   auto* s = zelf(p);
   info->id = 0;
   std::snprintf(info->name, sizeof(info->name), "%s", isIn ? "In" : "Uit");
@@ -115,8 +153,8 @@ bool configGet(const clap_plugin_t*, uint32_t index, clap_audio_ports_config_t* 
   if (index > 1) return false;
   c->id = index;
   std::snprintf(c->name, sizeof(c->name), "%s", index == 0 ? "Stereo" : "Mono");
-  c->input_port_count = 1; c->output_port_count = 1;
-  c->has_main_input = true; c->has_main_output = true;
+  c->input_port_count = INSTRUMENT ? 0 : 1; c->output_port_count = 1;
+  c->has_main_input = !INSTRUMENT; c->has_main_output = true;
   c->main_input_channel_count = c->main_output_channel_count = index == 0 ? 2 : 1;
   c->main_input_port_type = c->main_output_port_type = index == 0 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
   return true;
@@ -128,6 +166,24 @@ bool configSelect(const clap_plugin_t* p, clap_id id) {
   return true;
 }
 const clap_plugin_audio_ports_config_t AUDIO_PORTS_CONFIG = {configAantal, configGet, configSelect};
+
+#ifdef PB_NOTEN
+// ---- note ports: één ingang, CLAP-noten ------------------------------------------------------------------------------
+// Alleen het CLAP-dialect. Met CLAP_NOTE_DIALECT_MIDI erbij maakt clap-wrapper v0.16.0 in de VST3 voor IMidiMapping
+// 16 × 130 "MIDI/controller"-parameters die hij niet in de state bewaart: pluginval "Discrete parameter state
+// restoration" faalde erop (18 okt). verwerkEvent leest MIDI-bytes toch: de AU-wrapper geeft CC's (alle noten uit)
+// altijd als CLAP_EVENT_MIDI door, ook bij een CLAP-poort; de null-test speelt de noten daarom ook als MIDI.
+uint32_t notenAantal(const clap_plugin_t*, bool isIn) { return isIn ? 1 : 0; }
+bool notenInfo(const clap_plugin_t*, uint32_t index, bool isIn, clap_note_port_info_t* info) {
+  if (index != 0 || !isIn) return false;
+  info->id = 0;
+  info->supported_dialects = CLAP_NOTE_DIALECT_CLAP;
+  info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+  std::snprintf(info->name, sizeof(info->name), "%s", "Noten");
+  return true;
+}
+const clap_plugin_note_ports_t NOTE_PORTS = {notenAantal, notenInfo};
+#endif
 
 // ---- params -------------------------------------------------------------------------------------------------
 uint32_t paramAantal(const clap_plugin_t*) { return N_ALLE; }
@@ -279,7 +335,7 @@ bool activate(const clap_plugin_t* p, double sr, uint32_t, uint32_t maxFrames) {
 void deactivate(const clap_plugin_t* p) { zelf(p)->actief = false; }
 bool startProcessing(const clap_plugin_t*) { return true; }
 void stopProcessing(const clap_plugin_t*) {}
-void reset(const clap_plugin_t* p) { zelf(p)->ontwerp.reset(); }
+void reset(const clap_plugin_t* p) { auto* s = zelf(p); s->ontwerp.reset(); s->noten.leeg(); }
 
 clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   auto* s = zelf(p);
@@ -291,6 +347,13 @@ clap_process_status process(const clap_plugin_t* p, const clap_process_t* pr) {
   std::free(kanarieSink);
 #endif
   pasVuilToe(s);   // een state die de mainthread laadde, vóór de events van dit blok
+#ifdef PB_HEEFT_TRANSPORT
+  if (pr->transport && (pr->transport->flags & CLAP_TRANSPORT_HAS_TEMPO))
+    s->ontwerp.zetTransport(pr->transport->tempo,
+                            (pr->transport->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) ? (double)pr->transport->song_pos_beats / (double)CLAP_BEATTIME_FACTOR : 0.0,
+                            (pr->transport->flags & CLAP_TRANSPORT_IS_PLAYING) && (pr->transport->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE));
+  else s->ontwerp.zetTransport(0.0, 0.0, false);
+#endif
   const uint32_t n = pr->frames_count;
   const uint32_t nEv = pr->in_events->size(pr->in_events);
   uint32_t ev = 0, pos = 0;
@@ -349,6 +412,9 @@ const void* extensie(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE_EXT;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY_EXT;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &TAIL_EXT;
+#ifdef PB_NOTEN
+  if (!std::strcmp(id, CLAP_EXT_NOTE_PORTS)) return &NOTE_PORTS;
+#endif
   return nullptr;
 }
 void opMainThread(const clap_plugin_t*) {}

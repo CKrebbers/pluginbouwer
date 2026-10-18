@@ -124,6 +124,15 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **Als artifact op claude.ai** doet een downloadlink niets: bewaren gaat via de `downloads`-capability
   (`claude.use('downloads')`), de losse pagina gebruikt een gewone link. `tool/bouw.mjs` maakt beide versies.
 
+- **Note port alleen in het CLAP-dialect.** Met `CLAP_NOTE_DIALECT_MIDI` maakt clap-wrapper v0.16.0 in de VST3 16 × 130
+  "MIDI/controller"-parameters (IMidiMapping) die niet in de state staan: pluginval "Discrete parameter state restoration"
+  faalt. De AU-wrapper geeft CC's toch als `CLAP_EVENT_MIDI` door, dus de schil leest MIDI-bytes wel (en de null-test speelt
+  de noten ook als MIDI).
+- **AU-transport op tel 0**: clap-wrapper zet `HAS_BEATS_TIMELINE` niet als de beat precies 0 is (`if (data._beat)`). De
+  sequencer herankert daarom alleen bij een sprong van meer dan ¾ zestiende; tempo komt altijd door.
+- **Noten in de null-test**: de verwachting zijn parameter-events (Noot via de WASM-export `pb_t_exp`, Poort 1/0) die
+  precies doen wat `speel()` in de schil doet (tests/lib/noten.mjs). Verander je `pb_noten.h`, verander dat mee.
+
 ## Conventies
 | Onderwerp | Afspraak |
 |---|---|

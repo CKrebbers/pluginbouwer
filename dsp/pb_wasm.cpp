@@ -78,6 +78,10 @@ EXPORT double pb_staart(int h) { return inst[h].staartSec(); }
 EXPORT float* pb_in(int h, int c) { return inBuf[h][c]; }
 EXPORT float* pb_uit(int h, int c) { return uitBuf[h][c]; }
 EXPORT unsigned pb_max_blok() { return MAX_BLOK; }
+#ifdef PB_HEEFT_TRANSPORT
+// transport van de host (ketenontwerp): tempo in bpm, plek in tellen, speelt. De plugin roept dit per blok, net als hier.
+EXPORT void pb_transport(int h, double bpm, double beat, int speelt) { inst[h].zetTransport(bpm, beat, speelt != 0); }
+#endif
 EXPORT void pb_verwerk(int h, int kanalen, unsigned n) {
   if (n > MAX_BLOK) n = MAX_BLOK;
   const float* in[2] = {inBuf[h][0], inBuf[h][1]};

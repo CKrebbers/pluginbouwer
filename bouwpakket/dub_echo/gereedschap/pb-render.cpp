@@ -5,6 +5,9 @@
 //             [--state-rondje]    (state opslaan, nieuwe instantie, state laden, dan pas renderen)
 //             [--automatie f]     parameter-events op hun sample tijdens het renderen; f: per regel "sample id waarde"
 //                                 (ook midden in een blok: zo bewijst de null-test het splitsen bij events op de bits)
+//             [--noten f [--midi]] noten op hun sample (instrument); f: per regel "sample aan|uit noot". Standaard als
+//                                 CLAP-noten, met --midi als MIDI-bytes (0x90/0x80): beide dialecten van de note port
+//             [--tempo bpm]       een transport dat speelt vanaf tel 0 op dit tempo (de sequencer volgt de host)
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -79,11 +82,12 @@ void hostNiets(const clap_host_t*) {}
 const clap_host_t HOST = {CLAP_VERSION_INIT, nullptr, "pb-render", "Pluginbouwer", "https://varve.nl", "0.1",
                           hostExt, hostNiets, hostNiets, hostNiets};
 
+union Ev { clap_event_header_t h; clap_event_param_value_t p; clap_event_note_t n; clap_event_midi_t m; };
 struct Events {
-  std::vector<clap_event_param_value_t> ev;
+  std::vector<Ev> ev;
 };
 uint32_t evSize(const clap_input_events_t* l) { return (uint32_t)static_cast<Events*>(l->ctx)->ev.size(); }
-const clap_event_header_t* evGet(const clap_input_events_t* l, uint32_t i) { return &static_cast<Events*>(l->ctx)->ev[i].header; }
+const clap_event_header_t* evGet(const clap_input_events_t* l, uint32_t i) { return &static_cast<Events*>(l->ctx)->ev[i].h; }
 bool evPush(const clap_output_events_t*, const clap_event_header_t*) { return true; }
 
 struct Buf { std::vector<unsigned char> d; size_t pos = 0; };
@@ -105,8 +109,10 @@ int main(int argc, char** argv) {
   if (argc < 4) fout("gebruik: pb-render <plugin.clap> <in.wav> <uit.wav> [--sr N] [--blok N[,N…]] [--p id=waarde] [--state-rondje]");
   std::string pad = argv[1];
   double sr = 0; std::vector<uint32_t> blokken = {512}; bool rondje = false;
-  struct Auto { uint64_t sample; clap_id id; double waarde; };
+  // automatisering en noten in één lijst, op sample (een noot: id = -1 aan, -2 uit, waarde = noot)
+  struct Auto { uint64_t sample; int64_t id; double waarde; };
   std::vector<Auto> automatie;
+  bool alsMidi = false; double tempo = 0;
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -123,6 +129,13 @@ int main(int argc, char** argv) {
       std::ifstream f(argv[++i]); if (!f) fout("--automatie: bestand niet te lezen");
       Auto x; while (f >> x.sample >> x.id >> x.waarde) automatie.push_back(x);
     }
+    else if (a == "--noten" && i + 1 < argc) {
+      std::ifstream f(argv[++i]); if (!f) fout("--noten: bestand niet te lezen");
+      uint64_t smp; std::string wat; int noot;
+      while (f >> smp >> wat >> noot) automatie.push_back({smp, wat == "aan" ? -1 : -2, (double)noot});
+    }
+    else if (a == "--midi") alsMidi = true;
+    else if (a == "--tempo" && i + 1 < argc) tempo = std::atof(argv[++i]);
     else fout("onbekende optie " + a);
   }
 
@@ -157,9 +170,9 @@ int main(int argc, char** argv) {
   // parameters vóór activate, via flush (zoals een host die een project opent)
   Events ev;
   for (auto& [pid, v] : params) {
-    clap_event_param_value_t e{};
-    e.header = {sizeof(e), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
-    e.param_id = pid; e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1; e.value = v;
+    Ev e{};
+    e.p.header = {sizeof(e.p), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+    e.p.param_id = pid; e.p.note_id = -1; e.p.port_index = -1; e.p.channel = -1; e.p.key = -1; e.p.value = v;
     ev.ev.push_back(e);
   }
   clap_input_events_t inEv = {&ev, evSize, evGet};
@@ -178,6 +191,12 @@ int main(int argc, char** argv) {
     if (!st->load(pl, &is)) fout("state load mislukt");
   }
 
+  // op sample sorteren (stabiel: binnen één sample de volgorde van de bestanden)
+  for (size_t a = 1; a < automatie.size(); ++a)
+    for (size_t b = a; b > 0 && automatie[b - 1].sample > automatie[b].sample; --b) std::swap(automatie[b - 1], automatie[b]);
+  // een instrument heeft geen audio-ingang: dan geven we er ook geen
+  auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
+  const uint32_t nIn = ap ? ap->count(pl, true) : 1;
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
@@ -201,12 +220,31 @@ int main(int argc, char** argv) {
     blokEv.ev.clear();
     while (volgende < automatie.size() && automatie[volgende].sample < pos + m) {
       const auto& x = automatie[volgende++];
-      clap_event_param_value_t e{};
-      e.header = {sizeof(e), (uint32_t)(x.sample < pos ? 0 : x.sample - pos), CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
-      e.param_id = x.id; e.note_id = -1; e.port_index = -1; e.channel = -1; e.key = -1; e.value = x.waarde;
+      const uint32_t t = (uint32_t)(x.sample < pos ? 0 : x.sample - pos);
+      Ev e{};
+      if (x.id >= 0) {
+        e.p.header = {sizeof(e.p), t, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+        e.p.param_id = (clap_id)x.id; e.p.note_id = -1; e.p.port_index = -1; e.p.channel = -1; e.p.key = -1; e.p.value = x.waarde;
+      } else if (alsMidi) {
+        e.m.header = {sizeof(e.m), t, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0};
+        e.m.port_index = 0;
+        e.m.data[0] = x.id == -1 ? 0x90 : 0x80; e.m.data[1] = (uint8_t)x.waarde; e.m.data[2] = x.id == -1 ? 100 : 0;
+      } else {
+        e.n.header = {sizeof(e.n), t, CLAP_CORE_EVENT_SPACE_ID, (uint16_t)(x.id == -1 ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF), 0};
+        e.n.note_id = -1; e.n.port_index = 0; e.n.channel = 0; e.n.key = (int16_t)x.waarde; e.n.velocity = x.id == -1 ? 0.8 : 0.0;
+      }
       blokEv.ev.push_back(e);
     }
-    clap_process_t pr = {steady, m, nullptr, &ai, &au, 1, 1, &blokIn, &uitEv};
+    clap_event_transport_t tr{};
+    if (tempo > 0) {
+      const double tel = (double)steady / sr * tempo / 60.0;
+      tr.header = {sizeof(tr), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
+      tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_IS_PLAYING;
+      tr.tempo = tempo;
+      tr.song_pos_beats = (clap_beattime)(tel * (double)CLAP_BEATTIME_FACTOR + 0.5);
+      tr.tsig_num = 4; tr.tsig_denom = 4;
+    }
+    clap_process_t pr = {steady, m, tempo > 0 ? &tr : nullptr, &ai, &au, nIn ? 1u : 0u, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;

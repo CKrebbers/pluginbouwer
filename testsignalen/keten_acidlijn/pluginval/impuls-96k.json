@@ -1,0 +1,20 @@
+{
+  "name": "impuls-96k",
+  "input": {
+    "audio": "../impuls-96k.in.wav"
+  },
+  "reference": "../impuls-96k.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Afsnijding": 0.25,
+      "Resonantie": 0.25,
+      "Tempo": 0.25,
+      "Verzadiging": 0.25
+    }
+  },
+  "sample_rate": 96000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}

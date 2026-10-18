@@ -2,6 +2,9 @@
 // renderen met een invoer-callback, parameters per blok automatiseren, state (ClassInfo) bewaren en terugzetten in een
 // nieuwe instantie, TailTime en bypass. Hij oordeelt niet: hij schrijft WAV's en info.json, tools/au-proef.mjs toetst.
 //   au-proef <type> <subtype> <maker> <map met testsignalen/<ontwerp>/au> <uitmap>
+//   au-proef aumu <subtype> <maker> <testsignalen/<ontwerp>> <uitmap>     een instrument (18 okt): geen ingang; de noten
+//     van noten/noten.txt als MIDI (MusicDeviceMIDIEvent, op hun sample in het blok), het tempo van hosttempo/tempo.txt
+//     via de host-callbacks (beat en tempo, transport speelt), state als hierboven
 // Bouwen: clang++ -std=c++17 -O2 host/au-proef.cpp -framework AudioToolbox -framework CoreFoundation -o au-proef
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -70,19 +73,39 @@ static OSStatus invoer(void* ref, AudioUnitRenderActionFlags*, const AudioTimeSt
   return noErr;
 }
 
+// host-callbacks van een DAW die speelt op een vast tempo vanaf tel 0 (zoals pb-render --tempo)
+struct HostKlok { double tempo = 0; uint32_t sr = 48000; Float64 tijd = 0; };
+static OSStatus beatEnTempo(void* ref, Float64* beat, Float64* tempo) {
+  auto* k = (HostKlok*)ref;
+  if (beat) *beat = k->tijd / k->sr * k->tempo / 60.0;
+  if (tempo) *tempo = k->tempo;
+  return noErr;
+}
+static OSStatus transportStand(void*, Boolean* speelt, Boolean* neemtOp, Boolean* veranderd, Float64* pos, Boolean* lus, Float64* a, Float64* b) {
+  if (speelt) *speelt = true;
+  if (neemtOp) *neemtOp = false;
+  if (veranderd) *veranderd = false;
+  if (pos) *pos = 0;
+  if (lus) *lus = false;
+  if (a) *a = 0;
+  if (b) *b = 0;
+  return noErr;
+}
+
 struct Plug {
-  AudioComponentInstance au = nullptr; Bron bron; uint32_t sr; uint32_t maxBlok = 512; Float64 tijd = 0;
+  AudioComponentInstance au = nullptr; Bron bron; uint32_t sr; uint32_t maxBlok = 512; Float64 tijd = 0; bool instrument;
+  HostKlok klok;
   map<string, AudioUnitParameterID> idVan; map<string, AudioUnitParameterInfo> infoVan;
-  Plug(AudioComponent comp, uint32_t sr_) : sr(sr_) {
+  Plug(AudioComponent comp, uint32_t sr_, bool instr = false) : sr(sr_), instrument(instr) {
     fout("instantiëren", AudioComponentInstanceNew(comp, &au));
     AudioStreamBasicDescription f{}; f.mSampleRate = sr; f.mFormatID = kAudioFormatLinearPCM;
     f.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved;
     f.mBytesPerPacket = 4; f.mFramesPerPacket = 1; f.mBytesPerFrame = 4; f.mChannelsPerFrame = 2; f.mBitsPerChannel = 32;
-    fout("formaat in", AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &f, sizeof f));
+    if (!instrument) fout("formaat in", AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &f, sizeof f));
     fout("formaat uit", AudioUnitSetProperty(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &f, sizeof f));
     fout("max blok", AudioUnitSetProperty(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maxBlok, sizeof maxBlok));
     AURenderCallbackStruct cb{invoer, &bron};
-    fout("invoer-callback", AudioUnitSetProperty(au, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof cb));
+    if (!instrument) fout("invoer-callback", AudioUnitSetProperty(au, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof cb));
     UInt32 sz = 0; AudioUnitGetPropertyInfo(au, kAudioUnitProperty_ParameterList, kAudioUnitScope_Global, 0, &sz, nullptr);
     vector<AudioUnitParameterID> ids(sz / sizeof(AudioUnitParameterID));
     if (sz) fout("parameterlijst", AudioUnitGetProperty(au, kAudioUnitProperty_ParameterList, kAudioUnitScope_Global, 0, ids.data(), &sz));
@@ -96,6 +119,12 @@ struct Plug {
     }
   }
   void init() { fout("initialiseren", AudioUnitInitialize(au)); }
+  // een host met een transport dat speelt op `tempo` bpm (vóór Initialize, zoals een DAW de callbacks zet)
+  void hostTempo(double tempo) {
+    klok.tempo = tempo; klok.sr = sr;
+    HostCallbackInfo h{}; h.hostUserData = &klok; h.beatAndTempoProc = beatEnTempo; h.transportStateProc2 = transportStand;
+    fout("host-callbacks", AudioUnitSetProperty(au, kAudioUnitProperty_HostCallbacks, kAudioUnitScope_Global, 0, &h, sizeof h));
+  }
   ~Plug() { if (au) { AudioUnitUninitialize(au); AudioComponentInstanceDispose(au); } }
   void zet(const string& naam, float v) {
     auto it = idVan.find(naam); if (it == idVan.end()) { fprintf(stderr, "FOUT: parameter '%s' niet in de AU\n", naam.c_str()); exit(2); }
@@ -112,6 +141,7 @@ struct Plug {
       AudioBufferList* abl = (AudioBufferList*)alloca(sizeof(AudioBufferList) + sizeof(AudioBuffer));
       abl->mNumberBuffers = 2;
       abl->mBuffers[0] = {1, m * 4, l.data()}; abl->mBuffers[1] = {1, m * 4, r.data()};
+      klok.tijd = tijd;
       AudioTimeStamp ts{}; ts.mSampleTime = tijd; ts.mFlags = kAudioTimeStampSampleTimeValid;
       AudioUnitRenderActionFlags fl = 0; bron.pos = pos;
       fout("renderen", AudioUnitRender(au, &fl, &ts, 0, m, abl));
@@ -124,12 +154,15 @@ struct Plug {
 
 static string jsonStr(const string& s) { string o = "\""; for (char c : s) { if (c == '"' || c == '\\') o += '\\'; o += c; } return o + "\""; }
 
+static int instrumentProef(AudioComponent comp, const string& tmap, const string& uit);
+
 int main(int argc, char** argv) {
   if (argc < 6) { fprintf(stderr, "gebruik: au-proef <type> <subtype> <maker> <testmap> <uitmap>\n"); return 2; }
   AudioComponentDescription d{code(argv[1]), code(argv[2]), code(argv[3]), 0, 0};
   AudioComponent comp = AudioComponentFindNext(nullptr, &d);
   if (!comp) { fprintf(stderr, "FOUT: AU %s %s %s niet gevonden (geïnstalleerd en AudioComponentRegistrar herstart?)\n", argv[1], argv[2], argv[3]); return 2; }
   string tmap = argv[4], uit = argv[5];
+  if (string(argv[1]) == "aumu") return instrumentProef(comp, tmap, uit);
   Wav autoIn = leesWav(tmap + "/automatie.in.wav"), stoot = leesWav(tmap + "/stoot.in.wav");
   uint32_t sr = autoIn.sr;
 
@@ -213,6 +246,81 @@ int main(int argc, char** argv) {
     }
     info += "\"bypass\":" + jsonStr(wat) + "}";
     printf("bypass: %s\n", wat.c_str());
+  }
+  ofstream(uit + "/info.json") << info << "\n";
+  return 0;
+}
+
+// ---- instrument ---------------------------------------------------------------------------------------------------------
+static bool bestaat(const string& pad) { return (bool)ifstream(pad); }
+static string parametersJson(Plug& p) {
+  string o = "["; bool eerst = true; char buf[256];
+  for (auto& [naam, in] : p.infoVan) { snprintf(buf, sizeof buf, "%s{\"naam\":%s,\"min\":%.9g,\"max\":%.9g,\"standaard\":%.9g}", eerst ? "" : ",", jsonStr(naam).c_str(), in.minValue, in.maxValue, in.defaultValue); o += buf; eerst = false; }
+  return o + "]";
+}
+
+static int instrumentProef(AudioComponent comp, const string& tmap, const string& uit) {
+  const uint32_t sr = 48000;
+  string info = "{\"soort\":\"instrument\",";
+  {
+    Plug p(comp, sr, true); p.init();
+    Float64 lat = 0, tail = 0; UInt32 s = sizeof(Float64);
+    AudioUnitGetProperty(p.au, kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0, &lat, &s); s = sizeof(Float64);
+    AudioUnitGetProperty(p.au, kAudioUnitProperty_TailTime, kAudioUnitScope_Global, 0, &tail, &s);
+    UInt32 nIn = 0; s = sizeof nIn;
+    AudioUnitGetProperty(p.au, kAudioUnitProperty_ElementCount, kAudioUnitScope_Input, 0, &nIn, &s);
+    char buf[160]; snprintf(buf, sizeof buf, "\"latencySec\":%.9g,\"tailSec\":%.9g,\"ingangen\":%u,\"params\":", lat, tail, (unsigned)nIn);
+    info += buf + parametersJson(p) + ",";
+    printf("AU (instrument) geladen: latency %.6f s, TailTime %.3f s, %u ingangen, %zu parameters\n", lat, tail, (unsigned)nIn, p.infoVan.size());
+  }
+  // noten als MIDI, op hun sample in het blok; blok 512 en 64
+  struct Noot { uint64_t smp; bool aan; int n; };
+  vector<Noot> noten;
+  if (bestaat(tmap + "/noten/noten.txt")) {
+    ifstream f(tmap + "/noten/noten.txt"); uint64_t smp; string wat; int n;
+    while (f >> smp >> wat >> n) noten.push_back({smp, wat == "aan", n});
+    Wav stil = leesWav(tmap + "/noten/in.wav");
+    for (uint32_t blok : {512u, 64u}) {
+      Plug p(comp, sr, true); p.init();
+      size_t i = 0;
+      auto y = p.render(stil.k, blok, [&](size_t b) {
+        uint64_t van = (uint64_t)b * blok, tot = van + blok;
+        for (; i < noten.size() && noten[i].smp < tot; ++i)
+          fout("MIDI", MusicDeviceMIDIEvent(p.au, noten[i].aan ? 0x90 : 0x80, (UInt32)noten[i].n, noten[i].aan ? 100 : 0, (UInt32)(noten[i].smp - van)));
+      });
+      schrijfWav(uit + "/noten-" + to_string(blok) + ".wav", y, sr);
+    }
+    printf("noten: %zu als MIDI gespeeld (blok 512 en 64)\n", noten.size());
+  }
+  // het tempo van de host
+  if (bestaat(tmap + "/hosttempo/tempo.txt")) {
+    double tempo = 0; ifstream(tmap + "/hosttempo/tempo.txt") >> tempo;
+    Wav stil = leesWav(tmap + "/hosttempo/in.wav");
+    Plug p(comp, sr, true); p.hostTempo(tempo); p.init();
+    schrijfWav(uit + "/hosttempo.wav", p.render(stil.k, 512, [](size_t) {}), sr);
+    printf("hosttempo: %.1f bpm via de host-callbacks\n", tempo);
+  }
+  // state: ClassInfo van A in een nieuwe instantie B (na Initialize); dezelfde waarden en dezelfde render
+  {
+    map<string, float> waarden;
+    { Plug p(comp, sr, true); size_t k = 0;
+      for (auto& [naam, in] : p.infoVan) {
+        if (naam == "Bypass") continue;
+        const float f[] = {0.75f, 0.25f, 0.625f, 0.375f};
+        waarden[naam] = in.minValue + f[k++ % 4] * (in.maxValue - in.minValue);
+      } }
+    Plug a(comp, sr, true); a.init(); for (auto& [k, v] : waarden) a.zet(k, v);
+    CFPropertyListRef plist = nullptr; UInt32 s = sizeof plist;
+    fout("ClassInfo lezen", AudioUnitGetProperty(a.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, &s));
+    Plug b(comp, sr, true); b.init();
+    fout("ClassInfo zetten", AudioUnitSetProperty(b.au, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &plist, sizeof plist));
+    string verschil; bool pg = true;
+    for (auto& [k, v] : waarden) { float va = a.lees(k), vb = b.lees(k); if (va != vb) { pg = false; char t[160]; snprintf(t, sizeof t, "%s %.9g→%.9g; ", k.c_str(), va, vb); verschil += t; } }
+    vector<vector<float>> stil(2, vector<float>(sr * 2));
+    bool rg = a.render(stil, 512, [](size_t) {}) == b.render(stil, 512, [](size_t) {});
+    CFRelease(plist);
+    info += string("\"state\":{\"parametersGelijk\":") + (pg ? "true" : "false") + ",\"renderGelijk\":" + (rg ? "true" : "false") + ",\"verschil\":" + jsonStr(verschil) + "}}";
+    printf("state: parameters %s, render %s %s\n", pg ? "gelijk" : "ANDERS", rg ? "gelijk" : "ANDERS", verschil.c_str());
   }
   ofstream(uit + "/info.json") << info << "\n";
   return 0;

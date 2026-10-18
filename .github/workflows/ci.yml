@@ -6,6 +6,9 @@
 #   macos     arm64: CLAP + VST3 + AU, ad-hoc gesigneerd, auval -strict, pluginval 10 met rtcheck (AU en VST3),
 #             de AU in een eigen AudioToolbox-host (host/au-proef: automatisering, staart, state),
 #             null-test door het binary (AU, VST3, CLAP); de plugins als download
+#   Instrumenten (keten_toetsenpad: noten via de note port, keten_acidlijn: sequencer op het tempo van de host) gaan door
+#   dezelfde jobs: auval als aumu, de null-test speelt noten als CLAP-noten en als MIDI en geeft een transport mee,
+#   au-proef speelt MIDI op de sample (MusicDeviceMIDIEvent) en geeft het tempo via de host-callbacks
 name: ci
 on:
   push:
@@ -15,7 +18,7 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: 0.4.1
-  ONTWERPEN: pijplijn_biquad proef_delay dub_echo keten_dub_echo
+  ONTWERPEN: pijplijn_biquad proef_delay dub_echo keten_dub_echo keten_toetsenpad keten_acidlijn
 
 jobs:
   toetsen:
@@ -41,12 +44,12 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"; cat tests/uit/dubecho.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Verwachte uitvoer opnieuw maken — moet bit voor bit gelijk zijn aan wat in git staat
         run: |
-          for o in pijplijn_biquad dub_echo keten_dub_echo; do node tools/null.mjs maak "$o"; done
+          for o in pijplijn_biquad dub_echo keten_dub_echo keten_toetsenpad keten_acidlijn; do node tools/null.mjs maak "$o"; done
           for o in dub_echo keten_dub_echo; do node tools/au-proef.mjs maak "$o"; done
       - name: Gegenereerde header en bouwpakket kloppen met de generator (DSP, WASM, testsignalen)
         run: |
           sh dsp/bouw-wasm.sh graaf
-          node tools/keten-header.mjs dub_echo
+          for o in dub_echo toetsenpad acidlijn; do node tools/keten-header.mjs "$o"; done
           node tools/bouwpakket.mjs dub_echo
           git diff --stat --exit-code dsp/ontwerpen/ dsp/wasm/ testsignalen/ bouwpakket/dub_echo/dsp bouwpakket/dub_echo/testsignalen bouwpakket/dub_echo/wasm bouwpakket/dub_echo/gereedschap
           git diff --stat --exit-code testsignalen/
@@ -67,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo]
+        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo, keten_toetsenpad, keten_acidlijn]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ontwerp: [pijplijn_biquad, dub_echo]
+        ontwerp: [pijplijn_biquad, dub_echo, keten_toetsenpad]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -193,7 +196,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo]
+        ontwerp: [pijplijn_biquad, dub_echo, keten_dub_echo, keten_toetsenpad, keten_acidlijn]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +225,8 @@ jobs:
         run: |
           SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
           MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
-          auval -strict -v aufx "$SUB" "$MAN" | tee auval.log
+          TYPE=$(sed -n 's/^#define PB_AU_TYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h); TYPE=${TYPE:-aufx}
+          auval -strict -v "$TYPE" "$SUB" "$MAN" | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
       - name: Null-test CLAP (pb-render op arm64)
         run: sh tools/ci-null.sh clap build ${{ matrix.ontwerp }}
@@ -245,8 +249,11 @@ jobs:
           clang++ -std=c++17 -O2 -Wall host/au-proef.cpp -framework AudioToolbox -framework CoreFoundation -o au-proef
           SUB=$(sed -n 's/^#define PB_AU_SUBTYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
           MAN=$(sed -n 's/^#define PB_AU_MAKER "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h)
+          TYPE=$(sed -n 's/^#define PB_AU_TYPE "\(....\)"/\1/p' dsp/ontwerpen/${{ matrix.ontwerp }}.h); TYPE=${TYPE:-aufx}
           mkdir -p uit/au
-          ./au-proef aufx "$SUB" "$MAN" testsignalen/${{ matrix.ontwerp }}/au uit/au
+          # een instrument (aumu) krijgt de map van het ontwerp (noten/, hosttempo/), een effect zijn au/
+          if [ "$TYPE" = aumu ]; then ./au-proef aumu "$SUB" "$MAN" testsignalen/${{ matrix.ontwerp }} uit/au
+          else ./au-proef aufx "$SUB" "$MAN" testsignalen/${{ matrix.ontwerp }}/au uit/au; fi
           echo "### AU zoals in een DAW (${{ matrix.ontwerp }})" >> "$GITHUB_STEP_SUMMARY"
           node tools/au-proef.mjs toets uit/au ${{ matrix.ontwerp }} | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Download klaarzetten (voor Logic; zie LEERPAD.md "Installeren")

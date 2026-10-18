@@ -1,0 +1,20 @@
+{
+  "name": "stukjes-laag",
+  "input": {
+    "audio": "../stukjes-laag.in.wav"
+  },
+  "reference": "../stukjes-laag.verwacht.wav",
+  "state": {
+    "parameters": {
+      "Afsnijding": 0.0625,
+      "Resonantie": 0.75,
+      "Tempo": 0.75,
+      "Verzadiging": 0.75
+    }
+  },
+  "sample_rate": 48000,
+  "block_size": 512,
+  "comparison": {
+    "sample": 0.0000316228
+  }
+}

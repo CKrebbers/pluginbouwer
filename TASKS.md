@@ -110,7 +110,11 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
    voor haperen 0,25; (b) Jiles-Atherton plus een kleine even term voor H2; (c) een blok bandruis. Alleen wat Clay blind
    onderscheidt gaat de DSP in. Per kandidaat die erin gaat: referentie opnieuw meten, verwachte uitvoer vernieuwen,
    null-test en harmonischen-toets groen. Niets tegelijk: één kandidaat per ronde.
-5. **Instrument als plugin (ik; na stap 2).** CLAP note ports, AU-type `aumu`, MIDI naar de toetsen-knoop; de sequencer op
+5. **Instrument als plugin (ik; na stap 2). [x] gebouwd 18 okt; pass@3 volgt in stap 3 (proef/g*).** Een ontwerp zonder
+   ingang wordt instrument (aumu, geen audio-ingang), een toetsen-knoop met Noot en Poort als parameters speelt noten
+   (dsp/pb_noten.h, monofoon legato), de sequencer volgt het transport van de host (pb_graaf.h zetTransport). Bewezen in CI:
+   keten_toetsenpad en keten_acidlijn met noten als CLAP-noten en als MIDI (blok 512 en wisselend), hosttempo, auval aumu,
+   pluginval 10, au-proef met MusicDeviceMIDIEvent en host-callbacks; alles bit voor bit tegen de WASM. Oorspronkelijk: CLAP note ports, AU-type `aumu`, MIDI naar de toetsen-knoop; de sequencer op
    het hosttempo. Dan pass@3 met een instrumentontwerp: het pakket is nu alleen op een effect bewezen. Stop: een instrument
    uit de tool speelt in Logic op een MIDI-spoor, null-test instrument tegen WASM bit voor bit.
 6. **Upstream (Clay plakt, 5 min; ik volg op).** upstream/clap-wrapper/LEESMIJ.md: zeven punten clap-wrapper, één

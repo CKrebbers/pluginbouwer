@@ -11,6 +11,7 @@
 #define PB_UITLEG "Tape-echo voor dub: saturatie en een filter in de terugkoppeling. Boven terugkoppeling 1 gaat hij vanzelf door, en de band houdt hem in toom."
 #define PB_AU_MAKER "Vrve"
 #define PB_AU_SUBTYPE "PDca"
+#define PB_AU_TYPE "aufx"
 #define PB_LATENTIE 0
 #define PB_N_PARAMS 9
 #define PB_PARAMS \
