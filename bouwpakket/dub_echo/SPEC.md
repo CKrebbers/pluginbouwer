@@ -49,7 +49,10 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 
 - Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", `CLAP_PARAM_IS_BYPASS`. Ook dat id
   verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
-  `PARAMS` (id 9), niet de bypass.
+  `PARAMS` (id 9), niet de bypass. Hoe de host hem zet verschilt: CLAP de parameter (op de sample), VST3
+  `kIsBypass`, AU `kAudioUnitProperty_BypassEffect` (clap-wrapper zet de parameter, tussen blokken). Zet een AU-host
+  bypass uit, dan roept clap-wrapper eerst `Reset` aan (zoals Apple's AUEffectBase): de DSP begint dan leeg. Toets de AU
+  dus met bypass aan op een blokgrens (proef G2).
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
   bit voor bit dezelfde waarde.
