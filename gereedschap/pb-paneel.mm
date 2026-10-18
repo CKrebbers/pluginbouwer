@@ -414,7 +414,7 @@ void toetsAu(NSString* map) {
   bewaar(beeld(auv), map, @"au-paneel-na-slepen.png");
 
   [auv removeFromSuperview];  // de wrapper ruimt het paneel op (gui.destroy)
-  if (luister) AUEventListenerDispose(luister);
+  if (luister) AUListenerDispose(luister);
   AudioUnitUninitialize(au);
   AudioComponentInstanceDispose(au);
 }

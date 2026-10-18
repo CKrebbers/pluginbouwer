@@ -147,7 +147,7 @@ jobs:
         with:
           name: macos-paneel-schermafbeelding
           path: schermafbeelding/
-          if-no-files-found: error
+          if-no-files-found: warn  # pb-paneel zelf eist elke schermafbeelding
       - name: pluginval ${{ env.PLUGINVAL_VERSIE }}
         run: |
           curl -sSfL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
