@@ -58,8 +58,13 @@ else()
   list(APPEND PB_PANEEL_BRONNEN src/paneel_geen.cpp)
 endif()
 
-add_library(dub_echo_impl STATIC src/dub_echo.cpp src/tekst.cpp ${PB_PANEEL_BRONNEN})
-target_include_directories(dub_echo_impl PUBLIC ${PB_PAKKET}/dsp)
+# De fabriekspresets (fase 4): presets/*.json als tabel in het binary; een onbekende parameternaam of een waarde
+# buiten het bereik is een bouwfout (static_assert in de tabel). Geen JSON-lezer in de plugin, niets ernaast.
+include(cmake/presets.cmake)
+pb_presets_tabel(${PB_PAKKET}/presets ${CMAKE_BINARY_DIR}/gegenereerd/presets_tabel.h)
+
+add_library(dub_echo_impl STATIC src/dub_echo.cpp src/tekst.cpp src/presets.cpp ${PB_PANEEL_BRONNEN})
+target_include_directories(dub_echo_impl PUBLIC ${PB_PAKKET}/dsp PRIVATE src ${CMAKE_BINARY_DIR}/gegenereerd)
 target_compile_options(dub_echo_impl PRIVATE ${PB_FP_VLAGGEN})
 target_link_libraries(dub_echo_impl PUBLIC clap)
 if (APPLE)
@@ -118,4 +123,21 @@ if (APPLE)
   add_executable(pb-guitoets toets/gui_toets.mm)
   target_link_libraries(pb-guitoets PRIVATE clap ${CMAKE_DL_LIBS} "-framework Cocoa")
   set_target_properties(pb-guitoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
+
+# de eigen toets van fase 4: alle fabriekspresets via preset-discovery vinden en via preset-load laden, door het .clap
+# (de verwachte waarden uit dezelfde tabel die CMake uit presets/*.json maakte)
+add_executable(pb-presettoets toets/preset_toets.cpp)
+target_include_directories(pb-presettoets PRIVATE src ${PB_PAKKET}/dsp ${CMAKE_BINARY_DIR}/gegenereerd)
+target_compile_options(pb-presettoets PRIVATE ${PB_FP_VLAGGEN})
+target_link_libraries(pb-presettoets PRIVATE clap ${CMAKE_DL_LIBS})
+set_target_properties(pb-presettoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# en de AU-kant (macOS): de factory presets van de geïnstalleerde .component via AudioToolbox, zoals Logic ze ziet
+if (APPLE)
+  add_executable(pb-aupresettoets toets/au_preset_toets.cpp)
+  target_include_directories(pb-aupresettoets PRIVATE src ${PB_PAKKET}/dsp ${CMAKE_BINARY_DIR}/gegenereerd)
+  target_compile_options(pb-aupresettoets PRIVATE ${PB_FP_VLAGGEN})
+  target_link_libraries(pb-aupresettoets PRIVATE clap "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-aupresettoets PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()

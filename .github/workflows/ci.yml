@@ -1,4 +1,4 @@
-# CI van het bouwpakket Dub-echo (fase 0–3): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
+# CI van het bouwpakket Dub-echo (fase 0–4): bouwen, alle validators en de null-test door het gebouwde binary. Het log is het bewijs; elke job eindigt met een
 # stap "Bewijs" die de uitslagen samenvat (de GitHub-tools geven alleen de laatste 5000 regels van een job: valkuil 18).
 name: ci
 
@@ -65,6 +65,17 @@ jobs:
             param-fuzz-basic param-fuzz-bounds param-fuzz-sample-accurate param-fuzz-modulation | tee cv-eis.log
           test "$(grep -c ': PASSED$' cv-eis.log)" -eq 14
 
+      - name: clap-validator preset-toetsen PASSED (SKIPPED telt niet)
+        run: |
+          sh gereedschap/cv-eis.sh clap-validator.log preset-discovery-crawl preset-discovery-descriptor-consistency \
+            preset-discovery-load | tee cv-presets.log
+          test "$(grep -c ': PASSED$' cv-presets.log)" -eq 3
+
+      - name: Preset-toets (alle fabriekspresets via preset-discovery vinden en via preset-load laden; door het .clap)
+        run: |
+          set -o pipefail
+          build/pb-presettoets "build/plugins/PB Dub-echo.clap" 2>&1 | tee preset-toets.log
+
       - name: State-toets (blobs met de hand, tekst <-> waarde; door het .clap)
         run: |
           set -o pipefail
@@ -106,6 +117,8 @@ jobs:
           echo "== clap-validator =="; grep -E "tests run" clap-validator.log || echo "(geen uitslag)"
           grep -E "FAILED" clap-validator.log || echo "geen FAILED"
           echo "== clap-validator state/param =="; cat cv-eis.log || echo "(geen uitslag)"
+          echo "== clap-validator presets =="; cat cv-presets.log || echo "(geen uitslag)"
+          echo "== preset-toets Linux =="; grep -E "^FOUT|^presets:|^preset-toets:" preset-toets.log || echo "(geen uitslag)"
           echo "== state-toets Linux =="; grep -E "^FOUT|^state-toets:" state-toets.log || echo "(geen uitslag)"
           echo "== paneel-toets Linux =="; grep -E "^FOUT|^paneel-toets:" paneel-toets.log || echo "(geen uitslag)"
           echo "== pluginval VST3 Linux =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!" pluginval-vst3.log || echo "(geen uitslag)"
@@ -252,6 +265,28 @@ jobs:
           test "$status" -eq 0
           grep -q "AU VALIDATION SUCCEEDED" auval.log
 
+      - name: auval toont elke fabriekspreset (namen uit presets/*.json)
+        run: |
+          python3 -I -c 'import json,sys; [print(json.load(open(f, encoding="utf-8"))["naam"]) for f in sorted(sys.argv[1:])]' \
+            presets/*.json > presetnamen.txt
+          while IFS= read -r naam; do
+            if grep -F -- "$naam" auval.log > /dev/null; then echo "auval toont preset: $naam"; else echo "auval mist preset: $naam"; fi
+          done < presetnamen.txt | tee auval-presets.log
+          if grep -q "^auval mist" auval-presets.log; then exit 1; fi
+          test "$(grep -c '^auval toont preset' auval-presets.log)" -eq "$(wc -l < presetnamen.txt)"
+
+      - name: AU-preset-toets (factory presets van de .component laden, voor en na Initialize)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          build/pb-aupresettoets 2>&1 | tee au-preset-toets.log
+
+      - name: Preset-toets CLAP macOS (door het geïnstalleerde .clap)
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          build/pb-presettoets "$HOME/Library/Audio/Plug-Ins/CLAP/PB Dub-echo.clap" 2>&1 | tee preset-toets.log
+
       - name: pluginval ophalen
         run: |
           curl -sSL -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/$PLUGINVAL_VERSIE/pluginval_macOS.zip"
@@ -318,6 +353,10 @@ jobs:
         if: always()
         run: |
           echo "== auval =="; grep -E "AU VALIDATION|Tail Time|FAIL|WARNING" auval.log || echo "(geen uitslag)"
+          echo "   presets in auval:"; cat auval-presets.log || echo "(geen uitslag)"
+          echo "   regels van auval met een presetnaam:"; grep -F -f presetnamen.txt auval.log || echo "(geen)"
+          echo "== AU-preset-toets =="; grep -E "^FOUT|^ok  .*factory preset|^au-preset-toets:" au-preset-toets.log || echo "(geen uitslag)"
+          echo "== preset-toets CLAP macOS =="; grep -E "^FOUT|^presets:|^preset-toets:" preset-toets.log || echo "(geen uitslag)"
           echo "== pluginval AU =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!|Real-time violation" pluginval-au.log || echo "(geen uitslag)"
           echo "   editor-toetsen AU (niet overgeslagen):"; grep -E "Starting test.*(Editor|editor)|Open editor|Skipping editor|skip-gui" pluginval-au.log | sort | uniq -c || echo "(geen editor-toetsen gevonden)"
           echo "== pluginval VST3 macOS =="; grep -E "^SUCCESS|^FAILURE|FAILED|!!!|Real-time violation" pluginval-vst3.log || echo "(geen uitslag)"

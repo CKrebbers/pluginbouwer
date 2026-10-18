@@ -11,6 +11,9 @@
 // Fase 3: het frontpaneel (paneel.h, paneel_mac.mm) stuurt parameters via de host (valkuil 14). Het zet gebaren in
 // de brievenbus en vraagt request_flush; process of params.flush leegt hem, stuurt GESTURE_BEGIN/PARAM_VALUE/
 // GESTURE_END naar de host en past de waarde zelf toe, zoals een event van de host. Het paneel leest alleen `kopie`.
+//
+// Fase 4: fabriekspresets (presets.h/.cpp, uit presets/*.json gebakken). preset-load gaat hetzelfde pad als
+// state.load (neemOver): ontbrekende namen krijgen hun standaard, daarna rescan en preset_load->loaded.
 #include <clap/clap.h>
 
 #include <atomic>
@@ -23,6 +26,7 @@
 #include "dub_echo_entry.h"
 #include "ontwerpen/keten_dub_echo.h"
 #include "paneel.h"
+#include "presets.h"
 #include "tekst.h"
 
 namespace {
@@ -235,6 +239,11 @@ struct Plugin {
       double v; std::memcpy(&v, &u, 8);
       nieuw[i] = klem(i, v);
     }
+    neemOver(nieuw);
+    return true;
+  }
+  // nieuwe waarden van de mainthread (state.load, preset-load): inactief direct, actief via `kopie` en de vlag
+  void neemOver(const double nieuw[N]) {
     if (actief.load()) {
       for (int i = 0; i < N; ++i) kopie[i].store(nieuw[i], std::memory_order_relaxed);
       stateKlaar.store(true, std::memory_order_release);
@@ -243,6 +252,23 @@ struct Plugin {
     }
     if (hostParams) hostParams->rescan(host, CLAP_PARAM_RESCAN_VALUES);
     if (actief.load() && hostParams) hostParams->request_flush(host);
+  }
+  bool laadPreset(uint32_t soort, const char* locatie, const char* sleutel) {
+    const dub::Preset* p =
+        soort == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && locatie == nullptr ? dub::presetBijSleutel(sleutel) : nullptr;
+    const auto* hp = host ? static_cast<const clap_host_preset_load_t*>(host->get_extension(host, CLAP_EXT_PRESET_LOAD))
+                          : nullptr;
+    if (!hp && host)
+      hp = static_cast<const clap_host_preset_load_t*>(host->get_extension(host, CLAP_EXT_PRESET_LOAD_COMPAT));
+    if (!p) {
+      if (hp && hp->on_error) hp->on_error(host, soort, locatie, sleutel, 0, "onbekende fabriekspreset");
+      return false;
+    }
+    double nieuw[N];
+    dub::presetWaarden(*p, nieuw);
+    for (int i = 0; i < N; ++i) nieuw[i] = klem(i, nieuw[i]);
+    neemOver(nieuw);
+    if (hp && hp->loaded) hp->loaded(host, soort, locatie, sleutel);
     return true;
   }
 };
@@ -305,6 +331,12 @@ const clap_plugin_params_t PARAMS_EXT = {paramsCount, paramsInfo, paramsValue, p
 bool stateSave(const clap_plugin_t* pl, const clap_ostream_t* s) { return zelf(pl)->bewaar(s); }
 bool stateLoad(const clap_plugin_t* pl, const clap_istream_t* s) { return zelf(pl)->laad(s); }
 const clap_plugin_state_t STATE_EXT = {stateSave, stateLoad};
+
+// --- preset-load (fabriekspresets uit de preset-discovery-factory) -------------------------------------------
+bool presetLaad(const clap_plugin_t* pl, uint32_t soort, const char* locatie, const char* sleutel) {
+  return zelf(pl)->laadPreset(soort, locatie, sleutel);
+}
+const clap_plugin_preset_load_t PRESET_LOAD_EXT = {presetLaad};
 
 // --- audio-ports: één stereo in, één stereo uit -----------------------------------------------------------------
 uint32_t poortenCount(const clap_plugin_t*, bool) { return 1; }
@@ -369,6 +401,7 @@ clap_process_status plProcess(const clap_plugin_t* pl, const clap_process_t* pr)
 const void* plExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE_EXT;
+  if (!std::strcmp(id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)) return &PRESET_LOAD_EXT;
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &POORTEN_EXT;
   if (!std::strcmp(id, CLAP_EXT_LATENCY)) return &LATENTIE_EXT;
   if (!std::strcmp(id, CLAP_EXT_TAIL)) return &STAART_EXT;
@@ -401,5 +434,7 @@ bool dub_echo_init(const char*) { return true; }
 void dub_echo_deinit(void) {}
 const void* dub_echo_get_factory(const char* id) {
   if (id && !std::strcmp(id, CLAP_PLUGIN_FACTORY_ID)) return &FABRIEK;
+  if (id && (!std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID) || !std::strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT)))
+    return dub::presetFabriek();
   return nullptr;
 }
