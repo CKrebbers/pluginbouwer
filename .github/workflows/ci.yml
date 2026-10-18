@@ -286,6 +286,7 @@ jobs:
         run: |
           pkg=$(ls pkg/*.pkg)
           pkgutil --check-signature "$pkg" || echo "pakket is ongesigneerd (zoals bedoeld; geen Developer ID)"
+          set -o pipefail  # de exitcode van installer telt, niet die van tee
           sudo installer -pkg "$pkg" -target / -verbose 2>&1 | tee installeer-1.log
           grep -q "The install was successful" installeer-1.log || { echo "FOUT: eerste installatie niet geslaagd"; exit 1; }
           grep -q "Installing at base path /" installeer-1.log || { echo "FOUT: eerste installatie meldt geen \"Installing\""; exit 1; }
@@ -294,8 +295,9 @@ jobs:
       - name: Installeren (tweede keer; "Upgrading")
         run: |
           pkg=$(ls pkg/*.pkg)
+          set -o pipefail  # de exitcode van installer telt, niet die van tee
           sudo installer -pkg "$pkg" -target / -verbose 2>&1 | tee installeer-2.log
-          grep -q "The install was successful" installeer-2.log || { echo "FOUT: tweede installatie niet geslaagd"; exit 1; }
+          grep -q "The upgrade was successful" installeer-2.log || { echo "FOUT: tweede installatie meldt geen geslaagde upgrade"; exit 1; }
           grep -q "Upgrading at base path /" installeer-2.log || { echo "FOUT: tweede installatie meldt geen \"Upgrading\""; exit 1; }
           pkgutil --files nl.varve.pluginbouwer.toetsenpad.pkg | grep -E "\.(component|vst3|clap)$"
       - name: Plek en handtekening van alle drie
