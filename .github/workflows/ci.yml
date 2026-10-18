@@ -9,6 +9,11 @@
 #           pb-paneel door het gesigneerde .clap met schermafbeeldingen als artefact macos-frontpaneel
 #   fase 4: de fabriekspresets uit presets/: de drie preset-toetsen van clap-validator moeten PASSED zijn,
 #           pb-presettoets door het .clap (Linux en macOS), en elke presetnaam staat in de uitvoer van auval -strict -v
+#   fase 5: stereo en mono (audio-ports-config, configurable-audio-ports, AU-kanaalindelingen), bypass, 44,1–192 kHz,
+#           blok 1..4096: de verwachting per samplerate komt uit wasm/graaf.wasm (wasm-render.mjs, dat eerst
+#           testsignalen/ bit voor bit nadoet); null-test-matrix door het .clap (pb-render), de AU (pb-au-render, eigen
+#           AU-host) en de VST3/AU (pluginval test); pluginval validate op alle samplerates en blokgroottes; de
+#           layout-toetsen van clap-validator moeten PASSED zijn; auval toont de kanaalindelingen [0, 1] en [0, 2]
 # Bewijsstappen staan achteraan in elke job: de GitHub-tools geven alleen de laatste 5000 logregels (valkuil 18).
 name: CI
 
@@ -20,6 +25,9 @@ on:
 env:
   PLUGINVAL_VERSIE: v2.0.0-beta3
   CLAP_VALIDATOR_VERSIE: 0.4.1
+  # fase 5: de samplerates en blokgroottes van de matrix
+  SAMPLERATES: 44100,48000,88200,96000,176400,192000
+  PV_BLOKKEN: 1,64,512,4096
 
 jobs:
   linux:
@@ -80,24 +88,27 @@ jobs:
           echo "clap-validator exit: $status"
           test "$status" -eq 0
           grep -E "tests run, [0-9]+ passed, 0 failed" cv.txt
-          # fase 2 en 4: de state-, parameter- en presettoetsen moeten echt draaien (PASSED; SKIPPED telt niet)
+          # fase 2, 4 en 5: de state-, parameter-, preset- en layouttoetsen moeten echt draaien (PASSED; SKIPPED telt niet)
           awk '/┌─ [a-z]/{t=$NF} /└── /{print t, $3}' cv.txt > cv-status.txt
           for t in state-invalid-empty state-invalid-random state-reproducibility-basic state-reproducibility-binary \
                    state-reproducibility-buffered param-conversions param-default-values param-set-events \
                    param-set-no-cookies param-set-wrong-namespace param-fuzz-basic param-fuzz-bounds \
                    param-fuzz-sample-accurate param-fuzz-modulation \
-                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load; do
+                   preset-discovery-crawl preset-discovery-descriptor-consistency preset-discovery-load \
+                   layout-audio-ports-config layout-configurable-audio-ports process-varying-sample-rates \
+                   process-varying-block-sizes process-random-block-sizes; do
             grep -qx "$t PASSED" cv-status.txt || { echo "FOUT: clap-validator $t is niet PASSED"; exit 1; }
             echo "clap-validator $t: PASSED"
           done
 
-      - name: pluginval strictness 10 (VST3, xvfb)
+      - name: pluginval strictness 10 (VST3, xvfb; alle samplerates en blokgroottes 1..4096)
         run: |
           set -o pipefail
           # valkuil 18: het pluginpad vóór de andere opties
           xvfb-run -a ~/pluginval/pluginval validate "build/plugins/PB Toetsenpad.vst3" --strictness-level 10 \
-            --timeout-ms 600000 2>&1 | tee pv-vst3.log
+            --sample-rates "$SAMPLERATES" --block-sizes "$PV_BLOKKEN" --timeout-ms 1200000 2>&1 | tee pv-vst3.log
           grep -q "^SUCCESS" pv-vst3.log
+          sh gereedschap/pluginval-matrix-bewijs.sh pv-vst3.log
 
       - name: Null-test VST3 (pluginval test, blok 512)
         run: |
@@ -120,6 +131,17 @@ jobs:
           python3 gereedschap/presets-lijst.py presets > presets.txt
           cat presets.txt
           build/pb-presettoets "build/plugins/PB Toetsenpad.clap" presets.txt
+
+      - name: Verwachting per samplerate uit wasm/graaf.wasm (eerst testsignalen/ bit voor bit na; fase 5)
+        run: sh gereedschap/ci-null.sh verwacht build "$SAMPLERATES"
+
+      - name: Null-test VST3 per samplerate (pluginval test, gevallen en noten als MIDI; fase 5)
+        run: |
+          sh gereedschap/ci-null.sh pluginval-matrix "$PWD/build/plugins/PB Toetsenpad.vst3" \
+            "xvfb-run -a $HOME/pluginval/pluginval" vst3-linux
+
+      - name: Null-test CLAP-matrix (pb-render; alle samplerates, stereo en mono, blok 1, 4096 en wisselend; fase 5)
+        run: sh gereedschap/ci-null.sh matrix build 1 4096 1,4096,7,512,333
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -159,10 +181,19 @@ jobs:
           cmake -S plugin -B build-kanarie -G Ninja -DCMAKE_BUILD_TYPE=Release -DPB_RTSAN=ON -DPB_KANARIE=ON
           cmake --build build-kanarie --target toetsenpad_clap pb-render
 
-      - name: RTSan schoon (blok 512 en wisselend; noten CLAP en MIDI, automatisering, sinus, state-rondje)
+      - name: RTSan schoon (blok 1, 512 en wisselend; noten CLAP en MIDI, automatisering, sinus, state-rondje, bypass, mono, 44,1 en 192 kHz)
         run: |
           set -e
           R=build-rtsan/pb-render; C="build-rtsan/plugins/PB Toetsenpad.clap"; T=testsignalen; mkdir -p uit/rtsan
+          # fase 5: bypass aan en uit (ook midden in een blok), mono via beide extensies, 44,1 en 192 kHz, blok 1
+          printf '1000 5 1\n1200 5 0\n30000 5 1\n90000 5 0\n' > uit/rtsan/bypass.txt
+          for blok in 1 512 3,128,1,4096,77; do
+            for sr in 44100 192000; do
+              "$R" "$C" $T/noten/in.wav uit/rtsan/b.wav --blok $blok --sr $sr --noten $T/noten/noten.txt --automatie uit/rtsan/bypass.txt
+              "$R" "$C" $T/noten/in.wav uit/rtsan/m.wav --blok $blok --sr $sr --noten $T/noten/noten.txt --kanalen 1 --via config
+              "$R" "$C" $T/noten/in.wav uit/rtsan/m.wav --blok $blok --sr $sr --noten $T/noten/noten.txt --kanalen 1 --via configurable --midi
+            done
+          done
           for blok in 512 3,128,1,4096,77; do
             "$R" "$C" $T/noten/in.wav uit/rtsan/noten.wav --blok $blok --noten $T/noten/noten.txt
             "$R" "$C" $T/noten/in.wav uit/rtsan/midi.wav --blok $blok --noten $T/noten/noten.txt --midi
@@ -188,7 +219,7 @@ jobs:
 
   macos:
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 150  # fase 5: pluginval op 6 samplerates × 4 blokgroottes (AU drie keer) en de null-test-matrix
     steps:
       - uses: actions/checkout@v4
 
@@ -239,23 +270,27 @@ jobs:
           sleep 2
           auval -a | grep -i "Vrve" || true
 
-      - name: pluginval strictness 10 --rtcheck (VST3, via pluginval-rt.sh; valkuil 22; met GUI-toetsen)
+      - name: pluginval strictness 10 --rtcheck (VST3, via pluginval-rt.sh; valkuil 22; met GUI-toetsen; alle samplerates en blokgroottes)
         run: |
           set -o pipefail
           sh gereedschap/pluginval-rt.sh ~/pluginval/pluginval.app/Contents/MacOS/pluginval \
-            "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" 2>&1 | tee pv-vst3-mac.log
+            "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" --sample-rates "$SAMPLERATES" \
+            --block-sizes "$PV_BLOKKEN" --timeout-ms 1200000 2>&1 | tee pv-vst3-mac.log
+          sh gereedschap/pluginval-matrix-bewijs.sh pv-vst3-mac.log
           # fase 3: geen --skip-gui-tests, en de editortoetsen openden echt een editor ("Editor stress" logt dit
           # alleen als de plugin een editor heeft)
           grep -q "Testing opening Editor with released processing" pv-vst3-mac.log
           echo "pluginval VST3: editortoetsen draaiden met de editor van de plugin"
 
-      - name: pluginval strictness 10 --rtcheck enabled --repeat 3 (AU)
+      - name: pluginval strictness 10 --rtcheck enabled --repeat 3 (AU; alle samplerates en blokgroottes)
         run: |
           set -o pipefail
           ~/pluginval/pluginval.app/Contents/MacOS/pluginval validate \
             "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" \
-            --strictness-level 10 --rtcheck enabled --repeat 3 --timeout-ms 600000 2>&1 | tee pv-au.log
+            --strictness-level 10 --rtcheck enabled --repeat 3 --sample-rates "$SAMPLERATES" \
+            --block-sizes "$PV_BLOKKEN" --timeout-ms 1800000 2>&1 | tee pv-au.log
           grep -q "^SUCCESS" pv-au.log
+          sh gereedschap/pluginval-matrix-bewijs.sh pv-au.log
           # fase 3: geen --skip-gui-tests; de editor ging drie keer open (elke herhaling)
           n=$(grep -c "Testing opening Editor with released processing" pv-au.log || true)
           echo "pluginval AU: editor geopend in $n herhalingen"
@@ -314,3 +349,23 @@ jobs:
           cat auval-presets.txt
           diff presetnamen.txt auval-presets.txt || { echo "FOUT: de factory presets van auval zijn niet die uit presets/"; exit 1; }
           while IFS= read -r naam; do echo "auval toont preset: $naam"; done < presetnamen.txt
+          # fase 5: de AU biedt stereo én mono aan (valkuil 17: de patch maakt audio-ports-config de kanaalindelingen)
+          grep -A3 "Reported Channel Capabilities" auval.log | tee auval-kanalen.txt
+          grep -q "\[0, 2\]" auval-kanalen.txt && grep -q "\[0, 1\]" auval-kanalen.txt || \
+            { echo "FOUT: auval meldt niet de kanaalindelingen [0, 2] en [0, 1]"; exit 1; }
+          echo "auval: kanaalindelingen [0, 2] (stereo) en [0, 1] (mono)"
+
+      - name: Verwachting per samplerate uit wasm/graaf.wasm (eerst testsignalen/ bit voor bit na; fase 5)
+        run: sh gereedschap/ci-null.sh verwacht build "$SAMPLERATES"
+
+      - name: Null-test VST3 en AU per samplerate (pluginval test, gevallen en noten als MIDI; fase 5)
+        run: |
+          PV="$HOME/pluginval/pluginval.app/Contents/MacOS/pluginval"
+          sh gereedschap/ci-null.sh pluginval-matrix "$HOME/Library/Audio/Plug-Ins/VST3/PB Toetsenpad.vst3" "$PV" vst3-macos
+          sh gereedschap/ci-null.sh pluginval-matrix "$HOME/Library/Audio/Plug-Ins/Components/PB Toetsenpad.component" "$PV" au-macos
+
+      - name: Null-test AU-matrix (pb-au-render, eigen AU-host; alle samplerates, stereo en mono, blok 1, 512, 4096; fase 5)
+        run: sh gereedschap/ci-null.sh au-matrix build 1 512 4096
+
+      - name: Null-test CLAP-matrix (pb-render; alle samplerates, stereo en mono, blok 1, 4096 en wisselend; fase 5)
+        run: sh gereedschap/ci-null.sh matrix build 1 4096 1,4096,7,512,333

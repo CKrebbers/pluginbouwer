@@ -4,6 +4,9 @@
 //   node gereedschap/vergelijk.mjs --automatie <render.wav>  de render van pb-render --automatie (events midden in blokken)
 //   node gereedschap/vergelijk.mjs --noten <render.wav>      instrument: pb-render --noten (CLAP-noten of --midi)
 //   node gereedschap/vergelijk.mjs --hosttempo <render.wav>  instrument met sequencer: pb-render --tempo
+//   node gereedschap/vergelijk.mjs --paar <verwacht.wav> <render.wav> [label]
+//                                                       fase 5: één render tegen een verwachting van wasm-render.mjs;
+//                                                       ook samplerate, kanalen en lengte moeten gelijk zijn
 // Grens: piek ≤ −90 dBFS. Gevallen met "statistisch" (zelfoscillatie): terts-spectrum en omhullende binnen 1 dB.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -102,6 +105,15 @@ const LOS = {
   noten: ['noten (op hun sample)', 'doet de schil bij elke noot precies wat ARCHITECTUUR.md "Noten" zegt (Noot en Poort op de sample van de noot)?'],
   hosttempo: ['hosttempo (transport van de host)', 'krijgt het Ontwerp per blok zetTransport met het tempo uit clap_event_transport?'],
 };
+if (process.argv[2] === '--paar') {
+  const [, , , vPad, rPad, label] = process.argv;
+  const v = leesWav(vPad), r = leesWav(rPad), f = (x) => (x === -Infinity ? '−∞ (bit voor bit gelijk)' : `${x.toFixed(1)} dBFS`);
+  const vorm = v.sr !== r.sr || v.kanalen.length !== r.kanalen.length || v.kanalen[0].length !== r.kanalen[0].length
+    ? ` **ANDERE VORM**: ${r.sr} Hz, ${r.kanalen.length} kanalen, ${r.kanalen[0].length} samples (verwacht ${v.sr} Hz, ${v.kanalen.length}, ${v.kanalen[0].length})` : '';
+  const t = nullTest(v.kanalen, r.kanalen), ok = !vorm && t.piekDb <= GRENS_DB;
+  console.log(`| ${label || rPad} | ${f(t.piekDb)} | ${f(t.rmsDb)} | ${t.piekDb === -Infinity && !vorm ? 'ja' : 'nee'} |${vorm}${ok || vorm ? '' : ' **BOVEN DE GRENS** (eerste verschil op sample ' + t.eerste + ')'}`);
+  process.exit(ok ? 0 : 1);
+}
 if (process.argv[2]?.startsWith('--') && LOS[process.argv[2].slice(2)]) {
   // node gereedschap/vergelijk.mjs --<geval> <render.wav> [label]: één render tegen testsignalen/<geval>/verwacht.wav
   const geval = process.argv[2].slice(2), [label, hint] = LOS[geval];

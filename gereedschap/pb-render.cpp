@@ -8,6 +8,10 @@
 //             [--noten f [--midi]] noten op hun sample (instrument); f: per regel "sample aan|uit noot". Standaard als
 //                                 CLAP-noten, met --midi als MIDI-bytes (0x90/0x80): beide dialecten van de note port
 //             [--tempo bpm]       een transport dat speelt vanaf tel 0 op dit tempo (de sequencer volgt de host)
+//             [--kanalen 1|2 [--via config|configurable]]
+//                                 de uitgang kiezen vóór activate: met audio-ports-config (select, standaard) of met
+//                                 configurable-audio-ports (zoals de VST3 van clap-wrapper); de uitvoer-WAV krijgt
+//                                 zoveel kanalen als de uitgang daarna meldt
 //
 // Met -fsanitize=realtime (clang ≥ 20) loopt elke process-aanroep in een real-time context: een malloc, lock of
 // syscall in de plugin breekt dan het programma af met een stacktrace. Zie .github/workflows/ci.yml.
@@ -113,6 +117,7 @@ int main(int argc, char** argv) {
   struct Auto { uint64_t sample; int64_t id; double waarde; };
   std::vector<Auto> automatie;
   bool alsMidi = false; double tempo = 0;
+  uint32_t kanalenUit = 0; std::string via = "config";
   std::vector<std::pair<clap_id, double>> params;
   for (int i = 4; i < argc; ++i) {
     std::string a = argv[i];
@@ -136,6 +141,8 @@ int main(int argc, char** argv) {
     }
     else if (a == "--midi") alsMidi = true;
     else if (a == "--tempo" && i + 1 < argc) tempo = std::atof(argv[++i]);
+    else if (a == "--kanalen" && i + 1 < argc) kanalenUit = (uint32_t)std::atoi(argv[++i]);
+    else if (a == "--via" && i + 1 < argc) via = argv[++i];
     else fout("onbekende optie " + a);
   }
 
@@ -197,15 +204,48 @@ int main(int argc, char** argv) {
   // een instrument heeft geen audio-ingang: dan geven we er ook geen
   auto* ap = static_cast<const clap_plugin_audio_ports_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS));
   const uint32_t nIn = ap ? ap->count(pl, true) : 1;
+  if (kanalenUit) {  // de uitgang kiezen (niet actief), zoals een host dat doet
+    if (via == "config") {
+      auto* cfg = static_cast<const clap_plugin_audio_ports_config_t*>(pl->get_extension(pl, CLAP_EXT_AUDIO_PORTS_CONFIG));
+      if (!cfg) fout("--kanalen: geen audio-ports-config");
+      bool gekozen = false;
+      for (uint32_t k = 0; k < cfg->count(pl) && !gekozen; ++k) {
+        clap_audio_ports_config_t c{};
+        if (cfg->get(pl, k, &c) && c.has_main_output && c.main_output_channel_count == kanalenUit &&
+            c.input_port_count == nIn)
+          gekozen = cfg->select(pl, c.id);
+      }
+      if (!gekozen) fout("--kanalen: geen audio-ports-config met die uitgang, of select mislukt");
+    } else if (via == "configurable") {
+      auto* cap = static_cast<const clap_plugin_configurable_audio_ports_t*>(
+          pl->get_extension(pl, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS));
+      if (!cap) fout("--kanalen: geen configurable-audio-ports");
+      clap_audio_port_configuration_request_t r{false, 0, kanalenUit, kanalenUit == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO,
+                                                nullptr};
+      if (!cap->can_apply_configuration(pl, &r, 1) || !cap->apply_configuration(pl, &r, 1))
+        fout("--kanalen: apply_configuration mislukt");
+    } else fout("--via config|configurable");
+  }
+  // zoveel uitvoerkanalen als de uitgang meldt (zonder audio-ports: zoals de invoer, hooguit 2)
+  uint32_t kanUit = 0;
+  if (ap && ap->count(pl, false) > 0) {
+    clap_audio_port_info_t info{};
+    if (!ap->get(pl, 0, false, &info)) fout("audio-ports get mislukt");
+    kanUit = info.channel_count;
+  }
+  if (kanalenUit && kanUit != kanalenUit) fout("de uitgang meldt " + std::to_string(kanUit) + " kanalen na het kiezen");
   if (!pl->activate(pl, sr, 1, maxBlok)) fout("activate mislukt");
   if (!pl->start_processing(pl)) fout("start_processing mislukt");
 
   const uint32_t kan = (uint32_t)in.k.size() > 2 ? 2 : (uint32_t)in.k.size();
+  const uint32_t ku = kanUit ? kanUit : kan;
   const size_t n = in.k[0].size();
-  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(kan, std::vector<float>(n));
-  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(kan, std::vector<float>(maxBlok));
-  std::vector<float*> pi(kan), pu(kan);
-  for (uint32_t c = 0; c < kan; ++c) { pi[c] = bi[c].data(); pu[c] = bu[c].data(); }
+  Wav uit; uit.sr = (uint32_t)sr; uit.k.assign(ku, std::vector<float>(n));
+  // de uitvoerbuffers vooraf vol met een patroon: een kanaal dat de plugin niet schrijft valt dan op in de null-test
+  std::vector<std::vector<float>> bi(kan, std::vector<float>(maxBlok)), bu(ku, std::vector<float>(maxBlok, 0.5f));
+  std::vector<float*> pi(kan), pu(ku);
+  for (uint32_t c = 0; c < kan; ++c) pi[c] = bi[c].data();
+  for (uint32_t c = 0; c < ku; ++c) pu[c] = bu[c].data();
   Events blokEv; blokEv.ev.reserve(automatie.size());
   clap_input_events_t blokIn = {&blokEv, evSize, evGet};
   size_t volgende = 0;
@@ -215,7 +255,7 @@ int main(int argc, char** argv) {
     uint32_t m = blokken[bnr++ % blokken.size()];
     if (pos + m > n) m = (uint32_t)(n - pos);
     for (uint32_t c = 0; c < kan; ++c) std::memcpy(pi[c], &in.k[c][pos], m * 4);
-    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, kan, 0, 0};
+    clap_audio_buffer_t ai = {pi.data(), nullptr, kan, 0, 0}, au = {pu.data(), nullptr, ku, 0, 0};
     // de events van dit blok, met hun tijd binnen het blok (buiten doeProcess opgebouwd: geen allocatie in RT)
     blokEv.ev.clear();
     while (volgende < automatie.size() && automatie[volgende].sample < pos + m) {
@@ -246,7 +286,7 @@ int main(int argc, char** argv) {
     }
     clap_process_t pr = {steady, m, tempo > 0 ? &tr : nullptr, &ai, &au, nIn ? 1u : 0u, 1, &blokIn, &uitEv};
     if (doeProcess(pl, &pr) == CLAP_PROCESS_ERROR) fout("process gaf een fout");
-    for (uint32_t c = 0; c < kan; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
+    for (uint32_t c = 0; c < ku; ++c) std::memcpy(&uit.k[c][pos], pu[c], m * 4);
     pos += m; steady += m;
   }
   pl->stop_processing(pl);

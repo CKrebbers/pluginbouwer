@@ -124,3 +124,18 @@ if (APPLE)
   target_link_libraries(pb-paneel PRIVATE clap ${CMAKE_DL_LIBS} "-framework Cocoa")
   set_target_properties(pb-paneel PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
+
+# pb-noottabel: pb::nootVerhouding(0..127) uit dsp/pb_noten.h, voor de verwachte uitvoer van de noten bij andere
+# samplerates (gereedschap/wasm-render.mjs, fase 5). Met de DSP-vlaggen, zoals alles wat de DSP compileert.
+add_executable(pb-noottabel ${PAKKET}/gereedschap/pb-noottabel.cpp)
+target_include_directories(pb-noottabel PRIVATE ${PAKKET}/dsp)
+target_compile_options(pb-noottabel PRIVATE -ffp-contract=off -fno-fast-math -fno-math-errno)
+set_target_properties(pb-noottabel PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+if (APPLE)
+  # pb-au-render: een kleine AU-host zonder host-callbacks; de null-test van de geïnstalleerde AU op elke samplerate,
+  # stereo en mono (fase 5, valkuil 17)
+  add_executable(pb-au-render toetsen/pb-au-render.cpp)
+  target_link_libraries(pb-au-render PRIVATE "-framework AudioToolbox" "-framework CoreFoundation")
+  set_target_properties(pb-au-render PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()

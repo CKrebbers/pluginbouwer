@@ -84,7 +84,7 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
 
 ## Instrument
 - Geen audio-ingang: `audio-ports` meldt 0 ingangen en 1 uitgang; `audio-ports-config` (fase 5) alleen stereo en mono
-  uitgang. `verwerk(in, uit, k, n)` krijgt een invoer van nullen (één vaste stille buffer per kanaal, gereserveerd in
+  uitgang (zie "Formaten"). `verwerk(in, uit, k, n)` krijgt een invoer van nullen (één vaste stille buffer per kanaal, gereserveerd in
   activate): de keten leest hem niet, maar de pointers moeten geldig zijn.
 - CLAP-features `CLAP_PLUGIN_FEATURE_INSTRUMENT` en `CLAP_PLUGIN_FEATURE_SYNTHESIZER`; clap-wrapper maakt er met
   `AUV2_INSTRUMENT_TYPE aumu` een AU-instrument van (CMake, `make_clapfirst_plugins`).
@@ -105,6 +105,28 @@ dit, dus wijk er niet van af:
    bewaart dus geen noot. `reset` maakt de stapel leeg (na `ontwerp.reset()`).
 5. Note port: één ingang, `supported_dialects = CLAP_NOTE_DIALECT_CLAP`, `preferred_dialect = CLAP_NOTE_DIALECT_CLAP`
    (valkuil 19). De null-test speelt de noten ook als MIDI-bytes: stap 3 moet dus ook werken.
+
+## Formaten (fase 5)
+- **Uitgang stereo of mono.** Elk formaat kiest zijn kanalen anders (valkuil 17), dus de plugin heeft beide extensies:
+  `audio-ports-config` (id 0 "Stereo" 0 → 2, id 1 "Mono" 0 → 1; ook `audio-ports-config-info`) en
+  `configurable-audio-ports` (één verzoek voor uitgang 0 met 1 of 2 kanalen). Allebei alleen niet actief; `audio-ports`
+  meldt daarna de gekozen uitgang. De VST3 van clap-wrapper vraagt via `setBusArrangements` → configurable-audio-ports;
+  de AU via `patches/clap-wrapper-auv2-volgt-presets-mono-stereo.patch` (de indelingen worden AU-kanaalindelingen
+  [0, 2] en [0, 1]; Initialize kiest de passende). Mono = het Ontwerp met `kanalen = 1` (kanaal 0 van de keten).
+- **Bypass** (id 5, `CLAP_PARAM_IS_BYPASS | CLAP_PARAM_IS_STEPPED`, van de schil): de DSP rekent altijd door; na elk
+  stuk van het blok vloeit de uitvoer per sample lineair (in 10 ms) over naar de droge invoer, bij een instrument
+  stilte, en die mix gaat door `pb::uitvoer` (geen subnormale float naar de host). Na activate/reset springt hij meteen
+  naar zijn doel, zoals de smoothers. State bewaart hem (per id, dus oude blobs laden gewoon); een preset zet hem op
+  zijn standaard (uit), zoals elke parameter die hij niet noemt. De AU-wrapper zet hem bij
+  `kAudioUnitProperty_BypassEffect`, de VST3 ziet hem als `kIsBypass`.
+- **44,1–192 kHz, blok 1..4096**: activate reserveert voor de gevraagde samplerate en `max_frames`; process knipt in
+  stukken van hooguit `max_frames`.
+- **Toetsen** (CI): de verwachting per samplerate en kanaalaantal komt uit `wasm/graaf.wasm` met
+  `gereedschap/wasm-render.mjs`, dat eerst alle verwachtingen in `testsignalen/` bit voor bit nadoet (noten via
+  `pb-noottabel`: `pb::nootVerhouding` uit de gegeven `pb_noten.h`; bypass zoals hierboven). `ci-null.sh matrix` (CLAP,
+  pb-render), `au-matrix` (de AU, `pb-au-render`: eigen AU-host met de stream-indeling op de output-scope) en
+  `pluginval-matrix` (VST3/AU, pluginval test met de noten als MIDI-bestand); pluginval validate op alle samplerates en
+  blokgroottes; clap-validator `layout-audio-ports-config` en `layout-configurable-audio-ports` PASSED.
 
 ## Determinisme (waarom browser en plugin gelijk zijn)
 - Geen libm in de DSP: `pb_math.h` (alleen + − × ÷ sqrt floor). Vlaggen `-ffp-contract=off`, geen `-ffast-math`.

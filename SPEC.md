@@ -12,7 +12,7 @@ Zelf spelen: twee zaagtanden een octaaf uit elkaar, een filter dat per noot open
 (null-test, ook met noten), niet tegen een bestaand apparaat.
 
 ## Instrument
-- **Geen audio-ingang.** Eén stereo-uitgang (en mono, fase 5). CLAP-features `instrument` en `synthesizer`, AU-type
+- **Geen audio-ingang.** Eén uitgang, stereo (standaard) of mono (fase 5: audio-ports-config 0 → 2 en 0 → 1). CLAP-features `instrument` en `synthesizer`, AU-type
   `aumu` (staat als `PB_AU_TYPE` in `dsp/ontwerpen/keten_toetsenpad.h`, met `PB_INSTRUMENT`). De keten heeft geen
   ingangsknoop; geef `verwerk` een stille invoer (of de nulbuffer van de host), het Ontwerp leest hem niet.
 - **Noten.** Eén note port (ingang), alleen het CLAP-dialect (valkuil 19). Noot-aan en noot-uit (CLAP-noten, en
@@ -44,6 +44,7 @@ Terugkoppeling: nee.
 | 2 | Poort | 0 – 1 | — | 0 | 0 ms | glijden |  |
 | 3 | Filter | 100 – 8000 | Hz | 900 | 20 ms | glijden |  |
 | 4 | Loslaten | 10 – 4000 | ms | 450 | 20 ms | glijden |  |
+| 5 | Bypass | 0 – 1 (getrapt) | — | 0 | 10 ms overvloeien | — | van de schil, niet van het Ontwerp (fase 5): `CLAP_PARAM_IS_BYPASS` |
 
 - CLAP-parameters zijn waarden in hun eigen eenheid (min..max hierboven), niet 0..1; clap-wrapper normaliseert lineair
   voor VST3 en AU. Grenzen en standaarden zijn exact in float32, omdat een AU float doorgeeft: zo krijgt elk formaat
@@ -57,11 +58,13 @@ Terugkoppeling: nee.
 | 2 | Poort | Poort | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 3 | Filter | Filter | 900 Hz | onder 1000: hele Hz ("300 Hz"); vanaf 1000 kHz met 2 decimalen, vanaf 10 000 met 1 ("3,00 kHz", "12,0 kHz") |
 | 4 | Loslaten | Loslaten | 450 ms | onder 100: 1 decimaal ("20,0 ms"); vanaf 100 hele ms ("375 ms") |
+| 5 | Bypass | (geen knop) | Uit | "Aan" of "Uit"; terug ook "aan"/"uit"/"on"/"off" of een getal (vanaf 0,5 aan) |
 
 - Decimaalteken een komma (Nederlands), spatie voor de eenheid. `text_to_value` neemt komma én punt, met of zonder
   eenheid ("375", "375 ms", "0,375 s" hoeft niet), "k" voor kHz, en voor eenheidloos procenten ("38", "38 %"). Buiten
   het bereik = klemmen, onleesbaar = false.
-- Stapjes: geen; elke parameter is continu (geen CLAP_PARAM_IS_STEPPED).
+- Stapjes: geen; elke parameter is continu (geen CLAP_PARAM_IS_STEPPED), behalve Bypass (0 of 1; een waarde ertussen
+  telt vanaf 0,5 als aan, zoals de AU-wrapper en VST3 hem afronden).
 
 ## Budgetten
 | wat | budget | geschat/gemeten |

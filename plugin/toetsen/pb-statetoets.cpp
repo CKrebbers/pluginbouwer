@@ -167,7 +167,7 @@ struct Inst {
   }
 };
 
-struct Param { clap_id id; std::string naam; double min, max, standaard; };
+struct Param { clap_id id; std::string naam; double min, max, standaard; bool getrapt; };  // getrapt: CLAP_PARAM_IS_STEPPED
 std::vector<Param> params;
 
 // --- blobs met de hand -------------------------------------------------------------------------------------------
@@ -192,7 +192,13 @@ std::vector<unsigned char> blob(const char* magic, uint32_t versie, const std::v
 }
 
 // een waarde binnen het bereik die niet de standaard is (exact in float32, zoals een AU hem doorgeeft)
+// Getrapt (Bypass, fase 5): een hele waarde, zoals een host hem stuurt; met twee standen is dat steeds de andere.
 double anders(const Param& p, int keer) {
+  if (p.getrapt) {
+    for (double v = p.max - (keer % 2); v >= p.min; v -= 1.0)
+      if (v != p.standaard) return v;
+    return p.max != p.standaard ? p.max : p.min;
+  }
   const double f[] = {0.25, 0.625, 0.75};
   double v = (double)(float)(p.min + (p.max - p.min) * f[keer % 3]);
   if (v == p.standaard) v = (double)(float)(p.min + (p.max - p.min) * 0.125);
@@ -293,7 +299,8 @@ void stateToetsen() {
 // --- tekst ↔ waarde ----------------------------------------------------------------------------------------------
 struct TekstRegel { const char* naam; const char* standaard; };
 // SPEC.md "Tekst ↔ waarde", kolom "standaard als tekst"
-const TekstRegel TABEL[] = {{"Noot", "100 %"}, {"Poort", "0 %"}, {"Filter", "900 Hz"}, {"Loslaten", "450 ms"}};
+const TekstRegel TABEL[] = {{"Noot", "100 %"}, {"Poort", "0 %"}, {"Filter", "900 Hz"}, {"Loslaten", "450 ms"},
+                            {"Bypass", "Uit"}};  // Bypass: van de schil (fase 5), getrapt
 
 const Param* zoek(const char* naam) {
   for (auto& p : params)
@@ -347,6 +354,20 @@ void tekstToetsen() {
   naarTekst(x, "Loslaten", 375, "375 ms");
   naarTekst(x, "Loslaten", 99.97, "100 ms");
   naarTekst(x, "Loslaten", 4000, "4000 ms");
+
+  // Bypass (fase 5): "Aan" (omzeild) of "Uit"; als woord (ook on/off) of als getal, afgerond naar een stap
+  naarTekst(x, "Bypass", 1, "Aan");
+  naarTekst(x, "Bypass", 0.7, "Aan");
+  naarTekst(x, "Bypass", 0.3, "Uit");
+  naarWaarde(x, "Bypass", "Aan", 1);
+  naarWaarde(x, "Bypass", "uit", 0);
+  naarWaarde(x, "Bypass", "On", 1);
+  naarWaarde(x, "Bypass", "1", 1);
+  naarWaarde(x, "Bypass", "0,7", 1);
+  naarWaarde(x, "Bypass", "0", 0);
+  naarWaarde(x, "Bypass", "5", 1);
+  onleesbaar(x, "Bypass", "half");
+  onleesbaar(x, "Bypass", "1 %");
 
   naarWaarde(x, "Poort", "38", 0.38);
   naarWaarde(x, "Poort", "38 %", 0.38);
@@ -420,7 +441,8 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < n; ++i) {
       clap_param_info_t info{};
       if (!x.pp->get_info(x.pl, i, &info)) fout("get_info mislukt");
-      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
+      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value,
+                        (info.flags & CLAP_PARAM_IS_STEPPED) != 0});
       controle(x.waarde(info.id) == info.default_value, std::string(info.name) + ": een verse instantie staat op de standaard");
     }
     if (params.size() < 2) fout("te weinig parameters voor de toets");

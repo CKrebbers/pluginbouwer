@@ -1,7 +1,10 @@
-// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 4: parameters met tekst ↔ waarde, state, params.flush, paneel,
-// fabriekspresets via preset-discovery en preset-load).
+// plugin.cpp — de CLAP-schil van PB Toetsenpad (fase 5: parameters met tekst ↔ waarde, state, params.flush, paneel,
+// fabriekspresets via preset-discovery en preset-load, stereo- en mono-uitgang, bypass).
 //
-// Een instrument: geen audio-ingang, één stereo-uitgang, één note port (alleen het CLAP-dialect, valkuil 19).
+// Een instrument: geen audio-ingang, één uitgang (stereo of mono: audio-ports-config, en configurable-audio-ports voor
+// de VST3 van clap-wrapper; valkuil 17), één note port (alleen het CLAP-dialect, valkuil 19).
+// Bypass (CLAP_PARAM_IS_BYPASS, id 5, na de vier van SPEC.md): de DSP rekent door, de uitvoer vloeit in 10 ms lineair
+// over naar de droge invoer (bij een instrument stilte), en ook die mix gaat door pb::uitvoer (geen subnormale float).
 // Het Ontwerp uit dsp/ontwerpen/keten_toetsenpad.h levert naam, id, maker, parameters, latency en staart; process
 // geeft `verwerk` een stille invoer en past parameter- en noot-events op hun sample toe (het blok wordt bij elk event
 // gesplitst; de DSP rekent per sample, dus de uitvoer hangt niet af van het splitsen).
@@ -46,13 +49,32 @@ namespace {
 
 using pb::Ontwerp;
 
-constexpr uint32_t KANALEN = 2;
-constexpr int N = Ontwerp::N_PARAMS;
+constexpr uint32_t KANALEN = 2;       // hoogstens (stereo); mono is 1
+constexpr int N = Ontwerp::N_PARAMS;  // de parameters van het Ontwerp (index 0..N−1)
+constexpr int BYPASS = N;             // de index van Bypass: van de schil, niet van het Ontwerp
+constexpr int NP = N + 1;             // alle parameters naar de host
 constexpr int NOOT = PB_NOOT_PARAM;    // index in PARAMS, geen id
 constexpr int POORT = PB_POORT_PARAM;  // index in PARAMS, geen id
+constexpr double OVERVLOEI_SEC = 0.010;  // bypass aan of uit: 10 ms lineair overvloeien
+
+// Ontwerp::PARAMS plus Bypass. Het id van Bypass is het eerste vrije na SPEC.md; nooit hergebruiken of hernummeren.
+struct AlleParams {
+  pb::ParamInfo p[NP];
+};
+constexpr AlleParams maakAlle() {
+  AlleParams a{};
+  for (int i = 0; i < N; ++i) a.p[i] = Ontwerp::PARAMS[i];
+  uint32_t id = 1;
+  for (int i = 0; i < N; ++i)
+    if (Ontwerp::PARAMS[i].id >= id) id = Ontwerp::PARAMS[i].id + 1;
+  a.p[BYPASS] = {id, "Bypass", "", "", 0.0, 1.0, 0.0, 0.0, 0};
+  return a;
+}
+constexpr AlleParams ALLE = maakAlle();
+static_assert(ALLE.p[BYPASS].id == 5, "Bypass heeft id 5 (zie SPEC.md); een ander id breekt opgeslagen projecten");
 
 const char* const FEATURES[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER,
-                                CLAP_PLUGIN_FEATURE_STEREO, nullptr};
+                                CLAP_PLUGIN_FEATURE_STEREO, CLAP_PLUGIN_FEATURE_MONO, nullptr};
 
 const clap_plugin_descriptor_t DESCRIPTOR = {
     CLAP_VERSION_INIT,
@@ -67,16 +89,20 @@ const clap_plugin_descriptor_t DESCRIPTOR = {
     FEATURES,
 };
 
-// de index in PARAMS bij een parameter-id (de id's staan vast in SPEC.md), of −1
+// de index in ALLE bij een parameter-id (de id's staan vast in SPEC.md), of −1; BYPASS voor Bypass
 int indexVan(clap_id id) {
-  for (int i = 0; i < N; ++i)
-    if (Ontwerp::PARAMS[i].id == id) return i;
+  for (int i = 0; i < NP; ++i)
+    if (ALLE.p[i].id == id) return i;
   return -1;
 }
 
+// binnen het bereik; Bypass is getrapt (CLAP_PARAM_IS_STEPPED): 0 of 1, vanaf het midden aan (zoals de AU-wrapper
+// kAudioUnitProperty_BypassEffect leest, en zoals VST3 een genormaliseerde waarde van een stap afrondt)
 double klem(double v, int i) {
-  const auto& p = Ontwerp::PARAMS[i];
-  return v < p.min ? p.min : (v > p.max ? p.max : v);
+  const auto& p = ALLE.p[i];
+  v = v < p.min ? p.min : (v > p.max ? p.max : v);
+  if (i == BYPASS) v = v >= 0.5 ? 1.0 : 0.0;
+  return v;
 }
 
 // De rij van het paneel naar process/flush: één schrijver (de mainthread), één lezer (process of params.flush; de
@@ -109,14 +135,20 @@ struct Plugin {
   const clap_host_preset_load_t* hostPresetLoad = nullptr;
   Ontwerp ontwerp;
   pb::NootStapel stapel;
+  uint32_t kanalenUit = KANALEN;         // de gekozen uitgang: 2 (stereo) of 1 (mono); alleen te kiezen niet actief
+
+  // bypass (audiothread): het doel (0 of 1) en de stand van het overvloeien; springt na activate/reset, zoals de
+  // smoothers van het Ontwerp
+  double bypassDoel = 0.0, bypassMix = 0.0, bypassStap = 1.0;
+  bool bypassVers = true;
   std::vector<unsigned char> geheugen;   // het blok van Ontwerp::geheugenNodig, gereserveerd in activate
   std::vector<float> stil;               // de stille invoer voor verwerk (gereserveerd in activate)
   uint32_t stilLengte = 0;
   double sr = 48000;
   std::atomic<bool> actief{false};
 
-  std::atomic<double> spiegel[N];        // wat de host ziet (get_value, state.save); de audiothread werkt hem bij
-  std::atomic<double> klaar[N];          // state.load terwijl actief: overnemen in process/flush
+  std::atomic<double> spiegel[NP];       // wat de host ziet (get_value, state.save); de audiothread werkt hem bij
+  std::atomic<double> klaar[NP];         // state.load terwijl actief: overnemen in process/flush
   std::atomic<bool> klaarVlag{false};
   std::atomic<double> staart{0.0};       // seconden, −1 = oneindig; uitgerekend op de audiothread
 
@@ -128,9 +160,9 @@ struct Plugin {
 #endif
 
   Plugin() {
-    for (int i = 0; i < N; ++i) {
-      spiegel[i].store(Ontwerp::PARAMS[i].standaard);
-      klaar[i].store(Ontwerp::PARAMS[i].standaard);
+    for (int i = 0; i < NP; ++i) {
+      spiegel[i].store(ALLE.p[i].standaard);
+      klaar[i].store(ALLE.p[i].standaard);
     }
   }
 };
@@ -138,13 +170,16 @@ struct Plugin {
 Plugin* zelf(const clap_plugin_t* p) { return static_cast<Plugin*>(p->plugin_data); }
 
 // --- events (audiothread, of de mainthread als de plugin niet actief is) -----------------------------------------
+// een (geklemde) waarde toepassen: een parameter van het Ontwerp, of het doel van Bypass; en de spiegel bijwerken
+void zetWaarde(Plugin* s, int i, double v) {
+  if (i == BYPASS) s->bypassDoel = v;
+  else s->ontwerp.zetParam(i, v);
+  s->spiegel[i].store(v, std::memory_order_relaxed);
+}
+
 void neemKlaarOver(Plugin* s) {
   if (!s->klaarVlag.exchange(false, std::memory_order_acq_rel)) return;
-  for (int i = 0; i < N; ++i) {
-    const double v = s->klaar[i].load(std::memory_order_relaxed);
-    s->ontwerp.zetParam(i, v);
-    s->spiegel[i].store(v, std::memory_order_relaxed);
-  }
+  for (int i = 0; i < NP; ++i) zetWaarde(s, i, s->klaar[i].load(std::memory_order_relaxed));
 }
 
 // ARCHITECTUUR.md "Noten" stap 2: na elk noot-event
@@ -168,8 +203,7 @@ void neemPaneelOver(Plugin* s, const clap_output_events_t* uit) {
     if (w.soort == pb::paneel::Soort::Waarde) {
       if (!std::isfinite(w.waarde)) continue;
       const double v = klem(w.waarde, w.index);
-      s->ontwerp.zetParam(w.index, v);
-      s->spiegel[w.index].store(v, std::memory_order_relaxed);
+      zetWaarde(s, w.index, v);
       if (uit) {
         clap_event_param_value_t e{};
         e.header = {sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
@@ -200,9 +234,7 @@ void pasToe(Plugin* s, const clap_event_header_t* h) {
       const auto* e = reinterpret_cast<const clap_event_param_value_t*>(h);
       const int i = indexVan(e->param_id);
       if (i < 0 || !std::isfinite(e->value)) return;
-      const double v = klem(e->value, i);
-      s->ontwerp.zetParam(i, v);
-      s->spiegel[i].store(v, std::memory_order_relaxed);
+      zetWaarde(s, i, klem(e->value, i));
       return;
     }
     case CLAP_EVENT_NOTE_ON:
@@ -237,20 +269,107 @@ void pasToe(Plugin* s, const clap_event_header_t* h) {
   }
 }
 
-// --- audio-ports: 0 ingangen, 1 stereo-uitgang ------------------------------------------------------------------
+// --- audio-ports: 0 ingangen, 1 uitgang (stereo of mono, zoals gekozen) -----------------------------------------
 uint32_t apCount(const clap_plugin_t*, bool isInput) { return isInput ? 0 : 1; }
-bool apGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
+bool apGet(const clap_plugin_t* pl, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
   if (isInput || index != 0) return false;
+  const uint32_t k = zelf(pl)->kanalenUit;
   info->id = 0;
   std::strncpy(info->name, "Uit", sizeof info->name);
   info->name[sizeof info->name - 1] = 0;
   info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-  info->channel_count = KANALEN;
-  info->port_type = CLAP_PORT_STEREO;
+  info->channel_count = k;
+  info->port_type = k == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
   info->in_place_pair = CLAP_INVALID_ID;
   return true;
 }
 const clap_plugin_audio_ports_t AUDIO_PORTS = {apCount, apGet};
+
+// --- audio-ports-config: 0 → 2 (id 0, de standaard) en 0 → 1 (id 1) ----------------------------------------------
+// Valkuil 17: CLAP-hosts kiezen hiermee, de AU van clap-wrapper ook (patches/clap-wrapper-auv2-volgt-presets-mono-
+// stereo.patch maakt er de AU-kanaalindelingen van); de VST3 van clap-wrapper vraagt via configurable-audio-ports.
+struct UitIndeling {
+  clap_id id;
+  const char* naam;
+  uint32_t kanalen;
+};
+constexpr UitIndeling INDELINGEN[] = {{0, "Stereo", 2}, {1, "Mono", 1}};
+constexpr uint32_t N_INDELINGEN = sizeof INDELINGEN / sizeof INDELINGEN[0];
+
+uint32_t apcCount(const clap_plugin_t*) { return N_INDELINGEN; }
+bool apcGet(const clap_plugin_t*, uint32_t index, clap_audio_ports_config_t* c) {
+  if (index >= N_INDELINGEN || !c) return false;
+  const UitIndeling& d = INDELINGEN[index];
+  std::memset(c, 0, sizeof *c);
+  c->id = d.id;
+  std::snprintf(c->name, sizeof c->name, "%s", d.naam);
+  c->input_port_count = 0;
+  c->output_port_count = 1;
+  c->has_main_input = false;
+  c->main_input_channel_count = 0;
+  c->main_input_port_type = nullptr;
+  c->has_main_output = true;
+  c->main_output_channel_count = d.kanalen;
+  c->main_output_port_type = d.kanalen == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+  return true;
+}
+bool apcSelect(const clap_plugin_t* pl, clap_id id) {
+  Plugin* s = zelf(pl);
+  if (s->actief.load()) return false;  // [main-thread & plugin-deactivated]
+  for (const UitIndeling& d : INDELINGEN)
+    if (d.id == id) {
+      s->kanalenUit = d.kanalen;
+      return true;
+    }
+  return false;
+}
+const clap_plugin_audio_ports_config_t AUDIO_PORTS_CONFIG = {apcCount, apcGet, apcSelect};
+
+clap_id apciCurrent(const clap_plugin_t* pl) {
+  for (const UitIndeling& d : INDELINGEN)
+    if (d.kanalen == zelf(pl)->kanalenUit) return d.id;
+  return CLAP_INVALID_ID;
+}
+bool apciGet(const clap_plugin_t* pl, clap_id id, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
+  for (const UitIndeling& d : INDELINGEN)
+    if (d.id == id) {
+      if (isInput || index != 0 || !info) return false;
+      apGet(pl, 0, false, info);
+      info->channel_count = d.kanalen;
+      info->port_type = d.kanalen == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+      return true;
+    }
+  return false;
+}
+const clap_plugin_audio_ports_config_info_t AUDIO_PORTS_CONFIG_INFO = {apciCurrent, apciGet};
+
+// --- configurable-audio-ports: de uitgang op 1 of 2 kanalen (de VST3-wrapper vraagt zo in setBusArrangements) -----
+// Elk verzoek moet de enige uitgang (index 0) zijn, met 1 of 2 kanalen en een passend of leeg poorttype. Geen
+// verzoeken: niets te veranderen.
+bool capKan(const clap_audio_port_configuration_request_t* r, uint32_t n, uint32_t* kanalen) {
+  if (n > 0 && !r) return false;
+  for (uint32_t k = 0; k < n; ++k) {
+    if (r[k].is_input || r[k].port_index != 0) return false;
+    const uint32_t c = r[k].channel_count;
+    if (c != 1 && c != 2) return false;
+    const char* t = r[k].port_type;
+    if (t && std::strcmp(t, c == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO)) return false;
+    *kanalen = c;
+  }
+  return true;
+}
+bool capCan(const clap_plugin_t* pl, const clap_audio_port_configuration_request_t* r, uint32_t n) {
+  uint32_t k = zelf(pl)->kanalenUit;
+  return !zelf(pl)->actief.load() && capKan(r, n, &k);
+}
+bool capApply(const clap_plugin_t* pl, const clap_audio_port_configuration_request_t* r, uint32_t n) {
+  Plugin* s = zelf(pl);
+  uint32_t k = s->kanalenUit;
+  if (s->actief.load() || !capKan(r, n, &k)) return false;
+  s->kanalenUit = k;
+  return true;
+}
+const clap_plugin_configurable_audio_ports_t CONFIGURABLE_AUDIO_PORTS = {capCan, capApply};
 
 // --- note-ports: één ingang, alleen het CLAP-dialect (valkuil 19) ------------------------------------------------
 uint32_t npCount(const clap_plugin_t*, bool isInput) { return isInput ? 1 : 0; }
@@ -266,13 +385,14 @@ bool npGet(const clap_plugin_t*, uint32_t index, bool isInput, clap_note_port_in
 const clap_plugin_note_ports_t NOTE_PORTS = {npCount, npGet};
 
 // --- params: id = het nummer in SPEC.md, waarden in hun eigen eenheid --------------------------------------------
-uint32_t prCount(const clap_plugin_t*) { return N; }
+uint32_t prCount(const clap_plugin_t*) { return NP; }
 bool prInfo(const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
-  if (index >= (uint32_t)N) return false;
-  const auto& p = Ontwerp::PARAMS[index];
+  if (index >= (uint32_t)NP) return false;
+  const auto& p = ALLE.p[index];
   std::memset(info, 0, sizeof *info);
   info->id = p.id;
   info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+  if ((int)index == BYPASS) info->flags |= CLAP_PARAM_IS_BYPASS | CLAP_PARAM_IS_STEPPED;
   info->cookie = nullptr;
   std::snprintf(info->name, sizeof info->name, "%s", p.naam);
   info->module[0] = 0;
@@ -289,7 +409,7 @@ bool prValue(const clap_plugin_t* pl, clap_id id, double* v) {
 }
 
 bool eenheidloos(int i) {
-  const char* e = Ontwerp::PARAMS[i].eenheid;
+  const char* e = ALLE.p[i].eenheid;
   return !std::strcmp(e, "") || !std::strcmp(e, "×") || !std::strcmp(e, "%");
 }
 
@@ -326,7 +446,11 @@ double alsGetal(const char* t) {
 bool prToText(const clap_plugin_t*, clap_id id, double v, char* uit, uint32_t grootte) {
   const int i = indexVan(id);
   if (i < 0 || !uit || grootte == 0 || !std::isfinite(v)) return false;
-  const char* e = Ontwerp::PARAMS[i].eenheid;
+  if (i == BYPASS) {  // Bypass: "Aan" (omzeild) of "Uit"
+    std::snprintf(uit, grootte, "%s", klem(v, i) >= 1.0 ? "Aan" : "Uit");
+    return true;
+  }
+  const char* e = ALLE.p[i].eenheid;
   char g[48];
   const char* eenheid = e;
   if (eenheidloos(i)) {
@@ -402,9 +526,17 @@ bool prFromText(const clap_plugin_t*, clap_id id, const char* tekst, double* v) 
   while (*rest == ' ' || *rest == '\t') ++rest;
   size_t n = std::strlen(rest);
   while (n > 0 && (rest[n - 1] == ' ' || rest[n - 1] == '\t')) --n;
-  const char* e = Ontwerp::PARAMS[i].eenheid;
+  if (i == BYPASS && begin == rest) {  // Bypass ook als woord: aan/uit (en on/off)
+    if (gelijkZonderHoofdletters(rest, n, "aan") || gelijkZonderHoofdletters(rest, n, "on")) *v = 1.0;
+    else if (gelijkZonderHoofdletters(rest, n, "uit") || gelijkZonderHoofdletters(rest, n, "off")) *v = 0.0;
+    else return false;
+    return true;
+  }
+  const char* e = ALLE.p[i].eenheid;
   int macht = 0;
-  if (eenheidloos(i)) {
+  if (i == BYPASS) {
+    if (n != 0) return false;  // een getal: 0 of 1 (geklemd en afgerond)
+  } else if (eenheidloos(i)) {
     if (!(n == 0 || gelijkZonderHoofdletters(rest, n, "%"))) return false;
     macht = -2;
   } else if (!std::strcmp(e, "Hz")) {
@@ -438,20 +570,17 @@ uint32_t lees32(const unsigned char* p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-// Nieuwe waarden voor alle parameters (mainthread): state.load en preset-load gaan allebei hierlangs.
+// Nieuwe waarden voor alle parameters, Bypass ook (mainthread): state.load en preset-load gaan allebei hierlangs.
 void laadWaarden(Plugin* s, const double* waarden) {
   if (s->actief.load()) {
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < NP; ++i) {
       s->klaar[i].store(waarden[i], std::memory_order_relaxed);
       s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
     }
     s->klaarVlag.store(true, std::memory_order_release);
   } else {
     // niet actief: alleen de mainthread raakt het Ontwerp aan
-    for (int i = 0; i < N; ++i) {
-      s->ontwerp.zetParam(i, waarden[i]);
-      s->spiegel[i].store(waarden[i], std::memory_order_relaxed);
-    }
+    for (int i = 0; i < NP; ++i) zetWaarde(s, i, waarden[i]);
   }
   if (s->hostParams) {
     s->hostParams->rescan(s->host, CLAP_PARAM_RESCAN_VALUES);
@@ -464,9 +593,9 @@ bool stSave(const clap_plugin_t* pl, const clap_ostream_t* os) {
   std::vector<unsigned char> b;
   b.insert(b.end(), {'P', 'B', 'S', 'T'});
   zet32(b, STATE_VERSIE);
-  zet32(b, (uint32_t)N);
-  for (int i = 0; i < N; ++i) {
-    zet32(b, Ontwerp::PARAMS[i].id);
+  zet32(b, (uint32_t)NP);
+  for (int i = 0; i < NP; ++i) {
+    zet32(b, ALLE.p[i].id);
     const double v = s->spiegel[i].load(std::memory_order_relaxed);
     uint64_t u;
     std::memcpy(&u, &v, 8);
@@ -498,8 +627,8 @@ bool stLoad(const clap_plugin_t* pl, const clap_istream_t* is) {
   if (versie == 0) return false;
   if ((uint64_t)aantal * 12 > b.size() - 12) return false;  // korter dan het aantal belooft
   // per id: een onbekend id overslaan, een ontbrekend id houdt zijn standaard
-  double waarden[N];
-  for (int i = 0; i < N; ++i) waarden[i] = Ontwerp::PARAMS[i].standaard;
+  double waarden[NP];
+  for (int i = 0; i < NP; ++i) waarden[i] = ALLE.p[i].standaard;
   for (uint32_t k = 0; k < aantal; ++k) {
     const unsigned char* p = &b[12 + 12 * (size_t)k];
     const int i = indexVan(lees32(p));
@@ -578,8 +707,8 @@ bool plLaadPreset(const clap_plugin_t* pl, uint32_t soort, const char* plek, con
       s->hostPresetLoad->on_error(s->host, soort, plek, sleutel, 0, "PB Toetsenpad: onbekende preset");
     return false;
   }
-  double waarden[N];
-  for (int i = 0; i < N; ++i) waarden[i] = Ontwerp::PARAMS[i].standaard;
+  double waarden[NP];  // Bypass ook naar zijn standaard, zoals elke parameter die de preset niet noemt
+  for (int i = 0; i < NP; ++i) waarden[i] = ALLE.p[i].standaard;
   const FabrieksPreset& f = FABRIEKSPRESETS[p];
   for (int k = 0; k < f.aantal; ++k) waarden[indexVanNaam(f.waarden[k].naam)] = f.waarden[k].waarde;
   laadWaarden(s, waarden);
@@ -633,6 +762,8 @@ bool plActivate(const clap_plugin_t* p, double sr, uint32_t minFrames, uint32_t 
   s->stilLengte = maxFrames > 0 ? maxFrames : 4096;
   s->stil.assign((size_t)s->stilLengte * KANALEN, 0.0f);
   s->sr = sr;
+  s->bypassStap = 1.0 / (OVERVLOEI_SEC * sr);
+  s->bypassVers = true;
   s->staart.store(s->ontwerp.staartSec());
   s->actief.store(true);
   return true;
@@ -650,11 +781,36 @@ void plReset(const clap_plugin_t* p) {
   Plugin* s = zelf(p);
   s->ontwerp.reset();
   s->stapel.leeg();
+  s->bypassVers = true;
+}
+
+// Bypass over [van, tot): de DSP rekende al (hij rekent altijd door), hier vloeit zijn uitvoer per sample over naar
+// de droge invoer, en die mix gaat door pb::uitvoer. Een instrument heeft geen ingang: droog is stilte. Zonder bypass
+// (mix 0, doel 0) blijft de uitvoer van de DSP bit voor bit staan.
+void bypass(Plugin* s, float* const* uit, uint32_t kanalen, uint32_t van, uint32_t tot) {
+  if (s->bypassVers) {  // na activate/reset: meteen op het doel (zoals de smoothers)
+    s->bypassMix = s->bypassDoel;
+    s->bypassVers = false;
+  }
+  if (s->bypassMix == 0.0 && s->bypassDoel == 0.0) return;
+  constexpr double DROOG = 0.0;
+  for (uint32_t i = van; i < tot; ++i) {
+    if (s->bypassMix < s->bypassDoel) {
+      s->bypassMix += s->bypassStap;
+      if (s->bypassMix > s->bypassDoel) s->bypassMix = s->bypassDoel;
+    } else if (s->bypassMix > s->bypassDoel) {
+      s->bypassMix -= s->bypassStap;
+      if (s->bypassMix < s->bypassDoel) s->bypassMix = s->bypassDoel;
+    }
+    const double g = s->bypassMix;
+    for (uint32_t c = 0; c < kanalen; ++c) uit[c][i] = pb::uitvoer((1.0 - g) * (double)uit[c][i] + g * DROOG);
+  }
 }
 
 // verwerk een stuk [van, tot) van het blok, in stukken van hooguit de stille buffer
 void render(Plugin* s, float* const* uit, uint32_t kanalen, uint32_t van, uint32_t tot) {
   const float* in[KANALEN] = {s->stil.data(), s->stil.data() + s->stilLengte};
+  const uint32_t begin = van;
   while (van < tot) {
     uint32_t n = tot - van;
     if (n > s->stilLengte) n = s->stilLengte;
@@ -663,6 +819,7 @@ void render(Plugin* s, float* const* uit, uint32_t kanalen, uint32_t van, uint32
     s->ontwerp.verwerk(in, u, (int)kanalen, n);
     van += n;
   }
+  bypass(s, uit, kanalen, begin, tot);
 }
 
 clap_process_status plProcess(const clap_plugin_t* p, const clap_process_t* pr) {
@@ -833,6 +990,11 @@ const clap_plugin_gui_t GUI = {guiApi,    guiVoorkeur, guiMaak,   guiWeg,      g
 
 const void* plGetExtension(const clap_plugin_t*, const char* id) {
   if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG)) return &AUDIO_PORTS_CONFIG;
+  if (!std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO) || !std::strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG_INFO_COMPAT))
+    return &AUDIO_PORTS_CONFIG_INFO;
+  if (!std::strcmp(id, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS) || !std::strcmp(id, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS_COMPAT))
+    return &CONFIGURABLE_AUDIO_PORTS;
   if (!std::strcmp(id, CLAP_EXT_NOTE_PORTS)) return &NOTE_PORTS;
   if (!std::strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS_EXT;
   if (!std::strcmp(id, CLAP_EXT_STATE)) return &STATE;

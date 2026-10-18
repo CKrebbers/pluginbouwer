@@ -167,7 +167,7 @@ struct Inst {
   }
 };
 
-struct Param { clap_id id; std::string naam; double min, max, standaard; };
+struct Param { clap_id id; std::string naam; double min, max, standaard; bool getrapt; };  // getrapt: CLAP_PARAM_IS_STEPPED
 std::vector<Param> params;
 
 struct Preset {
@@ -214,7 +214,10 @@ std::vector<double> doelVan(const Preset& p) {
 }
 
 // een waarde binnen het bereik die niet de standaard is en niet wat een preset zet (exact in float32)
+// Getrapt (Bypass, fase 5): een hele waarde, zoals een host hem stuurt (het maximum, of het minimum als dat de
+// standaard is).
 double anders(const Param& q) {
+  if (q.getrapt) return q.max != q.standaard ? q.max : q.min;
   return (double)(float)(q.min + (q.max - q.min) * 0.8125);
 }
 
@@ -415,7 +418,8 @@ int main(int argc, char** argv) {
     for (uint32_t i = 0; i < n; ++i) {
       clap_param_info_t info{};
       if (!x.pp->get_info(x.pl, i, &info)) fout("get_info mislukt");
-      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value});
+      params.push_back({info.id, info.name, info.min_value, info.max_value, info.default_value,
+                        (info.flags & CLAP_PARAM_IS_STEPPED) != 0});
     }
     // elke naam in de JSON is een parameter (de bouw eist het al; hier door het binary)
     for (auto& p : verwacht)
