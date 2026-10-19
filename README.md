@@ -6,6 +6,8 @@ bewijs uit CI. Browser en plugin rekenen met dezelfde C++ (`dsp/`), en de null-t
 
 - De tool: `tool/index.html` (losse pagina) of `tool/artifact.html` (claude.ai).
 - De besluiten en valkuilen staan in `CLAUDE.md`, de volgorde in `TASKS.md` en de stackkeuze met metingen in `KEUZE-STACK.md`.
+- Het plan om dieper te experimenteren (experimenten als bestanden, sondes, codeblok, werkbank-plugin, bruikbare open
+  source met licentie): `PLAN-WERKBANK.md`.
 - Wat Clay zelf doet staat in `LEERPAD.md` van elk bouwpakket.
 - Voorbeeldpakketten: `bouwpakket/dub_echo/` (effect) en `bouwpakket/toetsenpad/` (instrument).
 

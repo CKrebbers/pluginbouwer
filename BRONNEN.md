@@ -58,5 +58,10 @@ geeft, niet tegen de tekst van de bron (tests/bronnen.test.mjs).
 | M. R. Schroeder, "New Method of Measuring Reverberation Time", JASA 37, 1965 | de meting van de nagalmtijd in de toets | — |
 | Feed-forward compressor met harde knie (leerboekvorm) | compressor | statische kromme ±0,5 dB |
 
+## Voor de werkbank (19 okt 2026)
+Licenties van Airwindows, Mutable Instruments, hiir, Signalsmith DSP, Q, STK, DaisySP, Faust-bibliotheken, chowdsp_utils,
+EEL2, Cmajor, Elementary, WCLAP, ysfx, cpp-httplib, uPlot en de Local Network Access-spec: gelezen op 19 okt 2026, met
+wat wel en niet mag in PLAN-WERKBANK.md §8.
+
 ## Doelgeluid
 Zie SPEC.md van de dub-echo. Elk getal over de RE-201 staat daar met bron of als **[niet bevestigd]**.

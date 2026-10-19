@@ -129,3 +129,16 @@ waar het hele project om draait: de AU in Logic. Daarna wordt het pakket pas bre
 
 Volgorde en waarom: 1 vóór alles (het bewijs waar het om gaat); 2 vóór 3 en 5 (een instrument in het pakket vraagt de motor);
 3 en 4 lopen naast elkaar en vragen Clay niets dan luisteren; 5 is de eerste nieuwe bouw en komt pas na 1–3.
+
+## X. Dieper experimenteren en ontwikkelen — plan van 19 okt 2026 (volledig in PLAN-WERKBANK.md)
+Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindigt met een toets in CI.
+1. **X0 experimenten als bestanden.** `experimenten/<naam>.mjs` + `tools/experiment.mjs` (render, meten, uitslag in git),
+   `--alle --controleer` in CI. Eerste drie: aliasing per vervormer, dub-echo tegen de Akai, samplerate 44,1/48/96.
+   Stop: reproduceerbaar in CI, een opzettelijke wijziging faalt op het juiste getal.
+2. **X1 sondes en tab Lab.** `pg_sonde`/`pg_sonde_buf` (alleen WASM, `PB_SONDES`), scope, spectrum, NaN-teller, A−B.
+   Stop: sondes aan = bit voor bit gelijk; headless ziet op elk blok signaal.
+3. **X2 het codeblok.** Taal (`tool/src/code.js`), tolk (`dsp/pb_code.h`), codesegment achter de rij, mee in het pakket.
+   Stop: golfvormer, eenpolig filter en LFO binnen 0,5 s hoorbaar; één als plugin met de null-test groen.
+4. **X3 bouwstenen van buiten**, één per ronde, eerst als codeblok (hiir, Airwindows-band, Rings, Signalsmith, galm).
+5. **X4 de werkbank-plugin** (na stap 1 van 18 okt): runtime-ontwerp met 16 macro's, A/B-wissel, brug in Node.
+   Stop: knop in de tool → hoorbaar in Logic; project opnieuw openen = hetzelfde geluid.
