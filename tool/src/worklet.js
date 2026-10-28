@@ -6,6 +6,9 @@ class PbMotor extends AudioWorkletProcessor {
     super();
     this.e = null; this.h = { A: -1, B: -1 }; this.actief = 'A'; this.vorige = null; this.fade = 0;
     this.droog = false; this.meter = 0; this.tel = 0;
+    // stil: 20 ms uitfaden, dan nul en de ketens terug naar het begin (een toon, een trommel of een echo die doorgaat
+    // klinkt anders door zonder invoer); daarna rekent hij niets tot er weer gespeeld wordt
+    this.stil = false; this.stilFade = 0; this.stilKlaar = false;
     // een fout hier (bv. de WASM die niet instantieert) zou de worklet stil laten doorlopen met alleen de droge ingang;
     // daarom altijd terugmelden, dan zegt de tool het
     this.port.onmessage = (m) => { try { this.bericht(m.data); } catch (f) { this.port.postMessage({ type: 'fout', tekst: String(f && f.message || f) }); } };
@@ -36,6 +39,7 @@ class PbMotor extends AudioWorkletProcessor {
     } else if (d.type === 'param') { const h = this.h[d.slot || 'A']; if (h >= 0) e.pg_zet(h, d.i, d.v); }
     else if (d.type === 'kies') { if (d.slot !== this.actief && this.h[d.slot] >= 0) { this.vorige = null; this.wisselNaar = d.slot; this.fade = 0; } }
     else if (d.type === 'droog') this.droog = !!d.aan;
+    else if (d.type === 'stil') { this.stil = !!d.aan; this.stilFade = 0; this.stilKlaar = false; }
   }
   render(h, inp, n, kanalen) {
     const e = this.e;
@@ -46,6 +50,7 @@ class PbMotor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const inp = inputs[0], out = outputs[0];
     const n = out[0].length, kanalen = Math.min(2, out.length);
+    if (this.stilKlaar) { for (let c = 0; c < kanalen; c++) out[c].fill(0); return true; }
     const bron = [0, 1].slice(0, kanalen).map((c) => (inp && inp[c]) ? inp[c] : (inp && inp[0]) ? inp[0] : new Float32Array(n));
     if (!this.e || this.h[this.actief] < 0 || this.droog) {
       for (let c = 0; c < kanalen; c++) out[c].set(bron[c]);
@@ -67,6 +72,16 @@ class PbMotor extends AudioWorkletProcessor {
         }
       }
       for (let c = 0; c < kanalen; c++) out[c].set(y[c]);
+    }
+    if (this.stil) {
+      const L = Math.round(0.02 * sampleRate);
+      for (let i = 0; i < n; i++) { const g = Math.max(0, 1 - (this.stilFade + i) / L); for (let c = 0; c < kanalen; c++) out[c][i] *= g; }
+      this.stilFade += n;
+      if (this.stilFade >= L) {
+        this.stilKlaar = true;
+        if (this.e) for (const h of [this.h.A, this.h.B]) if (h >= 0) this.e.pg_reset(h);
+        this.port.postMessage({ type: 'stil' });
+      }
     }
     let p = 0; for (let i = 0; i < n; i++) p = Math.max(p, Math.abs(out[0][i]));
     this.meter = Math.max(p, this.meter * 0.95);

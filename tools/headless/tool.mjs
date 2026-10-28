@@ -90,6 +90,10 @@ await page.waitForFunction(() => globalThis.PB.S.readout?.instrument, null, { ti
 const ri = await page.evaluate(() => ({ ...globalThis.PB.S.readout, tekst: document.querySelector('#readout').innerText }));
 ok(ri.rmsDb > -40 && ri.piekDb <= 0 && /niveau/i.test(ri.tekst), `readout van een instrument: niveau ${ri.rmsDb?.toFixed(1)} dB, piek ${ri.piekDb?.toFixed(1)} dB`);
 await page.click('text=■ stop');
+// stop is echt stil, ook voor een instrument (dat zonder invoer doorspeelt): de motor fadet uit en de audio slaapt
+const stilNa = async () => { await page.waitForTimeout(500); return page.evaluate(() => ({ bevestigd: globalThis.PB.speler.stilBevestigd, staat: globalThis.PB.speler.ctx?.state })); };
+const st1 = await stilNa();
+ok(st1.bevestigd && st1.staat === 'suspended', `stop maakt een instrument echt stil (motor ${st1.bevestigd ? 'stil' : 'speelt door'}, audio ${st1.staat})`);
 await page.click('.voorbeelden button:text-is("Dub-echo")');
 await page.waitForTimeout(400);
 await page.click('text=■ stop');
@@ -177,6 +181,13 @@ ok(nietGehaald && gehaald.ui && gehaald.stand, 'spel: de opdracht is niet gehaal
 await page.click('.opdracht >> text=terug naar het spel');
 await page.click('text=alle kaarten');
 ok(await page.evaluate(() => document.querySelectorAll('.spelkaart').length === 28), 'spel: 28 kaarten');
+await page.click('.spelkaart:has-text("Oscillator") .bkkop');
+await page.click('.spelkaart:has-text("Oscillator") >> text=▶ hoor');
+await page.waitForTimeout(600);
+const speeltSpel = await page.evaluate(() => globalThis.PB.speler.speelt() && globalThis.PB.speler.ctx.state === 'running');
+await page.click('.spelkaart:has-text("Oscillator") >> text=■ stop');
+const st2 = await stilNa();
+ok(speeltSpel && st2.bevestigd && st2.staat === 'suspended', `spel: ▶ hoor speelt een toon en ■ stop maakt hem echt stil (audio ${st2.staat})`);
 await page.click('[data-stand="ontwerpen"]');
 
 // ---- de iPhone: één scherm tegelijk met een balk onderin, de keten als lijst, alles met een vinger te doen ----

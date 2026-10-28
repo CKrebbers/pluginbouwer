@@ -1399,6 +1399,9 @@ class PbMotor extends AudioWorkletProcessor {
     super();
     this.e = null; this.h = { A: -1, B: -1 }; this.actief = 'A'; this.vorige = null; this.fade = 0;
     this.droog = false; this.meter = 0; this.tel = 0;
+    // stil: 20 ms uitfaden, dan nul en de ketens terug naar het begin (een toon, een trommel of een echo die doorgaat
+    // klinkt anders door zonder invoer); daarna rekent hij niets tot er weer gespeeld wordt
+    this.stil = false; this.stilFade = 0; this.stilKlaar = false;
     // een fout hier (bv. de WASM die niet instantieert) zou de worklet stil laten doorlopen met alleen de droge ingang;
     // daarom altijd terugmelden, dan zegt de tool het
     this.port.onmessage = (m) => { try { this.bericht(m.data); } catch (f) { this.port.postMessage({ type: 'fout', tekst: String(f && f.message || f) }); } };
@@ -1429,6 +1432,7 @@ class PbMotor extends AudioWorkletProcessor {
     } else if (d.type === 'param') { const h = this.h[d.slot || 'A']; if (h >= 0) e.pg_zet(h, d.i, d.v); }
     else if (d.type === 'kies') { if (d.slot !== this.actief && this.h[d.slot] >= 0) { this.vorige = null; this.wisselNaar = d.slot; this.fade = 0; } }
     else if (d.type === 'droog') this.droog = !!d.aan;
+    else if (d.type === 'stil') { this.stil = !!d.aan; this.stilFade = 0; this.stilKlaar = false; }
   }
   render(h, inp, n, kanalen) {
     const e = this.e;
@@ -1439,6 +1443,7 @@ class PbMotor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const inp = inputs[0], out = outputs[0];
     const n = out[0].length, kanalen = Math.min(2, out.length);
+    if (this.stilKlaar) { for (let c = 0; c < kanalen; c++) out[c].fill(0); return true; }
     const bron = [0, 1].slice(0, kanalen).map((c) => (inp && inp[c]) ? inp[c] : (inp && inp[0]) ? inp[0] : new Float32Array(n));
     if (!this.e || this.h[this.actief] < 0 || this.droog) {
       for (let c = 0; c < kanalen; c++) out[c].set(bron[c]);
@@ -1460,6 +1465,16 @@ class PbMotor extends AudioWorkletProcessor {
         }
       }
       for (let c = 0; c < kanalen; c++) out[c].set(y[c]);
+    }
+    if (this.stil) {
+      const L = Math.round(0.02 * sampleRate);
+      for (let i = 0; i < n; i++) { const g = Math.max(0, 1 - (this.stilFade + i) / L); for (let c = 0; c < kanalen; c++) out[c][i] *= g; }
+      this.stilFade += n;
+      if (this.stilFade >= L) {
+        this.stilKlaar = true;
+        if (this.e) for (const h of [this.h.A, this.h.B]) if (h >= 0) this.e.pg_reset(h);
+        this.port.postMessage({ type: 'stil' });
+      }
     }
     let p = 0; for (let i = 0; i < n; i++) p = Math.max(p, Math.abs(out[0][i]));
     this.meter = Math.max(p, this.meter * 0.95);
@@ -1636,6 +1651,7 @@ class Speler {
       this.node.port.onmessage = (m) => {
         if (m.data.type === 'meter') this.opMeter(m.data.piek);
         if (m.data.type === 'motor') gemeld(true);
+        if (m.data.type === 'stil') this.stilBevestigd = true;
         if (m.data.type === 'fout') { this.opFout(m.data.tekst); gemeld(m.data.tekst); }
       };
       this.node.port.postMessage({ type: 'module', bytes: this.bytes.slice().buffer });
@@ -1653,13 +1669,14 @@ class Speler {
     // dezelfde motor, hier op de hoofdthread; alleen voor omgevingen zonder worklet
     const e = new WebAssembly.Instance(this.module, {}).exports;
     const sp = this.ctx.createScriptProcessor(1024, 2, 2);
-    let h = -1, droog = false, meter = 0;
+    let h = -1, droog = false, meter = 0, stil = false;
     sp.onaudioprocess = (ev) => {
       const n = ev.outputBuffer.length, inn = [0, 1].map((c) => ev.inputBuffer.getChannelData(Math.min(c, ev.inputBuffer.numberOfChannels - 1)));
       for (let c = 0; c < 2; c++) {
         const uit = ev.outputBuffer.getChannelData(c);
-        if (h < 0 || droog) uit.set(inn[c]);
+        if (stil) uit.fill(0); else if (h < 0 || droog) uit.set(inn[c]);
       }
+      if (stil) { this.opMeter(0); return; }
       if (h >= 0 && !droog) for (let p = 0; p < n; p += 128) {
         for (let c = 0; c < 2; c++) new Float32Array(e.memory.buffer, e.pg_in(h, c), 128).set(inn[c].subarray(p, p + 128));
         e.pg_verwerk(h, 2, 128);
@@ -1676,6 +1693,7 @@ class Speler {
         if (e.pg_laad(nh, d.rij.length)) { for (const [i, v] of (d.waarden || []).entries()) e.pg_zet(nh, i, v); if (h >= 0) e.pg_weg(h); h = nh; }
       } else if (d.type === 'param' && h >= 0) e.pg_zet(h, d.i, d.v);
       else if (d.type === 'droog') droog = !!d.aan;
+      else if (d.type === 'stil') { stil = !!d.aan; if (stil && h >= 0) e.pg_reset(h); this.stilBevestigd = stil; }
     } };
   }
   laad(rij, waarden, slot = 'A') { this.node?.port.postMessage({ type: 'keten', rij: Float64Array.from(rij), waarden, slot }); }
@@ -1704,6 +1722,9 @@ class Speler {
   async speel(naam) {
     await this.start();
     this.stopBron();
+    clearTimeout(this.slaap);
+    this.stilBevestigd = false;
+    this.node?.port.postMessage({ type: 'stil', aan: false });
     if (naam === 'geen') {
       // een instrument: geen invoer, alleen een stille bron die de motor laat lopen (en "speelt" waar maakt)
       this.bron = this.ctx.createConstantSource(); this.bron.offset.value = 0;
@@ -1714,7 +1735,15 @@ class Speler {
     this.bron = this.ctx.createBufferSource(); this.bron.buffer = buf; this.bron.loop = true;
     this.bron.connect(this.node); this.bron.start();
   }
-  stopBron() { if (this.bron) { try { this.bron.stop(); } catch { /* al gestopt */ } this.bron.disconnect(); this.bron = null; } }
+  // Stoppen = echt stil: de bron eraf, de motor fadet uit en zet zijn ketens terug (anders speelt een instrument of een
+  // echo die doorgaat zonder invoer gewoon verder), en daarna slaapt de audio (spaart de batterij van een telefoon).
+  stopBron() {
+    if (this.bron) { try { this.bron.stop(); } catch { /* al gestopt */ } this.bron.disconnect(); this.bron = null; }
+    if (!this.node) return;
+    this.node.port.postMessage({ type: 'stil', aan: true });
+    clearTimeout(this.slaap);
+    this.slaap = setTimeout(() => { if (!this.bron && this.ctx?.state === 'running') this.ctx.suspend().catch(() => {}); }, 120);
+  }
   speelt() { return !!this.bron; }
 }
 

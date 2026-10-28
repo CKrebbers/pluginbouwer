@@ -32,6 +32,7 @@ export class Speler {
       this.node.port.onmessage = (m) => {
         if (m.data.type === 'meter') this.opMeter(m.data.piek);
         if (m.data.type === 'motor') gemeld(true);
+        if (m.data.type === 'stil') this.stilBevestigd = true;
         if (m.data.type === 'fout') { this.opFout(m.data.tekst); gemeld(m.data.tekst); }
       };
       this.node.port.postMessage({ type: 'module', bytes: this.bytes.slice().buffer });
@@ -49,13 +50,14 @@ export class Speler {
     // dezelfde motor, hier op de hoofdthread; alleen voor omgevingen zonder worklet
     const e = new WebAssembly.Instance(this.module, {}).exports;
     const sp = this.ctx.createScriptProcessor(1024, 2, 2);
-    let h = -1, droog = false, meter = 0;
+    let h = -1, droog = false, meter = 0, stil = false;
     sp.onaudioprocess = (ev) => {
       const n = ev.outputBuffer.length, inn = [0, 1].map((c) => ev.inputBuffer.getChannelData(Math.min(c, ev.inputBuffer.numberOfChannels - 1)));
       for (let c = 0; c < 2; c++) {
         const uit = ev.outputBuffer.getChannelData(c);
-        if (h < 0 || droog) uit.set(inn[c]);
+        if (stil) uit.fill(0); else if (h < 0 || droog) uit.set(inn[c]);
       }
+      if (stil) { this.opMeter(0); return; }
       if (h >= 0 && !droog) for (let p = 0; p < n; p += 128) {
         for (let c = 0; c < 2; c++) new Float32Array(e.memory.buffer, e.pg_in(h, c), 128).set(inn[c].subarray(p, p + 128));
         e.pg_verwerk(h, 2, 128);
@@ -72,6 +74,7 @@ export class Speler {
         if (e.pg_laad(nh, d.rij.length)) { for (const [i, v] of (d.waarden || []).entries()) e.pg_zet(nh, i, v); if (h >= 0) e.pg_weg(h); h = nh; }
       } else if (d.type === 'param' && h >= 0) e.pg_zet(h, d.i, d.v);
       else if (d.type === 'droog') droog = !!d.aan;
+      else if (d.type === 'stil') { stil = !!d.aan; if (stil && h >= 0) e.pg_reset(h); this.stilBevestigd = stil; }
     } };
   }
   laad(rij, waarden, slot = 'A') { this.node?.port.postMessage({ type: 'keten', rij: Float64Array.from(rij), waarden, slot }); }
@@ -100,6 +103,9 @@ export class Speler {
   async speel(naam) {
     await this.start();
     this.stopBron();
+    clearTimeout(this.slaap);
+    this.stilBevestigd = false;
+    this.node?.port.postMessage({ type: 'stil', aan: false });
     if (naam === 'geen') {
       // een instrument: geen invoer, alleen een stille bron die de motor laat lopen (en "speelt" waar maakt)
       this.bron = this.ctx.createConstantSource(); this.bron.offset.value = 0;
@@ -110,6 +116,14 @@ export class Speler {
     this.bron = this.ctx.createBufferSource(); this.bron.buffer = buf; this.bron.loop = true;
     this.bron.connect(this.node); this.bron.start();
   }
-  stopBron() { if (this.bron) { try { this.bron.stop(); } catch { /* al gestopt */ } this.bron.disconnect(); this.bron = null; } }
+  // Stoppen = echt stil: de bron eraf, de motor fadet uit en zet zijn ketens terug (anders speelt een instrument of een
+  // echo die doorgaat zonder invoer gewoon verder), en daarna slaapt de audio (spaart de batterij van een telefoon).
+  stopBron() {
+    if (this.bron) { try { this.bron.stop(); } catch { /* al gestopt */ } this.bron.disconnect(); this.bron = null; }
+    if (!this.node) return;
+    this.node.port.postMessage({ type: 'stil', aan: true });
+    clearTimeout(this.slaap);
+    this.slaap = setTimeout(() => { if (!this.bron && this.ctx?.state === 'running') this.ctx.suspend().catch(() => {}); }, 120);
+  }
   speelt() { return !!this.bron; }
 }
