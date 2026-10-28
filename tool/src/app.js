@@ -9,7 +9,7 @@ import { varianten } from './verken.js';
 import { bouwpakket, cpuSchatting, spec } from './bouwpakket.js';
 import { maakTestsignalen } from './testsignalen.js';
 import { zip } from './zip.js';
-import { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, KOP, RIJ, KB } from './rollen.js';
+import { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, hoofdweg, KOP, RIJ } from './rollen.js';
 
 // ---------------------------------------------------------------------------------------------------- data van de bouw
 const DATA = globalThis.PB_DATA;   // door tool/bouw.mjs ingebakken: wasm (base64), bronnen voor het pakket, metingen
@@ -34,6 +34,15 @@ const S = {
   weergave: opslag.lees('weergave', 'eenvoudig'),
 };
 const tech = () => S.weergave === 'technisch';
+// De telefoon (iPhone staand, of liggend met weinig hoogte): één scherm tegelijk met een balk onderin, de keten als lijst
+// van boven naar beneden, en grote knoppen. Dezelfde ontwerpen en dezelfde motor.
+const SMAL = matchMedia('(max-width: 700px), (max-height: 500px) and (pointer: coarse)');
+const smal = () => SMAL.matches;
+S.scherm = 'keten';                                   // keten · blokken · blok · horen · bouwen
+S.ketenWeergave = opslag.lees('ketenweergave', 'lijst');   // op de telefoon: lijst of tekening
+S.doelKabel = null;                                   // "+ hier" in de lijst: de kabel waar het nieuwe blok op komt
+const SCHERMEN = [['keten', 'Keten'], ['blokken', 'Blokken'], ['blok', 'Blok'], ['horen', 'Horen'], ['bouwen', 'Bouwen']];
+function naarScherm(w) { S.scherm = w; S.stand = w === 'bouwen' ? 'bouwen' : 'ontwerpen'; teken(); scrollTo(0, 0); }
 if (overlap(S.ontwerp, blokMaat)) S.ontwerp = ordenen(S.ontwerp, blokMaat);   // ook een bewaard ontwerp uit de tijd van smallere blokken
 let C = compileer(S.ontwerp);
 const speler = new Speler(MOTOR, MOTOR_BYTES);
@@ -161,17 +170,24 @@ function bouw() {
   document.body.append(
     el('header', { class: 'kop' },
       el('div', { class: 'logo' }, 'PLUGINBOUWER'),
-      el('div', { class: 'stand', role: 'tablist' },
+      el('div', { class: 'stand standkeuze', role: 'tablist' },
         ...['ontwerpen', 'bouwen'].map((s) => el('button', { class: 'seg', 'data-stand': s, onclick: () => { S.stand = s; teken(); } }, s === 'ontwerpen' ? 'Ontwerpen' : 'Bouwen'))),
       el('div', { class: 'stand', role: 'group', 'aria-label': 'weergave', title: 'eenvoudig = gewone woorden; technisch = cpu, samples, dB en de vaktermen' },
         ...['eenvoudig', 'technisch'].map((w) => el('button', { class: 'seg klein', 'data-weergave': w, onclick: () => { S.weergave = w; opslag.schrijf('weergave', w); teken(); } }, w))),
+      el('button', { id: 'mini', class: 'knopgroot mini', 'aria-label': 'speel of stop', onclick: async () => { if (speler.speelt()) speler.stopBron(); else await speelNu(); tekenMini(); if (S.tab === 'horen') tekenOnder(); } }, '▶'),
       el('div', { id: 'readout', class: 'readout' })),
     el('main', { id: 'werk' },
       el('aside', { id: 'bib', class: 'paneel' }),
       el('section', { id: 'midden' }, el('div', { id: 'canvas', class: 'paneel' }), el('div', { id: 'onder', class: 'paneel' })),
       el('aside', { id: 'inspector', class: 'paneel' })),
     el('section', { id: 'bouwen', class: 'paneel', hidden: true }),
-    el('div', { id: 'melding', class: 'melding', role: 'status', hidden: true }));
+    el('div', { id: 'melding', class: 'melding', role: 'status', hidden: true }),
+    el('nav', { id: 'tabbalk', class: 'tabbalk', 'aria-label': 'schermen' },
+      ...SCHERMEN.map(([w, n]) => el('button', { 'data-scherm': w, onclick: () => naarScherm(w) }, n))));
+  SMAL.addEventListener?.('change', () => teken());
+  // een schuif die je vasthoudt wordt niet opnieuw getekend (anders breekt het slepen af, vooral op een telefoon)
+  const los = () => { if (actieveSchuif) { actieveSchuif = null; setTimeout(teken, 0); } };
+  document.addEventListener('pointerup', los); document.addEventListener('touchend', los);
   document.addEventListener('keydown', (ev) => {
     if (ev.target.closest('input,textarea,select')) return;
     if ((ev.key === 'Delete' || ev.key === 'Backspace') && S.selectie) { verwijderSelectie(); ev.preventDefault(); }
@@ -183,9 +199,16 @@ function bouw() {
   speler.opMeter = (p) => { const m = $('#meter'); if (m) m.style.width = Math.min(100, p * 100) + '%'; if (p > 1e-4) taakLog('geluid'); };
   speler.opFout = (t) => melding(t);
 }
+function tekenMini() { const m = $('#mini'); if (m) { m.textContent = speler.speelt() ? '■' : '▶'; m.title = speler.speelt() ? 'stop' : 'speel'; } }
+let actieveSchuif = null;
+const schuifVrij = (box) => !(actieveSchuif && box.contains(actieveSchuif));
 function melding(t) { const m = $('#melding'); if (m) { m.textContent = t; m.hidden = false; clearTimeout(melding.t); melding.t = setTimeout(() => (m.hidden = true), 4000); } }
 
 function teken() {
+  document.body.classList.toggle('smal', smal());
+  if (smal()) { if (S.scherm === 'bouwen') S.stand = 'bouwen'; else if (S.stand === 'bouwen') S.scherm = 'bouwen'; document.body.dataset.scherm = S.scherm; }
+  for (const b of document.querySelectorAll('[data-scherm]')) if (b.tagName === 'BUTTON') b.classList.toggle('aan', b.dataset.scherm === S.scherm);
+  tekenMini();
   for (const b of document.querySelectorAll('[data-stand]')) b.classList.toggle('aan', b.dataset.stand === S.stand);
   for (const b of document.querySelectorAll('[data-weergave]')) b.classList.toggle('aan', b.dataset.weergave === S.weergave);
   document.body.classList.toggle('technisch', tech());
@@ -204,7 +227,7 @@ function tekenReadout() {
     const omhoog = nu > toen, beter = beterLager ? !omhoog : omhoog;
     return el('span', { class: 'pijl ' + (beter ? 'ok' : 'bad'), title: 'laatste wijziging: ' + S.laatsteWijziging }, omhoog ? '▲' : '▼');
   };
-  const vak = (label, waarde, p, uitleg) => el('div', { class: 'rv', title: uitleg }, el('span', { class: 'rl' }, label), el('span', { class: 'rw' }, waarde, p));
+  const vak = (label, waarde, p, uitleg) => el('div', { class: 'rv', title: uitleg, onclick: () => { if (smal() && uitleg) melding(uitleg); } }, el('span', { class: 'rl' }, label), el('span', { class: 'rw' }, waarde, p));
   const toetsen = el('div', { class: 'rv', title: 'wat er nu al gecontroleerd wordt; de rest doet CI' }, el('span', { class: 'rl' }, tech() ? 'toetsen' : 'klopt het'),
     el('span', { class: 'blokjes' }, ...toetsBlokjes()));
   if (!r || r.fout) {
@@ -277,8 +300,11 @@ function tekenBib() {
     el('div', { class: 'chips' }, ...[['alle', 'elk type'], ['effect', 'effect'], ['instrument', 'instrument'], ['MIDI-effect', 'MIDI'], ['analyser', 'analyser'], ['utility', 'utility'], ['modulatie', 'modulatie']].map(([w, t]) =>
       el('button', { class: 'seg' + (f.soort === w ? ' aan' : ''), onclick: () => { f.soort = w; tekenBib(); } }, t))));
   box.append(el('input', { class: 'zoek', placeholder: 'zoek: echo, filter, trommel…', value: f.zoek, oninput: (ev) => { f.zoek = ev.target.value; tekenLijst(); } }),
-    el('p', { class: 'zacht klein' }, S.selectie?.soort === 'knoop' && knoopVan(S.selectie.id)
-      ? `+ zet het achter ${gewoneNaam(knoopVan(S.selectie.id).type)}.` : '+ zet het vóór de uitgang. Kies eerst een blok om het daarachter te zetten.'),
+    S.doelKabel && knoopVan(S.doelKabel.van[0]) && knoopVan(S.doelKabel.naar[0])
+      ? el('div', { class: 'doelregel' }, el('span', {}, `Kies wat er tussen ${gewoneNaam(knoopVan(S.doelKabel.van[0]).type)} en ${gewoneNaam(knoopVan(S.doelKabel.naar[0]).type)} komt.`),
+        el('button', { class: 'seg klein', onclick: () => { S.doelKabel = null; smal() ? naarScherm('keten') : tekenBib(); } }, 'niet'))
+      : el('p', { class: 'zacht klein' }, S.selectie?.soort === 'knoop' && knoopVan(S.selectie.id)
+        ? `+ zet het achter ${gewoneNaam(knoopVan(S.selectie.id).type)}.` : '+ zet het vóór de uitgang. Kies eerst een blok om het daarachter te zetten.'),
     el('div', { id: 'bibLijst' }));
   tekenLijst();
 }
@@ -337,8 +363,10 @@ function voegToe(type, x, y) {
 // Een blok of combinatie IN de keten: achter het gekozen blok (of vóór de uitgang), of op een kabel. Daarna wordt de
 // keten netjes neergelegd en zegt een melding wat er gebeurde.
 function zetErin(wat, { kabel = null } = {}) {
-  const na = S.selectie?.soort === 'knoop' ? S.selectie.id : null;
+  kabel = kabel ?? S.doelKabel; S.doelKabel = null;
+  const na = !kabel && S.selectie?.soort === 'knoop' ? S.selectie.id : null;
   const r = voegIn(S.ontwerp, wat, { na, kabel });
+  if (smal() && S.scherm === 'blokken') S.scherm = 'keten';
   S.ontwerp = ordenen(r.ontwerp, blokMaat);
   S.selectie = { soort: 'knoop', id: r.nieuw.at(-1) };
   melding(r.wat);
@@ -369,6 +397,8 @@ const isStuur = (type, poort) => poortInfo(type, poort).soort === 'sturing';
 let sleep = null, laatsteVB = null;
 function tekenCanvas() {
   const box = $('#canvas');
+  if (!schuifVrij(box)) return;
+  if (smal() && S.ketenWeergave === 'lijst') { tekenKetenLijst(box); return; }
   // het beeld past zich aan de blokken aan (zo blijven knoppen leesbaar), met ruimte voor kabels en nieuwe blokken
   // (tijdens het slepen van een blok blijft het beeld staan, anders verschuift de schaal onder de muis)
   const kn0 = S.ontwerp.knopen;
@@ -431,6 +461,7 @@ function tekenCanvas() {
   if (sleep?.soort === 'kabel') s.append(svg('path', { id: 'sleepKabel', class: 'kabel sleep', d: '' }));
   box.replaceChildren(
     el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, (tech() ? 'KETEN · ' : '') + S.ontwerp.naam),
+      smal() ? weergaveKeuze() : null,
       el('button', { class: 'seg klein', title: 'zet de blokken op volgorde van links naar rechts, zoals het geluid loopt', onclick: netjes }, 'netjes neerleggen')),
     el('p', { class: 'samenvatting' }, beschrijf(S.ontwerp)),
     el('div', { class: 'scroller' }, s),
@@ -547,9 +578,68 @@ function sleepLos(s, ev) {
   } else teken();
 }
 
+// Een schuif voor één knop (rechts in het blokpaneel en in de lijst op de telefoon). Tijdens het slepen wordt alleen het
+// getal ernaast bijgewerkt; pas bij loslaten tekent de rest opnieuw.
+function schuifRij(kn, def, ...extra) {
+  const { min, max } = knopBereik(kn, def), v = knopWaarde(kn, def);
+  const naarT = (x) => (def.exp ? Math.log(x / min) / Math.log(max / min) : (x - min) / (max - min));
+  const w = el('span', { class: 'w' }, waardeTekst(v, def.eenheid));
+  const inp = el('input', { type: 'range', min: 0, max: 1000, value: Math.round(naarT(v) * 1000), 'aria-label': def.naam,
+    oninput: (ev) => {
+      actieveSchuif = ev.target;
+      const t = ev.target.value / 1000, x = def.exp ? min * Math.pow(max / min, t) : min + t * (max - min);
+      zetKnop(kn, def, def.eenheid === 'ms' || def.eenheid === 'Hz' ? Math.round(x) : Math.round(x * 1000) / 1000, false);
+      w.textContent = waardeTekst(knopWaarde(kn, def), def.eenheid);
+    },
+    onchange: () => { actieveSchuif = null; gewijzigd(`${BIB[kn.type].naam}: ${def.naam} ${waardeTekst(knopWaarde(kn, def), def.eenheid)}`); } });
+  return el('div', { class: 'knoprij' }, el('label', {}, def.naam, inp), w, ...extra);
+}
+
+// ---------------------------------------------------------------------------------------------------- de keten als lijst (telefoon)
+// Van boven naar beneden zoals het geluid loopt: elk blok een kaart met zijn schuiven, en tussen twee blokken
+// "+ hier": wat je dan kiest komt precies daar. Wat niet op de hoofdweg ligt (een lus terug, wat beweegt, een tweede
+// bron) staat eronder, met waar het op aansluit.
+function weergaveKeuze() {
+  return el('div', { class: 'stand' }, ...[['lijst', 'lijst'], ['tekening', 'tekening']].map(([w, n]) =>
+    el('button', { class: 'seg klein' + (S.ketenWeergave === w ? ' aan' : ''), onclick: () => { S.ketenWeergave = w; opslag.schrijf('ketenweergave', w); tekenCanvas(); } }, n)));
+}
+function tekenKetenLijst(box) {
+  const { pad, kabels } = hoofdweg(S.ontwerp);
+  const lijst = el('div', { class: 'ketenlijst' });
+  const tussen = (kabel) => el('div', { class: 'tussen' },
+    el('button', { class: 'seg hier', onclick: () => { S.doelKabel = kabel; S.selectie = null; naarScherm('blokken'); } },
+      '+ hier iets tussen'));
+  pad.forEach((id, i) => { lijst.append(blokKaart(knoopVan(id))); if (i < kabels.length) lijst.append(tussen(kabels[i])); });
+  if (!pad.length) lijst.append(el('p', {}, 'Er komt nog niets bij de uitgang aan.'),
+    el('button', { class: 'knopgroot', onclick: () => { S.filter.familie = heeftIngang() ? 'alle' : 'bron'; naarScherm('blokken'); } }, heeftIngang() ? '+ kies een blok' : '+ kies iets dat geluid maakt'));
+  const rest = S.ontwerp.knopen.filter((k) => !pad.includes(k.id));
+  if (rest.length) lijst.append(el('div', { class: 'sub' }, 'ook in dit ontwerp'), ...rest.map((k) => blokKaart(k, true)));
+  box.replaceChildren(
+    el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, S.ontwerp.naam), weergaveKeuze()),
+    el('p', { class: 'samenvatting' }, beschrijf(S.ontwerp)), lijst,
+    ...(C.fouten.length ? [el('div', { class: 'fouten' }, ...C.fouten.map((f) => el('div', {}, '✕ ' + f)))] : []));
+}
+// waar een blok buiten de hoofdweg op aansluit, in woorden
+function aansluiting(kn) {
+  const o = S.ontwerp, delen = [];
+  for (const k of o.kabels.filter((c) => c.van[0] === kn.id)) { const d = knoopVan(k.naar[0]); delen.push(`→ ${gewoneNaam(d.type)} (${poortInfo(d.type, k.naar[1]).naam})`); }
+  for (const m of (o.modulaties || []).filter((x) => x.bron[0] === kn.id)) { const d = knoopVan(m.doel[0]); delen.push(`beweegt ${knopDef(d.type, m.doel[1])?.naam ?? m.doel[1]} van ${gewoneNaam(d.type)}`); }
+  return delen.join(' · ') || 'nog nergens op aangesloten';
+}
+function blokKaart(kn, metAansluiting = false) {
+  const b = BIB[kn.type], fam = familieVan(kn.type), gekozen = S.selectie?.soort === 'knoop' && S.selectie.id === kn.id;
+  return el('div', { class: 'blokkaart f-rand-' + fam + (gekozen ? ' gekozen' : '') },
+    el('button', { class: 'bkkop', onclick: () => { S.selectie = { soort: 'knoop', id: kn.id }; naarScherm('blok'); } },
+      tekenEl(fam), el('b', {}, tech() ? b.naam : gewoneNaam(kn.type)), el('span', { class: 'pijltje' }, 'meer ›')),
+    b.vast ? null : el('div', { class: 'ku' }, ROL[kn.type].kort),
+    metAansluiting ? el('div', { class: 'ks' }, aansluiting(kn)) : null,
+    ...b.knoppen.map((def) => schuifRij(kn, def)));
+}
+
 // ---------------------------------------------------------------------------------------------------- inspector
 function tekenInspector() {
   const box = $('#inspector');
+  if (!schuifVrij(box)) return;
   box.replaceChildren(el('div', { class: 'tape' }, 'BLOK'));
   const kn = S.selectie?.soort === 'knoop' ? knoopVan(S.selectie.id) : null;
   if (!kn) {
@@ -572,20 +662,15 @@ function tekenInspector() {
       el('tr', {}, el('td', {}, 'bouwmoeite'), el('td', {}, b.bouw + ' van 5 (schatting)'))));
   else if (b.uitleg !== rol.kort) box.append(el('details', {}, el('summary', {}, 'meer uitleg'), el('p', { class: 'zacht' }, b.uitleg + (b.let ? ' ' + b.let : ''))));
   for (const def of b.knoppen) {
-    const pi = paramVan(kn.id, def.id), v = knopWaarde(kn, def), { min, max } = knopBereik(kn, def);
-    const rij = el('div', { class: 'knoprij' },
-      el('label', {}, def.naam, el('input', { type: 'range', min: 0, max: 1000, value: Math.round((def.exp ? Math.log(v / min) / Math.log(max / min) : (v - min) / (max - min)) * 1000),
-        oninput: (ev) => { const t = ev.target.value / 1000; const w = def.exp ? min * Math.pow(max / min, t) : min + t * (max - min); zetKnop(kn, def, def.eenheid === 'ms' || def.eenheid === 'Hz' ? Math.round(w) : Math.round(w * 1000) / 1000, false); },
-        onchange: () => gewijzigd(`${b.naam}: ${def.naam}`) })),
-      el('span', { class: 'w' }, waardeTekst(v, def.eenheid)),
-      el('button', { class: 'seg' + (pi >= 0 ? ' aan' : ''), title: tech() ? 'in de plugin = de host kan hem automatiseren' : 'op het paneel = een knop op je plugin (in Logic ook te automatiseren); vast = alleen hier ingesteld',
+    const pi = paramVan(kn.id, def.id), v = knopWaarde(kn, def);
+    const rij = schuifRij(kn, def, el('button', { class: 'seg' + (pi >= 0 ? ' aan' : ''), title: tech() ? 'in de plugin = de host kan hem automatiseren' : 'op het paneel = een knop op je plugin (in Logic ook te automatiseren); vast = alleen hier ingesteld',
         onclick: () => {
           if (pi >= 0) S.ontwerp.parameters.splice(pi, 1);
           else S.ontwerp.parameters.push({ naam: def.naam[0].toUpperCase() + def.naam.slice(1), knoop: kn.id, knop: def.id, min: def.min, max: def.max, standaard: exactF32(v), glijMs: def.glijMs, uitleg: '' });
           gewijzigd(pi >= 0 ? `${def.naam} uit de plugin` : `${def.naam} in de plugin`);
         } }, pi >= 0 ? (tech() ? 'in plugin' : 'op paneel') : 'vast'));
+    if (!tech() && rol.knoppen[def.id]) rij.append(el('div', { class: 'knopuitleg' }, rol.knoppen[def.id]));
     box.append(rij);
-    if (!tech() && rol.knoppen[def.id]) box.append(el('div', { class: 'knopuitleg' }, rol.knoppen[def.id]));
     if (pi >= 0) {
       const p = S.ontwerp.parameters[pi];
       box.append(el('div', { class: 'bereik' }, 'naam ', el('input', { value: p.naam, onchange: (ev) => { p.naam = ev.target.value; gewijzigd('naam ' + p.naam); } }),
@@ -596,6 +681,10 @@ function tekenInspector() {
           el('option', { value: 'overvloeien', selected: p.glijden === 'overvloeien' }, 'draaien: overvloeien (plugin)')) : null));
     }
     const mod = (S.ontwerp.modulaties || []).find((m) => m.doel[0] === kn.id && m.doel[1] === def.id);
+    if (!mod && !b.vast) rij.append(el('button', { class: 'seg klein beweeg', title: 'een LFO laat deze knop langzaam heen en weer gaan', onclick: () => {
+      const r = voegIn(S.ontwerp, { type: 'lfo' }, { na: kn.id, knop: def.id });
+      S.ontwerp = ordenen(r.ontwerp, blokMaat); melding(r.wat); gewijzigd(r.wat);
+    } }, 'laat bewegen'));
     if (mod) box.append(el('div', { class: 'bereik mod' }, `beweegt door ${tech() ? mod.bron[0] : gewoneNaam(knoopVan(mod.bron[0])?.type)} · ${tech() ? 'diepte' : 'hoe ver'} `,
       el('input', { type: 'range', min: 0, max: 100, value: Math.round(mod.diepte * 100), onchange: (ev) => { mod.diepte = ev.target.value / 100; gewijzigd('modulatiediepte'); } }),
       el('button', { class: 'seg', onclick: () => { S.ontwerp.modulaties = S.ontwerp.modulaties.filter((m) => m !== mod); gewijzigd('modulatie weg'); } }, 'weg')));
@@ -644,10 +733,10 @@ function tabHoren(box) {
         : [el('select', { onchange: async (ev) => { S.bron = ev.target.value; if (speler.speelt()) await speler.speel(S.bron); } },
           ...[['groove', 'groove (drums en bas)'], ['stukjes', 'stukjes (korte tonen)'], ['ruis', 'ruisstoten'], ['sweep', 'sweep'], ['sinus', 'sinus 1 kHz'], ['eigen', speler.buffer ? speler.bronNaam : 'eigen audio…']].map(([w, t]) => el('option', { value: w, selected: S.bron === w }, t))),
         el('label', { class: 'bestand' }, 'eigen audio', el('input', { type: 'file', accept: 'audio/*', onchange: async (ev) => { const f = ev.target.files[0]; if (!f) return; await speler.eigenBestand(f); S.bron = 'eigen'; await speler.speel('eigen'); speler.laad(C.rij, standaardWaarden()); tekenOnder(); } })),
-        el('button', { class: 'seg', onmousedown: () => speler.droog(true), onmouseup: () => speler.droog(false), onmouseleave: () => speler.droog(false), title: 'vasthouden = zonder plugin' }, 'droog (vasthouden)')])),
+        el('button', { class: 'seg vasthoud', onpointerdown: (ev) => { ev.preventDefault(); speler.droog(true); }, onpointerup: () => speler.droog(false), onpointerleave: () => speler.droog(false), onpointercancel: () => speler.droog(false), oncontextmenu: (ev) => ev.preventDefault(), title: 'vasthouden = zonder plugin' }, 'droog (vasthouden)')])),
     el('div', { class: 'meterbak' }, el('div', { id: 'meter', class: 'meterbalk' })),
     ...(toetsen ? [el('div', { class: 'pad', role: 'group', 'aria-label': 'toetsen' }, ...TOETSEN.map(([code, st, label]) => el('button', { class: 'seg', 'data-code': code,
-      onpointerdown: (ev) => { ev.preventDefault(); noot(code, st, true); }, onpointerup: () => noot(code, st, false), onpointerleave: () => noot(code, st, false) }, label)))] : []),
+      onpointerdown: (ev) => { ev.preventDefault(); noot(code, st, true); }, onpointerup: () => noot(code, st, false), onpointerleave: () => noot(code, st, false), onpointercancel: () => noot(code, st, false), oncontextmenu: (ev) => ev.preventDefault() }, label)))] : []),
     el('div', { class: 'sub' }, 'voorbeelden — klik = laden en meteen horen'),
     el('div', { class: 'voorbeelden' }, el('span', { class: 'zacht' }, 'instrumenten'), ...INSTRUMENTEN.map(voorbeeldKnop)),
     el('div', { class: 'voorbeelden' }, el('span', { class: 'zacht' }, 'effecten'), ...EFFECTEN.map(voorbeeldKnop)),

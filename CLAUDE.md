@@ -145,6 +145,8 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **Een nieuw blok in de BIB krijgt ook een regel in `ROL` (tool/src/rollen.js)**: familie, één zin zonder vaktaal en
   uitleg bij elke knop. `tests/rollen.test.mjs` eist het, en dat elk blok en elke combinatie in elk voorbeeld past.
 - **De eenvoudige weergave is de standaard.** Getallen en vaktermen alleen in de technische weergave of in een tooltip.
+- **De telefoon (body.smal) kan alles met tikken.** Een nieuwe functie die slepen vraagt, krijgt ook een knop. Een
+  schuif die je vasthoudt wordt niet opnieuw getekend (`actieveSchuif`), anders breekt slepen af. headless toetst iPhone staand en liggend.
 
 ## Conventies
 | Onderwerp | Afspraak |

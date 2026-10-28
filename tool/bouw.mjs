@@ -62,7 +62,7 @@ console.log(`tool/index.html: ${(html.length / 1024).toFixed(0)} kB, ${volgorde.
 const artifact = html
   .replace(/^<!doctype html>\s*<html[^>]*>\s*<head>\s*/i, '')
   .replace('<meta charset="utf-8">\n', '')
-  .replace('<meta name="viewport" content="width=device-width, initial-scale=1">\n', '')
+  .replace('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n', '')
   .replace('<title>De Pluginbouwer</title>\n', '<title>De Pluginbouwer</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n')
   .replace(/<\/head>\s*<body>\s*/i, '')
   .replace(/\s*<\/body>\s*<\/html>\s*$/i, '\n');

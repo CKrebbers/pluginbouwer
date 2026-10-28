@@ -136,6 +136,63 @@ await page.screenshot({ path: join(UIT, 'telefoon.png'), fullPage: false });
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.screenshot({ path: join(UIT, '1440.png') });
 
+// ---- de iPhone: één scherm tegelijk met een balk onderin, de keten als lijst, alles met een vinger te doen ----
+for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone liggend']]) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 3, isMobile: true, hasTouch: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  const tel = await ctx.newPage();
+  tel.on('pageerror', (e) => consoleFouten.push(naam + ': ' + e));
+  await tel.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  await tel.goto(pathToFileURL(join(ROOT, 'tool', 'index.html')).href);
+  await tel.waitForFunction(() => globalThis.PB && document.body.classList.contains('smal'), null, { timeout: 15000 }).catch(() => {});
+  ok(await tel.evaluate(() => document.body.classList.contains('smal') && getComputedStyle(document.querySelector('#tabbalk')).display !== 'none'), `${naam}: telefoonweergave met de balk onderin`);
+  const fout = [];
+  for (const scherm of ['keten', 'blokken', 'blok', 'horen', 'bouwen']) {
+    await tel.tap(`#tabbalk [data-scherm="${scherm}"]`);
+    await tel.waitForTimeout(200);
+    const r = await tel.evaluate(() => {
+      const zichtbaar = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+      const klein = [...document.querySelectorAll('button, select, input:not([type="range"]):not([type="file"])')].filter(zichtbaar)
+        .filter((e) => !e.closest('.voorbeelden') || true).filter((e) => e.getBoundingClientRect().height < 35).map((e) => (e.textContent || e.placeholder || e.tagName).trim().slice(0, 20));
+      const zoom = [...document.querySelectorAll('input:not([type="range"]), select')].filter(zichtbaar).filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).length;
+      return { over: document.documentElement.scrollWidth - innerWidth, klein, zoom, panelen: ['#bib', '#canvas', '#inspector', '#onder', '#bouwen'].filter((q) => zichtbaar(document.querySelector(q))) };
+    });
+    if (r.over > 0) fout.push(`${scherm}: ${r.over} px opzij`);
+    if (r.klein.length) fout.push(`${scherm}: te klein om te tikken: ${r.klein.slice(0, 4).join(', ')}`);
+    if (r.zoom) fout.push(`${scherm}: ${r.zoom} velden onder 16 px (Safari zoomt in)`);
+    if (r.panelen.length !== 1) fout.push(`${scherm}: ${r.panelen.length} panelen tegelijk (${r.panelen.join(' ')})`);
+  }
+  ok(fout.length === 0, `${naam}: elk scherm past, één paneel tegelijk, alles groot genoeg` + (fout.length ? ': ' + fout.join('; ') : ''));
+  if (h < w) { await ctx.close(); continue; }
+  // de keten als lijst: "+ hier" → Blokken → Galm → terug, en Galm zit precies op die plek
+  await tel.tap('#tabbalk [data-scherm="keten"]');
+  const eerste = await tel.evaluate(() => ({ lijst: !!document.querySelector('.ketenlijst'), kaarten: document.querySelectorAll('.blokkaart').length }));
+  ok(eerste.lijst && eerste.kaarten >= 10, `${naam}: de keten als lijst (${eerste.kaarten} blokken)`);
+  await tel.tap('.tussen .hier >> nth=2');
+  await tel.waitForTimeout(150);
+  ok(await tel.evaluate(() => document.body.dataset.scherm === 'blokken' && !!document.querySelector('.doelregel')), `${naam}: "+ hier" opent Blokken en zegt waar het komt`);
+  await tel.tap('#bib .kaart:has-text("Een ruimte om het geluid heen") .plus');
+  await tel.waitForTimeout(300);
+  const galm = await tel.evaluate(() => ({ scherm: document.body.dataset.scherm, fouten: globalThis.PB.compileer().fouten.length, galm: globalThis.PB.S.ontwerp.knopen.some((k) => k.type === 'galm'), melding: document.querySelector('#melding').innerText }));
+  ok(galm.scherm === 'keten' && galm.galm && galm.fouten === 0 && /Galm tussen/.test(galm.melding), `${naam}: Galm erin met één tik, terug in de keten: ${galm.melding}`);
+  // een schuif in de lijst verzet de knop
+  const voorV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Tijd').standaard);
+  await tel.locator('.blokkaart:has-text("Vertraging") input[type="range"]').first().fill('800');
+  await tel.waitForTimeout(200);
+  const naV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Tijd').standaard);
+  ok(naV !== voorV && naV > voorV, `${naam}: een schuif in de lijst verzet de tijd (${voorV} → ${naV} ms)`);
+  // spelen met de knop bovenin, en een knop laten bewegen zonder slepen
+  await tel.tap('#mini');
+  await tel.waitForTimeout(1200);
+  ok(await tel.evaluate(() => globalThis.PB.speler.speelt() && globalThis.PB.speler.motorDraait), `${naam}: ▶ bovenin speelt (motor draait)`);
+  await tel.tap('.blokkaart:has-text("Filter") .bkkop');
+  await tel.tap('#inspector .beweeg >> nth=0');
+  await tel.waitForTimeout(200);
+  ok(await tel.evaluate(() => (globalThis.PB.S.ontwerp.modulaties || []).some((m) => m.doel[1] === 'freq')), `${naam}: "laat bewegen" zet een LFO op de frequentie`);
+  await tel.screenshot({ path: join(UIT, 'iphone.png') });
+  await ctx.close();
+}
+
 ok(consoleFouten.length === 0, 'geen fouten in de console' + (consoleFouten.length ? ': ' + consoleFouten.slice(0, 3).join(' | ') : ''));
 await browser.close();
 process.exit(fouten.length ? 1 : 0);

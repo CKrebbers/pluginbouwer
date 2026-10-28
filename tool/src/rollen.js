@@ -223,12 +223,12 @@ function zetInKeten(o, ingang, uitgang, na, naam, gekozenKabel) {
 
 // Stuurblokken sluiten zich aan op wat er al is: een LFO op een knop van het gekozen blok, een sequencer of toetsen
 // op elke vrije noot- of slag-aansluiting, een bandsnelheid op een vertraging.
-function sluitSturingAan(o, kn, na) {
+function sluitSturingAan(o, kn, na, knopId = null) {
   const type = kn.type, gekozen = na && o.knopen.find((k) => k.id === na && k.id !== kn.id);
   if (['lfo', 'willekeur', 'bandbeweging'].includes(type) || (type === 'omhulling' && gekozen && gekozen.type !== 'vermenigvuldig')) {
     if (type === 'omhulling') verbindSpelen(o, kn);
     if (!gekozen || !BIB[gekozen.type].knoppen.length || BIB[gekozen.type].vast) return `${gewoneNaam(type)} erbij: sleep zijn uitgang op een knop`;
-    const knoppen = BIB[gekozen.type].knoppen, knop = knoppen.find((k) => k.exp) ?? knoppen[0];
+    const knoppen = BIB[gekozen.type].knoppen, knop = knoppen.find((k) => k.id === knopId) ?? knoppen.find((k) => k.exp) ?? knoppen[0];
     o.modulaties = (o.modulaties || []).filter((m) => !(m.doel[0] === gekozen.id && m.doel[1] === knop.id));
     o.modulaties.push({ bron: [kn.id, BIB[type].uit[0]], doel: [gekozen.id, knop.id], diepte: 0.25 });
     return `${gewoneNaam(type)} beweegt nu ${knop.naam} van ${gewoneNaam(gekozen.type)}`;
@@ -265,8 +265,9 @@ function verbindSpelen(o, ontvanger, speler, gekozen) {
 
 // voegIn: een blok ({ type }) of een combinatie ({ recept }) in het ontwerp zetten, na het gekozen blok (of vóór de
 // uitgang), of op een gegeven kabel ({ van, naar }: een blok dat op een kabel wordt losgelaten). Geeft
-// { ontwerp, nieuw: [id's], wat } terug; het ontwerp zelf blijft onaangeroerd.
-export function voegIn(ontwerp, wat, { na = null, kabel = null } = {}) {
+// { ontwerp, nieuw: [id's], wat } terug; het ontwerp zelf blijft onaangeroerd. `knop` = welke knop een LFO of willekeur
+// van het gekozen blok laat bewegen (anders de eerste frequentie- of tijdknop).
+export function voegIn(ontwerp, wat, { na = null, kabel = null, knop = null } = {}) {
   const o = kloon(ontwerp);
   o.modulaties = o.modulaties || [];
   if (wat.meng) return mengRond(o, na);
@@ -278,7 +279,7 @@ export function voegIn(ontwerp, wat, { na = null, kabel = null } = {}) {
     if (uit) {
       zin = zetInKeten(o, ingang, [kn.id, uit], na, gewoneNaam(wat.type), kabel);
       if (!ingang.length) verbindSpelen(o, kn);   // een bron hoort de noten als er al iemand speelt
-    } else zin = sluitSturingAan(o, kn, na);
+    } else zin = sluitSturingAan(o, kn, na ?? (kabel && (BIB[o.knopen.find((k) => k.id === kabel.van[0])?.type]?.knoppen.length ? kabel.van[0] : kabel.naar[0])), knop);
     return { ontwerp: o, nieuw: [kn.id], wat: zin };
   }
   const r = recept(wat.recept);
@@ -380,14 +381,15 @@ export function overlap(o, maat, marge = 8) {
 }
 
 // ---------------------------------------------------------------------------------------------------- beschrijven
-// Wat dit ontwerp doet, in één of twee zinnen: de weg van het geluid, de lus terug, en wat er beweegt.
-export function beschrijf(o) {
-  if (!o.knopen.length) return 'Nog leeg.';
+// De hoofdweg: de langste weg van het geluid van het begin (de ingang, of een bron) naar de uitgang, met de kabels ertussen.
+// Voor de lijstweergave op de telefoon en voor de beschrijving. `bereikt` = welke beginners bij de uitgang komen.
+export function hoofdweg(o) {
   const { terug } = volgorde(o);
   const vooruit = o.kabels.filter((k) => !terug.includes(k));
   const uit = uitKnoop(o);
-  if (!uit) return 'Er is nog geen uitgang: zonder uitgang hoor je niets.';
-  // de langste weg naar de uitgang
+  const leeg = { pad: [], kabels: [], terug, bereikt: [] };
+  if (!uit) return leeg;
+  const typeVan = (id) => o.knopen.find((x) => x.id === id).type;
   const lang = new Map(), volg = new Map();
   const weg = (id, pad = new Set()) => {
     if (id === uit.id) return 0;
@@ -395,8 +397,8 @@ export function beschrijf(o) {
     if (pad.has(id)) return -Infinity;
     pad.add(id);
     let best = -Infinity, naar = null;
-    for (const k of vooruit.filter((c) => c.van[0] === id && isGeluid(o.knopen.find((x) => x.id === c.naar[0]).type, c.naar[1]) && !poortInfo(o.knopen.find((x) => x.id === c.naar[0]).type, c.naar[1]).luister)) {
-      const d = weg(k.naar[0], pad) + 1; if (d > best) { best = d; naar = k.naar[0]; }
+    for (const k of vooruit.filter((c) => c.van[0] === id && isGeluid(typeVan(c.naar[0]), c.naar[1]) && !poortInfo(typeVan(c.naar[0]), c.naar[1]).luister)) {
+      const d = weg(k.naar[0], pad) + 1; if (d > best) { best = d; naar = k; }
     }
     pad.delete(id); lang.set(id, best); volg.set(id, naar);
     return best;
@@ -404,13 +406,23 @@ export function beschrijf(o) {
   const beginners = o.knopen.filter((k) => k.type === 'in' || familieVan(k.type) === 'bron');
   let start = null, best = -Infinity;
   for (const b of beginners) { const d = weg(b.id); if (d > best) { best = d; start = b; } }
+  if (!start || best === -Infinity) return { ...leeg, pad: [], bereikt: [] };
+  const pad = [start.id], kabels = [];
+  while (pad.at(-1) !== uit.id && volg.get(pad.at(-1))) { const k = volg.get(pad.at(-1)); kabels.push(k); pad.push(k.naar[0]); }
+  return { pad, kabels, terug, bereikt: beginners.filter((b) => lang.get(b.id) > -Infinity) };
+}
+
+// Wat dit ontwerp doet, in één of twee zinnen: de weg van het geluid, de lus terug, en wat er beweegt.
+export function beschrijf(o) {
+  if (!o.knopen.length) return 'Nog leeg.';
+  if (!uitKnoop(o)) return 'Er is nog geen uitgang: zonder uitgang hoor je niets.';
+  const { pad, terug, bereikt } = hoofdweg(o);
   const delen = [];
-  if (!start || best === -Infinity) delen.push('Er komt nog niets bij de uitgang aan.');
+  if (!pad.length) delen.push('Er komt nog niets bij de uitgang aan.');
   else {
-    const pad = [start.id]; while (pad.at(-1) !== uit.id && volg.get(pad.at(-1))) pad.push(volg.get(pad.at(-1)));
     const namen = pad.filter((id) => !['som', 'mix'].includes(o.knopen.find((k) => k.id === id).type)).map((id) => naamVan(o, id));
     delen.push('Weg van het geluid: ' + namen.join(' → ') + '.');
-    const andere = beginners.filter((b) => b !== start && lang.get(b.id) > -Infinity && b.type !== 'in');
+    const andere = bereikt.filter((b) => b.id !== pad[0] && b.type !== 'in');
     if (andere.length) delen.push('Er komt ook geluid uit: ' + andere.map((b) => gewoneNaam(b.type)).join(', ') + '.');
     for (const k of o.kabels.filter((c) => poortInfo(o.knopen.find((x) => x.id === c.naar[0]).type, c.naar[1]).luister)) delen.push(`${naamVan(o, k.naar[0])} luistert naar ${naamVan(o, k.van[0])}.`);
   }

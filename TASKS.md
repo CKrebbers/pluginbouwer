@@ -152,4 +152,8 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
 - [x] De keten netjes neergelegd (van links naar rechts zoals het geluid loopt, sturing erboven) en een zin erboven die zegt
   wat het ontwerp doet. Geluid- en sturingskabels in eigen kleur; waar een kabel past licht op.
 - Bewezen: tests/rollen.test.mjs (13 toetsen, elk blok × elke plek × elk voorbeeld), tools/headless/tool.mjs (eenvoudig en technisch).
+- [x] De iPhone (19 okt): schermen met een balk onderin, de keten als lijst met "+ hier", grote knoppen en schuiven, ▶ bovenin,
+  "laat bewegen" zonder slepen, vasthouden met de vinger (droog, toetsen). Bewezen in tools/headless/tool.mjs (Chromium als
+  iPhone, staand en liggend: niets opzij, één paneel, alles ≥ 35 px, velden ≥ 16 px, de hele route met tikken). Niet gemeten:
+  echte Safari op een echte iPhone (WebKit zit niet in deze omgeving).
 - Volgende stap (niet gebouwd): Clay laten proberen met de taaktoets en kijken waar hij vastloopt.

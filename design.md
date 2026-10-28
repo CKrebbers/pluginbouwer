@@ -36,6 +36,13 @@ geen samples, dB, cpu-percentages of vaktermen in beeld (de getallen staan in de
 zoals voorheen. Nieuw in beide: "netjes neerleggen", + = in de keten zetten, loslaten op een kabel = ertussen, en
 "past er goed bij" bij elk blok.
 
+## De iPhone (body.smal)
+Bij een smal scherm (≤ 700 px) of een liggende telefoon (≤ 500 px hoog, aanraakscherm): één scherm tegelijk met een balk
+onderin boven de thuisbalk (Keten · Blokken · Blok · Horen · Bouwen), bovenin ▶ en de readout. De keten is daar een lijst
+van boven naar beneden met tussen twee blokken "+ hier iets tussen"; "tekening" toont de gewone keten. Alles wat je
+aantikt is minstens 36 px hoog, invoervelden 16 px (anders zoomt Safari in), schuiven met een vierkante greep van 28 px.
+Wat op een computer slepen is, kan hier met een tik: "+ hier", "laat bewegen" (een LFO op die knop), "past er goed bij".
+
 ## Type
 Silkscreen voor logo, tape-labels en kopjes; IBM Plex Mono voor de rest, `tabular-nums`. (Google Fonts.)
 
