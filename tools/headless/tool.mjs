@@ -32,6 +32,23 @@ await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());   // gee
 await page.goto(pathToFileURL(join(ROOT, 'tool', 'index.html')).href);
 await page.waitForFunction(() => globalThis.PB && document.querySelector('#readout .rv'), null, { timeout: 15000 });
 await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.fout, null, { timeout: 30000 });
+// eenvoudig (de standaard): gewone woorden, geen samples of dB in beeld
+const eenvoudig = await page.evaluate(() => ({ weergave: globalThis.PB.S.weergave, tekst: document.querySelector('#readout').innerText, bib: document.querySelector('#bib').innerText, samenvatting: document.querySelector('.samenvatting')?.innerText || '' }));
+ok(eenvoudig.weergave === 'eenvoudig' && /naklinken/i.test(eenvoudig.tekst) && !/smp|latency|aliasing/i.test(eenvoudig.tekst), 'eenvoudig: de readout in gewone woorden (' + eenvoudig.tekst.replace(/\s+/g, ' ') + ')');
+ok(/maakt geluid/i.test(eenvoudig.bib) && /combinaties/i.test(eenvoudig.bib) && !/% cpu|smp/.test(eenvoudig.bib), 'eenvoudig: blokken per familie en combinaties, zonder cpu en samples');
+ok(/^Weg van het geluid: Ingang → /.test(eenvoudig.samenvatting), 'boven de keten staat wat het ontwerp doet');
+// + bij Galm zet hem in de keten (vóór de uitgang), en het blijft klinken: daarna terug naar de dub-echo
+const voor = await page.evaluate(() => globalThis.PB.S.ontwerp.knopen.length);
+await page.click('#bib .kaart:has-text("Een ruimte om het geluid heen") .plus');
+await page.waitForTimeout(300);
+const na = await page.evaluate(() => ({ n: globalThis.PB.S.ontwerp.knopen.length, fouten: globalThis.PB.compileer().fouten, galm: globalThis.PB.S.ontwerp.kabels.some((k) => k.van[0].startsWith('galm') && k.naar[0] === 'uit'), melding: document.querySelector('#melding').innerText }));
+ok(na.n === voor + 1 && na.fouten.length === 0 && na.galm && /Galm tussen/.test(na.melding), '+ zet Galm in de keten vóór de uitgang: ' + na.melding);
+await page.click('[data-weergave="technisch"]');
+await page.click('.voorbeelden button:text-is("Dub-echo")').catch(() => {});
+await page.evaluate(() => { localStorage.removeItem('pb.ontwerp'); });
+await page.waitForTimeout(400);
+if (await page.evaluate(() => globalThis.PB.speler.speelt())) await page.click('text=■ stop');
+await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.fout && /latency/i.test(document.querySelector('#readout').innerText), null, { timeout: 30000 });
 const r = await page.evaluate(() => ({ ...globalThis.PB.S.readout, fouten: globalThis.PB.compileer().fouten, tekst: document.querySelector('#readout').innerText }));
 ok(r.fouten.length === 0, 'de dub-echo compileert zonder fouten');
 ok(Number.isFinite(r.thdDb) && Number.isFinite(r.aliasingDb), `readout meet (thd ${r.thdDb?.toFixed(1)} dB, aliasing ${r.aliasingDb?.toFixed(1)} dB)`);

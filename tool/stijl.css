@@ -87,7 +87,7 @@ input[type="range"] { padding: 0; border: 0; accent-color: var(--trace); backgro
 
 /* keten */
 .scroller { overflow-x: auto; }
-.keten { width: 100%; min-width: 560px; height: auto; display: block; background: var(--bg); border: 2px solid var(--ink); touch-action: none; user-select: none; }
+.keten { width: 100%; height: auto; display: block; background: var(--bg); border: 2px solid var(--ink); touch-action: none; user-select: none; }
 .raster line { stroke: var(--lijn); stroke-width: 1; }
 .kabel { fill: none; stroke: var(--trace); stroke-width: 2.5; cursor: pointer; }
 .kabel.terug { stroke-dasharray: 6 3; }
@@ -190,3 +190,46 @@ summary { cursor: pointer; }
 .pad { display: flex; flex-wrap: wrap; gap: 0; margin: 6px 0; touch-action: none; user-select: none; }
 .pad .seg { min-width: 40px; height: 44px; font-family: 'Silkscreen', monospace; }
 .pad .seg + .seg { border-left: 0; }
+
+/* families (design.md "Families"): één vlakke kleur per soort blok, overal dezelfde. Donkere tekst erop, ook in het
+   donkere thema (de vlakken blijven licht). */
+:root { --f-bron: #f2c200; --f-kleur: #8fd0c9; --f-ruimte: #a9b6ec; --f-beweging: #f5a878; --f-spelen: #c9aaea; --f-verbinden: #cfcfc6; --f-vast: #b4b6b0; }
+.knoop.f-bron .kopbalk, .tekenvak.f-bron, .famlabel.f-rand-bron { fill: var(--f-bron); background: var(--f-bron); }
+.knoop.f-kleur .kopbalk, .tekenvak.f-kleur, .famlabel.f-rand-kleur { fill: var(--f-kleur); background: var(--f-kleur); }
+.knoop.f-ruimte .kopbalk, .tekenvak.f-ruimte, .famlabel.f-rand-ruimte { fill: var(--f-ruimte); background: var(--f-ruimte); }
+.knoop.f-beweging .kopbalk, .tekenvak.f-beweging, .famlabel.f-rand-beweging { fill: var(--f-beweging); background: var(--f-beweging); }
+.knoop.f-spelen .kopbalk, .tekenvak.f-spelen, .famlabel.f-rand-spelen { fill: var(--f-spelen); background: var(--f-spelen); }
+.knoop.f-verbinden .kopbalk, .tekenvak.f-verbinden, .famlabel.f-rand-verbinden { fill: var(--f-verbinden); background: var(--f-verbinden); }
+.knoop.f-vast .kopbalk, .tekenvak.f-vast, .famlabel.f-rand-vast { fill: var(--f-vast); background: var(--f-vast); }
+.kaart.f-rand-bron { border-left: 8px solid var(--f-bron); } .kaart.f-rand-kleur { border-left: 8px solid var(--f-kleur); }
+.kaart.f-rand-ruimte { border-left: 8px solid var(--f-ruimte); } .kaart.f-rand-beweging { border-left: 8px solid var(--f-beweging); }
+.kaart.f-rand-spelen { border-left: 8px solid var(--f-spelen); } .kaart.f-rand-verbinden { border-left: 8px solid var(--f-verbinden); }
+.kaart.recept { border-left: 8px solid var(--ink); }
+.teken { fill: none; stroke: #17181a; stroke-width: 1.6; stroke-linecap: square; pointer-events: none; }
+.tekenvak { width: 16px; height: 16px; border: 1.5px solid #17181a; padding: 1px; flex: none; vertical-align: -3px; margin-right: 5px; }
+.kkop { display: flex; align-items: center; gap: 0; }
+.kkop .tekenvak + .tekenvak { margin-left: -3px; }
+.chips .seg.fam { display: inline-flex; align-items: center; }
+.chips .seg.fam .tekenvak { width: 13px; height: 13px; margin-right: 4px; }
+.famlabel { display: inline-block; color: #17181a; border: 2px solid var(--ink); padding: 0 6px; font-size: 11px; margin: 0 0 6px; }
+.bloknaam { display: flex; align-items: center; }
+.knopuitleg { font-size: 11px; color: var(--muted); margin: 1px 0 2px; }
+.goedmet { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; font-size: 12px; }
+.goedmet .plus { flex: none; }
+.goedmet .tekenvak { width: 13px; height: 13px; margin-right: 3px; }
+.klein { font-size: 11px; }
+.seg.klein { padding: 1px 7px; font-size: 12px; }
+.kopregel { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.samenvatting { margin: -2px 0 8px; max-width: 80ch; }
+/* blokken in de keten */
+.knoop .kader { fill: none; stroke: var(--trace); stroke-width: 3; }
+.knoop.gekozen .kast { stroke: var(--ink); stroke-width: 2; }
+.knoop.f-vast .kast { fill: var(--bg); }
+.kabel.stuur { stroke: var(--trace2); }
+.kabel.doel { stroke: var(--tape); stroke-width: 6; }
+.kabelhit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+.poort.stuur { fill: var(--panel); stroke: var(--trace2); }
+.poort.uit.stuur { fill: var(--trace2); stroke: var(--ink); }
+.poort.in.past { fill: var(--tape); stroke: var(--ink); stroke-width: 3; }
+.knop.past .knopvlak { stroke: var(--trace2); stroke-width: 3; }
+.koptekst { font-size: 10px; }

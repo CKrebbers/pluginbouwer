@@ -52,6 +52,8 @@ tests/          Node-toetsen (node --test): formules, blokgrootte, null-test, st
                 theorie, elk voorbeeld klinkt), native.test (motor native = WASM, bit voor bit, per voorbeeld)
 testsignalen/   gegenereerde WAV's + verwachte uitvoer (CSV/WAV), met het script dat ze maakt
 tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.html (claude.ai), via bouw.mjs; WASM ingebakken
+                src/rollen.js: elk blok in gewone woorden (familie, zin, uitleg per knop en aansluiting, "past er goed bij"),
+                combinaties, invoegen in de keten en netjes neerleggen (puur; tests/rollen.test.mjs)
 tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
@@ -140,6 +142,9 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   (process-audio-basic-in-place, layout-audio-ports-config).
 - **Noten in de null-test**: de verwachting zijn parameter-events (Noot via de WASM-export `pb_t_exp`, Poort 1/0) die
   precies doen wat `speel()` in de schil doet (tests/lib/noten.mjs). Verander je `pb_noten.h`, verander dat mee.
+- **Een nieuw blok in de BIB krijgt ook een regel in `ROL` (tool/src/rollen.js)**: familie, één zin zonder vaktaal en
+  uitleg bij elke knop. `tests/rollen.test.mjs` eist het, en dat elk blok en elke combinatie in elk voorbeeld past.
+- **De eenvoudige weergave is de standaard.** Getallen en vaktermen alleen in de technische weergave of in een tooltip.
 
 ## Conventies
 | Onderwerp | Afspraak |

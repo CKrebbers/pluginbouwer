@@ -14,6 +14,28 @@ het frontpaneel van de plugin mag zijn eigen kleur hebben.
 | --trace2 | #b0450b | #ff9455 | modulatie-kabels, reeks 2 |
 | --ok / --bad | #2f7d32 / #b3261e | #6fcf73 / #ff6b5e | toets gehaald / niet gehaald, betere/slechtere richting |
 
+## Families (19 okt 2026: "visueel minder technisch")
+Elk blok hoort bij één familie: wat het met geluid doet. Dezelfde vlakke kleur in de kop van het blok, de rand van de
+kaart in de bibliotheek en het label rechts; een lijnteken ervoor (geen emoji). Donkere tekst erop, ook in donker.
+| familie | kleur | teken |
+|---|---|---|
+| maakt geluid | #f2c200 | golf |
+| kleurt de klank | #8fd0c9 | filterbocht |
+| ruimte en tijd | #a9b6ec | drie echo's |
+| beweegt een knop | #f5a878 | draaiende knop |
+| speelt noten | #c9aaea | toetsen |
+| verbindt | #cfcfc6 | plus |
+| in en uit | #b4b6b0 | pijl |
+
+Kabels: geluid --trace, sturing (noten, tel, beweging) --trace2 doorgetrokken, een lus terug gestippeld. Tijdens het
+trekken lichten de ingangen op waar de kabel past (--tape).
+
+## Eenvoudig en technisch
+De tool opent in **eenvoudig**: gewone woorden (tool/src/rollen.js), de readout als klank / naklinken / rekenwerk,
+geen samples, dB, cpu-percentages of vaktermen in beeld (de getallen staan in de tooltip). **Technisch** toont alles
+zoals voorheen. Nieuw in beide: "netjes neerleggen", + = in de keten zetten, loslaten op een kabel = ertussen, en
+"past er goed bij" bij elk blok.
+
 ## Type
 Silkscreen voor logo, tape-labels en kopjes; IBM Plex Mono voor de rest, `tabular-nums`. (Google Fonts.)
 

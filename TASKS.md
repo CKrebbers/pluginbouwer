@@ -142,3 +142,14 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
 4. **X3 bouwstenen van buiten**, één per ronde, eerst als codeblok (hiir, Airwindows-band, Rings, Signalsmith, galm).
 5. **X4 de werkbank-plugin** (na stap 1 van 18 okt): runtime-ontwerp met 16 macro's, A/B-wissel, brug in Node.
    Stop: knop in de tool → hoorbaar in Logic; project opnieuw openen = hetzelfde geluid.
+
+## H. Minder technisch, makkelijker combineren (19 okt 2026, op Clay's "visueel minder technisch … onderdelen begrijpen en combineren")
+- [x] Schakelaar eenvoudig / technisch (eenvoudig is de standaard; technisch = alles van voorheen).
+- [x] Blokken per familie (zeven, met kleur en teken), een zin en uitleg per knop zonder vaktaal, gewone namen.
+- [x] Combineren: + zet een blok achter het gekozen blok (of vóór de uitgang), loslaten op een kabel = ertussen, stuurblokken
+  sluiten zichzelf aan (LFO op een knop, sequencer en toetsen op wie noten hoort), "past er goed bij" per blok, zeven
+  combinaties (echo met herhalingen, ruimte, zweven, wiebelend filter, warme band, noot met vorm, kick op de tel).
+- [x] De keten netjes neergelegd (van links naar rechts zoals het geluid loopt, sturing erboven) en een zin erboven die zegt
+  wat het ontwerp doet. Geluid- en sturingskabels in eigen kleur; waar een kabel past licht op.
+- Bewezen: tests/rollen.test.mjs (13 toetsen, elk blok × elke plek × elk voorbeeld), tools/headless/tool.mjs (eenvoudig en technisch).
+- Volgende stap (niet gebouwd): Clay laten proberen met de taaktoets en kijken waar hij vastloopt.

@@ -9,6 +9,7 @@ import { varianten } from './verken.js';
 import { bouwpakket, cpuSchatting, spec } from './bouwpakket.js';
 import { maakTestsignalen } from './testsignalen.js';
 import { zip } from './zip.js';
+import { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, KOP, RIJ, KB } from './rollen.js';
 
 // ---------------------------------------------------------------------------------------------------- data van de bouw
 const DATA = globalThis.PB_DATA;   // door tool/bouw.mjs ingebakken: wasm (base64), bronnen voor het pakket, metingen
@@ -26,10 +27,14 @@ const S = {
   stand: 'ontwerpen', selectie: null, tab: 'horen',
   readout: null, vorige: null, laatsteWijziging: '',
   schetsboek: opslag.lees('schetsboek', []), vergelijk: [],
-  filter: { groep: 'alle', soort: 'alle', zoek: '' },
+  filter: { familie: 'alle', soort: 'alle', zoek: '' },
   wildheid: 'subtiel', zaad: 1, varianten: [],
   abx: null, taak: opslag.lees('taak', null), bron: 'groove',
+  // eenvoudig (standaard): gewone woorden, families, combineren; technisch: cpu, samples, dB, vaktaal
+  weergave: opslag.lees('weergave', 'eenvoudig'),
 };
+const tech = () => S.weergave === 'technisch';
+if (overlap(S.ontwerp, blokMaat)) S.ontwerp = ordenen(S.ontwerp, blokMaat);   // ook een bewaard ontwerp uit de tijd van smallere blokken
 let C = compileer(S.ontwerp);
 const speler = new Speler(MOTOR, MOTOR_BYTES);
 
@@ -57,6 +62,14 @@ const waardeTekst = (v, eenheid) => {
   if (eenheid === 'ms') return v >= 99.95 ? Math.round(v) + ' ms' : nl(v, 1) + ' ms';
   if (eenheid === 'dB') return nl(v, 1) + ' dB';
   if (eenheid === 'Q') return 'Q ' + nl(v, 2);
+  if (eenheid === 'BPM') return Math.round(v) + ' BPM';
+  if (eenheid === 's') return nl(v, v < 10 ? 2 : 1) + ' s';
+  if (eenheid === 'st') return (v > 0 ? '+' : '') + nl(v, 0) + ' st';
+  if (eenheid === 'cent') return (v > 0 ? '+' : '') + nl(v, 0) + ' cent';
+  if (eenheid === 'oct') return nl(v, 1) + ' oct';
+  if (eenheid === ':1') return nl(v, 1) + ':1';
+  if (eenheid === '×') return '×' + nl(v, 2);
+  if (Math.abs(v) > 2) return nl(v, Math.abs(v) < 10 ? 1 : 0);   // een telling (bits, deling), geen deel van het geheel
   return Math.round(v * 100) + ' %';
 };
 const dbTekst = (x) => (x === null || x === undefined ? 'n.v.t.' : nl(x, 0) + ' dB');
@@ -150,6 +163,8 @@ function bouw() {
       el('div', { class: 'logo' }, 'PLUGINBOUWER'),
       el('div', { class: 'stand', role: 'tablist' },
         ...['ontwerpen', 'bouwen'].map((s) => el('button', { class: 'seg', 'data-stand': s, onclick: () => { S.stand = s; teken(); } }, s === 'ontwerpen' ? 'Ontwerpen' : 'Bouwen'))),
+      el('div', { class: 'stand', role: 'group', 'aria-label': 'weergave', title: 'eenvoudig = gewone woorden; technisch = cpu, samples, dB en de vaktermen' },
+        ...['eenvoudig', 'technisch'].map((w) => el('button', { class: 'seg klein', 'data-weergave': w, onclick: () => { S.weergave = w; opslag.schrijf('weergave', w); teken(); } }, w))),
       el('div', { id: 'readout', class: 'readout' })),
     el('main', { id: 'werk' },
       el('aside', { id: 'bib', class: 'paneel' }),
@@ -172,6 +187,8 @@ function melding(t) { const m = $('#melding'); if (m) { m.textContent = t; m.hid
 
 function teken() {
   for (const b of document.querySelectorAll('[data-stand]')) b.classList.toggle('aan', b.dataset.stand === S.stand);
+  for (const b of document.querySelectorAll('[data-weergave]')) b.classList.toggle('aan', b.dataset.weergave === S.weergave);
+  document.body.classList.toggle('technisch', tech());
   $('#werk').hidden = S.stand !== 'ontwerpen';
   $('#bouwen').hidden = S.stand !== 'bouwen';
   if (S.stand === 'ontwerpen') { tekenBib(); tekenCanvas(); tekenInspector(); tekenOnder(); } else tekenBouwen();
@@ -188,13 +205,30 @@ function tekenReadout() {
     return el('span', { class: 'pijl ' + (beter ? 'ok' : 'bad'), title: 'laatste wijziging: ' + S.laatsteWijziging }, omhoog ? '▲' : '▼');
   };
   const vak = (label, waarde, p, uitleg) => el('div', { class: 'rv', title: uitleg }, el('span', { class: 'rl' }, label), el('span', { class: 'rw' }, waarde, p));
-  const toetsen = el('div', { class: 'rv', title: 'wat er nu al gecontroleerd wordt; de rest doet CI' }, el('span', { class: 'rl' }, 'toetsen'),
+  const toetsen = el('div', { class: 'rv', title: 'wat er nu al gecontroleerd wordt; de rest doet CI' }, el('span', { class: 'rl' }, tech() ? 'toetsen' : 'klopt het'),
     el('span', { class: 'blokjes' }, ...toetsBlokjes()));
   if (!r || r.fout) {
-    box.append(vak('keten', C.fouten.length ? C.fouten.length + ' fout' + (C.fouten.length > 1 ? 'en' : '') : (r?.fout || 'meten…'), null, C.fouten.join('\n')), toetsen);
+    box.append(vak('keten', C.fouten.length ? C.fouten.length + (tech() ? ' fout' + (C.fouten.length > 1 ? 'en' : '') : ' probleem') : (r?.fout || 'meten…'), null, C.fouten.join('\n')), toetsen);
     return;
   }
   const staart = r.staart < 0 ? '∞' : nl(r.staart, 1) + ' s';
+  if (!tech()) {
+    // in gewone woorden; de getallen staan in de tooltip en in de technische weergave
+    const naklank = r.staart < 0 ? 'blijft gaan' : r.staart < 0.05 ? 'meteen stil' : nl(r.staart, 1) + ' s';
+    const zwaar = r.cpuSchatting < 1 ? 'licht' : r.cpuSchatting < 5 ? 'gemiddeld' : 'zwaar';
+    const vakken = [];
+    if (r.instrument) {
+      const volume = r.piekDb > 0 ? 'te hard' : r.rmsDb < -40 ? 'zacht' : 'goed';
+      vakken.push(vak('volume', volume, pijl(r.rmsDb, v?.rmsDb, false), `gemiddeld ${nl(r.rmsDb, 0)} dB, piek ${nl(r.piekDb, 1)} dB (boven 0 vervormt het in je muziekprogramma)`));
+    } else {
+      const klank = !Number.isFinite(r.thdDb) ? '—' : r.thdDb < -45 ? 'schoon' : r.thdDb < -25 ? 'warm' : 'vervormd';
+      vakken.push(vak('klank', klank, pijl(r.thdDb, v?.thdDb, true), r.reden || `hoeveel het een zuivere toon kleurt: vervorming ${dbTekst(r.thdDb)}, aliasing ${dbTekst(r.aliasingDb)}`));
+    }
+    vakken.push(vak('naklinken', naklank, pijl(r.staart, v?.staart, true), 'hoe lang er nog geluid komt als je stopt'),
+      vak('rekenwerk', zwaar, pijl(r.cpuSchatting, v?.cpuSchatting, true), `hoeveel van de computer dit vraagt: ${nl(r.cpuSchatting, 2)} % van één kern`), toetsen);
+    box.append(...vakken);
+    return;
+  }
   if (r.instrument) {
     box.append(
       vak('cpu', nl(r.cpuSchatting, 2) + ' %', pijl(r.cpuSchatting, v?.cpuSchatting, true), 'geschat uit de gemeten blokken (één kern, WASM)'),
@@ -225,39 +259,70 @@ function toetsBlokjes() {
 }
 
 // ---------------------------------------------------------------------------------------------------- bibliotheek
+// Een klein teken per familie (lijnen, geen emoji): toon, filterbocht, echo's, draaiende knop, toetsen, plus, pijl.
+const TEKEN = { bron: 'M0,6 C2,0 4,0 6,6 S10,12 12,6', kleur: 'M0,3 H6 C9,3 9,10 12,10', ruimte: 'M1,11 V1 M5,11 V4 M9,11 V7',
+  beweging: 'M2,10 A5,5 0 1 1 10,10 M6,6 L9,3', spelen: 'M0,1 H12 V11 H0 Z M4,1 V11 M8,1 V11', verbinden: 'M6,1 V11 M1,6 H11', vast: 'M0,6 H10 M7,3 L10,6 L7,9' };
+const picto = (fam, x = 0, y = 0) => svg('path', { d: TEKEN[fam], class: 'teken', transform: `translate(${x},${y})` });
+const tekenEl = (fam) => { const s = svg('svg', { viewBox: '-1 -1 14 14', class: 'tekenvak f-' + fam, 'aria-hidden': 'true' }); s.append(picto(fam)); return s; };
+
 function tekenBib() {
   const box = $('#bib'), f = S.filter;
-  box.replaceChildren(el('div', { class: 'tape' }, 'BIBLIOTHEEK'));
-  const chips = (sleutel, keuzes) => el('div', { class: 'chips' }, ...keuzes.map(([w, t]) =>
-    el('button', { class: 'seg' + (f[sleutel] === w ? ' aan' : ''), onclick: () => { f[sleutel] = w; tekenBib(); } }, t)));
-  box.append(chips('groep', [['alle', 'alles'], ['klank', 'klank'], ['besturing', 'besturing'], ['techniek', 'techniek'], ['UI', 'UI']]),
-    chips('soort', [['alle', 'elk type'], ['effect', 'effect'], ['instrument', 'instrument'], ['MIDI-effect', 'MIDI'], ['analyser', 'analyser'], ['utility', 'utility'], ['modulatie', 'modulatie']]),
-    el('input', { class: 'zoek', placeholder: 'zoek: filter, tape, echo…', value: f.zoek, oninput: (ev) => { f.zoek = ev.target.value; tekenLijst(); } }),
+  box.replaceChildren(el('div', { class: 'tape' }, tech() ? 'BIBLIOTHEEK' : 'BLOKKEN'));
+  const fams = FAMILIES.filter((x) => x.id !== 'vast');
+  box.append(el('div', { class: 'chips' },
+    el('button', { class: 'seg' + (f.familie === 'alle' || !f.familie ? ' aan' : ''), onclick: () => { f.familie = 'alle'; tekenBib(); } }, 'alles'),
+    ...fams.map((x) => el('button', { class: 'seg fam' + (f.familie === x.id ? ' aan' : ''), title: x.zin, onclick: () => { f.familie = x.id; tekenBib(); } }, tekenEl(x.id), x.naam.toLowerCase())),
+    el('button', { class: 'seg' + (f.familie === 'recept' ? ' aan' : ''), title: 'een paar blokken die samen één ding doen', onclick: () => { f.familie = 'recept'; tekenBib(); } }, 'combinaties')));
+  if (tech()) box.append(
+    el('div', { class: 'chips' }, ...[['alle', 'elk type'], ['effect', 'effect'], ['instrument', 'instrument'], ['MIDI-effect', 'MIDI'], ['analyser', 'analyser'], ['utility', 'utility'], ['modulatie', 'modulatie']].map(([w, t]) =>
+      el('button', { class: 'seg' + (f.soort === w ? ' aan' : ''), onclick: () => { f.soort = w; tekenBib(); } }, t))));
+  box.append(el('input', { class: 'zoek', placeholder: 'zoek: echo, filter, trommel…', value: f.zoek, oninput: (ev) => { f.zoek = ev.target.value; tekenLijst(); } }),
+    el('p', { class: 'zacht klein' }, S.selectie?.soort === 'knoop' && knoopVan(S.selectie.id)
+      ? `+ zet het achter ${gewoneNaam(knoopVan(S.selectie.id).type)}.` : '+ zet het vóór de uitgang. Kies eerst een blok om het daarachter te zetten.'),
     el('div', { id: 'bibLijst' }));
   tekenLijst();
 }
 function tekenLijst() {
-  const f = S.filter, z = f.zoek.trim().toLowerCase(), lijst = $('#bibLijst');
-  const past = (groep, soort, tekst) => (f.groep === 'alle' || groep === f.groep) && (f.soort === 'alle' || soort === f.soort) && (!z || tekst.toLowerCase().includes(z));
+  const f = S.filter, z = f.zoek.trim().toLowerCase(), lijst = $('#bibLijst'), fam = f.familie || 'alle';
+  const pastTekst = (tekst) => !z || tekst.toLowerCase().includes(z);
   lijst.replaceChildren();
-  for (const [type, b] of Object.entries(BIB)) {
-    if (b.vast) continue;
-    if (!past(b.groep, b.soort, `${b.naam} ${b.cat || ''} ${b.uitleg}`)) continue;
-    const cpu = DATA.metingBlokken?.blokken?.[type]?.cpuProcent;
-    lijst.append(el('div', { class: 'kaart', draggable: 'true', title: b.uitleg,
-      ondragstart: (ev) => ev.dataTransfer.setData('text/pb-blok', type) },
-      el('div', { class: 'kn' }, b.naam, el('button', { class: 'plus', title: 'toevoegen', onclick: () => voegToe(type) }, '+')),
-      el('div', { class: 'ks' }, `${b.cat || b.groep} · ${cpu !== undefined ? nl(cpu, 2) + ' % cpu' : ''} · ${b.latency ? b.latency + ' smp' : '0 smp'}`),
-      el('div', { class: 'ku' }, b.uitleg.split('. ')[0] + '.'),
-      el('div', { class: 'bouw', title: 'bouwmoeite (schatting): ' + b.bouw + ' van 5' }, ...Array.from({ length: 5 }, (_, i) => el('i', { class: i < b.bouw ? 'vol' : '' })))));
+  if (fam === 'alle' || fam === 'recept') {
+    const recepten = RECEPTEN.filter((r) => pastTekst(`${r.naam} ${r.kort}`) && (heeftIngang() || !r.ingang.length || fam === 'recept'));
+    if (recepten.length) {
+      if (fam === 'alle') lijst.append(el('div', { class: 'sub' }, 'combinaties'));
+      for (const r of recepten) lijst.append(el('div', { class: 'kaart recept', title: r.kort },
+        el('div', { class: 'kn' }, el('span', { class: 'kkop' }, ...[...new Set(r.knopen.map((k) => familieVan(k.type)))].map(tekenEl), r.naam),
+          el('button', { class: 'plus', title: 'in de keten zetten', 'aria-label': r.naam + ' in de keten zetten', onclick: () => zetErin({ recept: r.id }) }, '+')),
+        el('div', { class: 'ku' }, r.kort)));
+    }
+    if (fam === 'recept') return;
   }
-  const later = BIB_LATER.filter(([naam, groep, soort, cat]) => past(groep, soort, `${naam} ${cat}`));
-  if (later.length) {
+  let vorige = null;
+  for (const fx of FAMILIES) for (const [type, b] of Object.entries(BIB)) {
+    if (b.vast || familieVan(type) !== fx.id) continue;
+    if (fam !== 'alle' && fam !== fx.id) continue;
+    if (tech() && f.soort !== 'alle' && b.soort !== f.soort) continue;
+    if (!pastTekst(`${b.naam} ${gewoneNaam(type)} ${b.cat || ''} ${b.uitleg} ${ROL[type].kort}`)) continue;
+    if (vorige !== fx.id && fam === 'alle') lijst.append(el('div', { class: 'sub' }, fx.naam));
+    vorige = fx.id;
+    const cpu = DATA.metingBlokken?.blokken?.[type]?.cpuProcent;
+    lijst.append(el('div', { class: 'kaart f-rand-' + fx.id, draggable: 'true', title: tech() ? b.uitleg : ROL[type].kort + ' Sleep op een kabel om hem ertussen te zetten.',
+      ondragstart: (ev) => ev.dataTransfer.setData('text/pb-blok', type) },
+      el('div', { class: 'kn' }, el('span', { class: 'kkop' }, tekenEl(fx.id), tech() ? b.naam : gewoneNaam(type)),
+        el('button', { class: 'plus', title: 'in de keten zetten', 'aria-label': gewoneNaam(type) + ' in de keten zetten', onclick: () => zetErin({ type }) }, '+')),
+      el('div', { class: 'ku' }, tech() ? b.uitleg.split('. ')[0] + '.' : ROL[type].kort),
+      tech() ? el('div', { class: 'ks' }, `${b.cat || b.groep} · ${cpu !== undefined ? nl(cpu, 2) + ' % cpu' : ''} · ${b.latency ? b.latency + ' smp' : '0 smp'}`) : null,
+      tech() ? el('div', { class: 'bouw', title: 'bouwmoeite (schatting): ' + b.bouw + ' van 5' }, ...Array.from({ length: 5 }, (_, i) => el('i', { class: i < b.bouw ? 'vol' : '' }))) : null));
+  }
+  if (!tech()) return;
+  const later = BIB_LATER.filter(([naam, , soort, cat]) => pastTekst(`${naam} ${cat}`) && (f.soort === 'alle' || soort === f.soort));
+  if (later.length && fam === 'alle') {
     lijst.append(el('div', { class: 'sub' }, `nog niet gebouwd (${later.length})`));
     for (const [naam, , , cat] of later) lijst.append(el('div', { class: 'kaart later', title: 'staat in TASKS.md "Bibliotheek later"' }, el('div', { class: 'kn' }, naam), el('div', { class: 'ks' }, cat + ' · later')));
   }
 }
 function vrijeId(type) { let n = 1; while (knoopVan(type + n)) n++; return type + n; }
+// Een blok op een vrije plek (losgelaten naast de keten): niets aangesloten.
 function voegToe(type, x, y) {
   const id = vrijeId(type);
   const kn = { id, type, x: x ?? 200 + Math.random() * 400, y: y ?? 80 + Math.random() * 260, waarden: {} };
@@ -269,6 +334,17 @@ function voegToe(type, x, y) {
   S.selectie = { soort: 'knoop', id };
   gewijzigd(`${BIB[type].naam} erbij`);
 }
+// Een blok of combinatie IN de keten: achter het gekozen blok (of vóór de uitgang), of op een kabel. Daarna wordt de
+// keten netjes neergelegd en zegt een melding wat er gebeurde.
+function zetErin(wat, { kabel = null } = {}) {
+  const na = S.selectie?.soort === 'knoop' ? S.selectie.id : null;
+  const r = voegIn(S.ontwerp, wat, { na, kabel });
+  S.ontwerp = ordenen(r.ontwerp, blokMaat);
+  S.selectie = { soort: 'knoop', id: r.nieuw.at(-1) };
+  melding(r.wat);
+  gewijzigd(r.wat);
+}
+function netjes() { S.ontwerp = ordenen(S.ontwerp, blokMaat); gewijzigd('netjes neergelegd'); }
 function verwijderSelectie() {
   const s = S.selectie; if (!s) return;
   if (s.soort === 'kabel') { S.ontwerp.kabels.splice(s.index, 1); gewijzigd('kabel weg'); }
@@ -284,10 +360,12 @@ function verwijderSelectie() {
 }
 
 // ---------------------------------------------------------------------------------------------------- canvas
-const KB = 132, KOP = 22, RIJ = 58;
-const breedte = (kn) => { const n = BIB[kn.type].knoppen.length; return n >= 2 ? KB : n === 1 ? 76 : 70; };
-const knoopHoogte = (kn) => KOP + 18 + Math.max(BIB[kn.type].in.length, BIB[kn.type].uit.length, 1) * 0 + Math.ceil(Math.max(1, BIB[kn.type].knoppen.length) / 2) * RIJ;
+// maten uit rollen.js (blokMaat): dezelfde als waarmee "netjes neerleggen" rekent
+const breedte = (kn) => blokMaat(kn).w;
+const knoopHoogte = (kn) => blokMaat(kn).h;
 const poortY = (kn, i, n) => kn.y + KOP + 14 + i * 18 + (n === 1 ? 6 : 0);
+const knopX = (kn, i) => (BIB[kn.type].knoppen.length >= 2 ? breedte(kn) / 2 - 32 + (i % 2) * 64 : breedte(kn) / 2);
+const isStuur = (type, poort) => poortInfo(type, poort).soort === 'sturing';
 let sleep = null, laatsteVB = null;
 function tekenCanvas() {
   const box = $('#canvas');
@@ -298,33 +376,48 @@ function tekenCanvas() {
     Math.max(640, ...kn0.map((k) => k.x + breedte(k) + 40)), Math.max(300, ...kn0.map((k) => k.y + knoopHoogte(k) + 110))];
   laatsteVB = vb;
   const [x0, y0, x1, y1] = vb;
-  const s = svg('svg', { viewBox: `${x0} ${y0} ${x1 - x0} ${y1 - y0}`, class: 'keten', role: 'img', 'aria-label': 'de signaalketen' });
-  s.addEventListener('dragover', (ev) => ev.preventDefault());
+  // nooit kleiner dan 72 %: een lange keten schuift dan opzij in plaats van onleesbaar te worden
+  const s = svg('svg', { viewBox: `${x0} ${y0} ${x1 - x0} ${y1 - y0}`, class: 'keten', role: 'img', 'aria-label': 'de signaalketen', style: `min-width:${Math.round((x1 - x0) * 0.72)}px` });
+  const kabelOnder = (ev) => document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.kabelhit');
+  let doelKabel = null;
+  s.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    const hit = kabelOnder(ev);
+    if (doelKabel && doelKabel !== hit) doelKabel.previousSibling?.classList.remove('doel');
+    doelKabel = hit; hit?.previousSibling?.classList.add('doel');
+  });
   s.addEventListener('drop', (ev) => {
     const type = ev.dataTransfer.getData('text/pb-blok'); if (!type) return;
-    const p = punt(s, ev); voegToe(type, p.x - 40, p.y - 20);
+    ev.preventDefault();
+    const hit = kabelOnder(ev), p = punt(s, ev);
+    const k = hit ? S.ontwerp.kabels[+hit.dataset.kabel] : null;
+    // op een kabel met geluid: ertussen (een bron wordt erbij opgeteld); anders waar je hem loslaat
+    if (k && !['beweging', 'spelen'].includes(familieVan(type)) && !isStuur(knoopVan(k.van[0]).type, k.van[1])) { S.selectie = null; zetErin({ type }, { kabel: k }); }
+    else voegToe(type, p.x - 40, p.y - 20);
   });
   s.addEventListener('pointermove', (ev) => sleepBeweeg(s, ev));
   s.addEventListener('pointerup', (ev) => sleepLos(s, ev));
-  s.addEventListener('pointerdown', (ev) => { if (ev.target === s) { S.selectie = null; teken(); } });
+  s.addEventListener('pointerdown', (ev) => { if (ev.target === s || ev.target.closest('.raster')) { S.selectie = null; teken(); } });
   // raster
   const raster = svg('g', { class: 'raster' });
   for (let x = Math.floor(x0 / 40) * 40; x <= x1; x += 40) raster.append(svg('line', { x1: x, y1: y0, x2: x, y2: y1 }));
   for (let y = Math.floor(y0 / 40) * 40; y <= y1; y += 40) raster.append(svg('line', { x1: x0, y1: y, x2: x1, y2: y }));
   s.append(raster);
   const { terug } = volgorde(S.ontwerp);
-  // kabels
+  // kabels: geluid in blauwgroen, sturing (noten, beweging) in oranje, een lus terug gestippeld. Elke kabel heeft een
+  // brede onzichtbare rand om op te klikken en om een blok op los te laten.
   S.ontwerp.kabels.forEach((k, i) => {
     const a = knoopVan(k.van[0]), b = knoopVan(k.naar[0]); if (!a || !b) return;
     const ai = BIB[a.type].uit.indexOf(k.van[1]), bi = BIB[b.type].in.indexOf(k.naar[1]);
     const xa = a.x + breedte(a), ya = poortY(a, Math.max(0, ai), BIB[a.type].uit.length), xb = b.x, yb = poortY(b, Math.max(0, bi), BIB[b.type].in.length);
     const dx = Math.max(60, Math.abs(xb - xa) / 2);
-    const isTerug = terug.includes(k);
+    const isTerug = terug.includes(k), stuur = isStuur(a.type, k.van[1]);
     const d = isTerug ? `M${xa},${ya} C${xa + 80},${ya + 160} ${xb - 80},${yb + 160} ${xb},${yb}` : `M${xa},${ya} C${xa + dx},${ya} ${xb - dx},${yb} ${xb},${yb}`;
     const gekozen = S.selectie?.soort === 'kabel' && S.selectie.index === i;
-    s.append(svg('path', { d, class: 'kabel' + (isTerug ? ' terug' : '') + (gekozen ? ' gekozen' : ''),
-      onpointerdown: (ev) => { ev.stopPropagation(); S.selectie = { soort: 'kabel', index: i }; teken(); } },
-      svg('title', {}, `${k.van.join('.')} → ${k.naar.join('.')}${isTerug ? ' (terugkoppeling: leest de vorige sample)' : ''} — Delete = weg`)));
+    const titel = tech() ? `${k.van.join('.')} → ${k.naar.join('.')}${isTerug ? ' (terugkoppeling: leest de vorige sample)' : ''} — Delete = weg`
+      : `${gewoneNaam(a.type)} → ${gewoneNaam(b.type)}${isTerug ? ' (lus terug: zo herhaalt het zich)' : stuur ? ' (stuurt)' : ''}. Klik en Delete = weg; sleep een blok hierop om het ertussen te zetten.`;
+    s.append(svg('path', { d, class: 'kabel' + (isTerug ? ' terug' : '') + (stuur ? ' stuur' : '') + (gekozen ? ' gekozen' : '') }),
+      svg('path', { d, class: 'kabelhit', 'data-kabel': i, onpointerdown: (ev) => { ev.stopPropagation(); S.selectie = { soort: 'kabel', index: i }; teken(); } }, svg('title', {}, titel)));
   });
   // modulaties
   for (const m of S.ontwerp.modulaties || []) {
@@ -336,27 +429,46 @@ function tekenCanvas() {
   // knopen
   for (const kn of S.ontwerp.knopen) s.append(tekenKnoop(s, kn));
   if (sleep?.soort === 'kabel') s.append(svg('path', { id: 'sleepKabel', class: 'kabel sleep', d: '' }));
-  box.replaceChildren(el('div', { class: 'tape' }, 'KETEN · ' + S.ontwerp.naam), el('div', { class: 'scroller' }, s),
-    el('div', { class: 'tip' }, 'Sleep een blok uit de bibliotheek hierheen. Trek een kabel van een uitgang (rechts) naar een ingang (links). Sleep de uitgang van een LFO op een knop = modulatie. Een kabel terug naar een eerder blok is een terugkoppeling (gestippeld). Delete = weg.'));
+  box.replaceChildren(
+    el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, (tech() ? 'KETEN · ' : '') + S.ontwerp.naam),
+      el('button', { class: 'seg klein', title: 'zet de blokken op volgorde van links naar rechts, zoals het geluid loopt', onclick: netjes }, 'netjes neerleggen')),
+    el('p', { class: 'samenvatting' }, beschrijf(S.ontwerp)),
+    el('div', { class: 'scroller' }, s),
+    el('div', { class: 'tip' }, tech()
+      ? 'Sleep een blok uit de bibliotheek hierheen, of op een kabel om het ertussen te zetten. Trek een kabel van een uitgang (rechts) naar een ingang (links). Sleep de uitgang van een LFO op een knop = modulatie. Een kabel terug naar een eerder blok is een terugkoppeling (gestippeld). Delete = weg.'
+      : 'Blauwgroen = geluid, oranje = sturing (noten, beweging), gestippeld = een lus terug. Trek een kabel van rechts (uit) naar links (in); waar hij past licht geel op. Sleep een oranje uitgang op een knop en die knop gaat bewegen. Klik iets en Delete = weg.'));
 }
 function punt(s, ev) { const p = s.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(s.getScreenCTM().inverse()); }
-const knopX = (kn, i) => (breedte(kn) === KB ? 34 + (i % 2) * 64 : breedte(kn) / 2);
 function tekenKnoop(s, kn) {
-  const b = BIB[kn.type], h = knoopHoogte(kn), KB = breedte(kn), gekozen = S.selectie?.soort === 'knoop' && S.selectie.id === kn.id;
-  const g = svg('g', { class: 'knoop' + (gekozen ? ' gekozen' : ''), transform: `translate(${kn.x},${kn.y})` });
-  g.append(svg('rect', { class: 'kast', width: KB, height: h }),
-    svg('rect', { class: 'kopbalk', width: KB, height: KOP, onpointerdown: (ev) => { ev.stopPropagation(); S.selectie = { soort: 'knoop', id: kn.id }; sleep = { soort: 'knoop', id: kn.id, dx: punt(s, ev).x - kn.x, dy: punt(s, ev).y - kn.y }; teken(); } }),
-    svg('text', { class: 'koptekst', x: 6, y: 15 }, (KB < 100 && b.naam.length > 9 ? b.naam.slice(0, 8) + '.' : b.naam).toUpperCase(), svg('title', {}, b.naam)));
-  b.in.forEach((p, i) => g.append(
-    svg('rect', { class: 'poort in', x: -6, y: poortY(kn, i, b.in.length) - kn.y - 5, width: 10, height: 10, 'data-knoop': kn.id, 'data-poort': p },
-      svg('title', {}, 'ingang ' + p)),
-    svg('text', { class: 'poortnaam', x: 8, y: poortY(kn, i, b.in.length) - kn.y + 3 }, b.in.length > 1 ? p : '')));
-  b.uit.forEach((p, i) => g.append(
-    svg('rect', { class: 'poort uit' + (b.soort === 'modulatie' ? ' modpoort' : ''), x: KB - 4, y: poortY(kn, i, b.uit.length) - kn.y - 5, width: 10, height: 10,
-      onpointerdown: (ev) => { ev.stopPropagation(); sleep = { soort: 'kabel', van: [kn.id, p], x1: kn.x + breedte(kn), y1: poortY(kn, i, b.uit.length) }; tekenCanvas(); } },
-      svg('title', {}, 'uitgang ' + p + ' — sleep naar een ingang' + (b.soort === 'modulatie' ? ' of een knop' : ''))),
-    svg('text', { class: 'poortnaam r', x: KB - 8, y: poortY(kn, i, b.uit.length) - kn.y + 3 }, b.uit.length > 1 ? p : '')));
-  b.knoppen.forEach((def, i) => g.append(tekenKnop(kn, def, knopX(kn, i), KOP + 30 + Math.floor(i / 2) * RIJ)));
+  const b = BIB[kn.type], h = knoopHoogte(kn), W = breedte(kn), gekozen = S.selectie?.soort === 'knoop' && S.selectie.id === kn.id;
+  const fam = familieVan(kn.type), trek = sleep?.soort === 'kabel' ? knoopVan(sleep.van[0]) : null;
+  const g = svg('g', { class: 'knoop f-' + fam + (gekozen ? ' gekozen' : ''), transform: `translate(${kn.x},${kn.y})` });
+  if (gekozen) g.append(svg('rect', { class: 'kader', x: -5, y: -5, width: W + 10, height: h + 10 }));
+  const naam = tech() ? b.naam : gewoneNaam(kn.type);
+  g.append(svg('rect', { class: 'kast', width: W, height: h }),
+    svg('rect', { class: 'kopbalk', width: W, height: KOP, onpointerdown: (ev) => { ev.stopPropagation(); S.selectie = { soort: 'knoop', id: kn.id }; sleep = { soort: 'knoop', id: kn.id, dx: punt(s, ev).x - kn.x, dy: punt(s, ev).y - kn.y }; teken(); } },
+      svg('title', {}, `${naam}: ${ROL[kn.type].kort} Sleep om te verplaatsen.`)),
+    picto(fam, 6, 6),
+    svg('text', { class: 'koptekst', x: 24, y: 16 }, naam.toUpperCase()));
+  const label = (p, n, stuur) => (tech() ? (n > 1 ? p : '') : (n > 1 || stuur ? poortInfo(kn.type, p).naam : ''));
+  b.in.forEach((p, i) => {
+    const stuur = isStuur(kn.type, p), pastHier = trek && trek.id !== kn.id && past(trek.type, sleep.van[1], kn.type, p);
+    g.append(
+      svg('rect', { class: 'poort in' + (stuur ? ' stuur' : '') + (pastHier ? ' past' : ''), x: -6, y: poortY(kn, i, b.in.length) - kn.y - 5, width: 10, height: 10, 'data-knoop': kn.id, 'data-poort': p },
+        svg('title', {}, tech() ? 'ingang ' + p : `ingang "${poortInfo(kn.type, p).naam}"${stuur ? ' (sturing: een noot, tel of beweging)' : ''}`)),
+      svg('text', { class: 'poortnaam', x: 8, y: poortY(kn, i, b.in.length) - kn.y + 3 }, label(p, b.in.length, stuur)));
+  });
+  b.uit.forEach((p, i) => {
+    const stuur = isStuur(kn.type, p);
+    g.append(
+      svg('rect', { class: 'poort uit' + (stuur ? ' stuur' : ''), x: W - 4, y: poortY(kn, i, b.uit.length) - kn.y - 5, width: 10, height: 10,
+        onpointerdown: (ev) => { ev.stopPropagation(); sleep = { soort: 'kabel', van: [kn.id, p], x1: kn.x + breedte(kn), y1: poortY(kn, i, b.uit.length) }; tekenCanvas(); } },
+        svg('title', {}, tech() ? 'uitgang ' + p + ' — sleep naar een ingang' + (b.soort === 'modulatie' ? ' of een knop' : '')
+          : `uitgang "${poortInfo(kn.type, p).naam}": sleep naar een ingang${stuur ? ', of op een knop om die te laten bewegen' : ''}`)),
+      svg('text', { class: 'poortnaam r', x: W - 8, y: poortY(kn, i, b.uit.length) - kn.y + 3 }, label(p, b.uit.length, stuur)));
+  });
+  const modTrek = trek && BIB[trek.type].soort === 'modulatie' && trek.id !== kn.id;
+  b.knoppen.forEach((def, i) => { const k = tekenKnop(kn, def, knopX(kn, i), KOP + 30 + Math.floor(i / 2) * RIJ); if (modTrek) k.classList.add('past'); g.append(k); });
   return g;
 }
 // draaiknop: 270°, van −135° tot +135° (zoals de werkbank)
@@ -375,7 +487,7 @@ function tekenKnop(kn, def, cx, cy) {
     svg('path', { d: boog(15, -135, a), class: 'boog' + (mod ? ' gemod' : '') }),
     svg('line', { x1: 0, y1: 0, x2: Math.sin(a * Math.PI / 180) * 12, y2: -Math.cos(a * Math.PI / 180) * 12, class: 'naald' }),
     svg('text', { class: 'knoplabel', y: -21 }, def.naam), svg('text', { class: 'knopwaarde', y: 30 }, waardeTekst(v, def.eenheid)),
-    svg('title', {}, `${def.naam}: ${waardeTekst(v, def.eenheid)}${plugin ? ' — staat in de plugin' : ''}. Sleep omhoog/omlaag; shift = fijn; dubbelklik = standaard.`));
+    svg('title', {}, `${def.naam}: ${waardeTekst(v, def.eenheid)}${tech() ? '' : ' — ' + (ROL[kn.type].knoppen[def.id] || '')}${plugin ? (tech() ? ' — staat in de plugin' : ' (een knop op het paneel van de plugin)') : ''}. Sleep omhoog/omlaag; shift = fijn; dubbelklik = standaard.`));
   g.addEventListener('pointerdown', (ev) => {
     ev.stopPropagation();
     S.selectie = { soort: 'knoop', id: kn.id };
@@ -441,19 +553,24 @@ function tekenInspector() {
   box.replaceChildren(el('div', { class: 'tape' }, 'BLOK'));
   const kn = S.selectie?.soort === 'knoop' ? knoopVan(S.selectie.id) : null;
   if (!kn) {
-    box.append(el('p', { class: 'zacht' }, 'Kies een blok in de keten om alle keuzes te zien.'),
-      el('div', { class: 'sub' }, 'plugin-parameters'), ...S.ontwerp.parameters.map((p, i) => el('div', { class: 'regel' }, `${i + 1}. ${p.naam}`, el('span', { class: 'zacht' }, ` ${p.knoop}.${p.knop}`))),
+    box.append(el('p', { class: 'zacht' }, tech() ? 'Kies een blok in de keten om alle keuzes te zien.' : 'Klik op een blok om te zien wat het doet en wat erbij past.'),
+      el('div', { class: 'sub' }, 'wat dit ontwerp doet'), el('p', {}, beschrijf(S.ontwerp)),
+      el('div', { class: 'sub' }, tech() ? 'plugin-parameters' : 'knoppen op het paneel van de plugin'),
+      ...S.ontwerp.parameters.map((p, i) => el('div', { class: 'regel' }, `${i + 1}. ${p.naam}`, tech() ? el('span', { class: 'zacht' }, ` ${p.knoop}.${p.knop}`) : (p.uitleg ? el('span', { class: 'zacht' }, ' — ' + p.uitleg) : null))),
       ...(C.fouten.length ? [el('div', { class: 'fouten' }, ...C.fouten.map((f) => el('div', {}, '✕ ' + f)))] : []));
     return;
   }
-  const b = BIB[kn.type], cpu = DATA.metingBlokken?.blokken?.[kn.type]?.cpuProcent;
-  box.append(el('h3', {}, b.naam), el('p', {}, b.uitleg),
-    ...(b.let ? [el('p', { class: 'let' }, 'Let op: ' + b.let)] : []),
+  const b = BIB[kn.type], rol = ROL[kn.type], fam = familie(familieVan(kn.type)), cpu = DATA.metingBlokken?.blokken?.[kn.type]?.cpuProcent;
+  box.append(el('h3', { class: 'bloknaam' }, tekenEl(fam.id), tech() ? b.naam : gewoneNaam(kn.type)),
+    el('div', { class: 'famlabel f-rand-' + fam.id }, fam.naam),
+    el('p', {}, tech() ? b.uitleg : rol.kort));
+  if (tech()) box.append(...(b.let ? [el('p', { class: 'let' }, 'Let op: ' + b.let)] : []),
     el('table', { class: 'kv' },
       el('tr', {}, el('td', {}, 'cpu'), el('td', {}, cpu !== undefined ? nl(cpu, 2) + ' % van één kern (WASM, gemeten)' : '—')),
       el('tr', {}, el('td', {}, 'latency'), el('td', {}, b.latency ? b.latency + ' sample' + (b.latency < 1 ? ' (gecompenseerd)' : '') : '0')),
       el('tr', {}, el('td', {}, 'aliasing'), el('td', {}, kn.type === 'tape' ? 'ADAA-1: −33,5 dB bij 5 kHz/12 dB (naïef −28,1)' : 'lineair: geen')),
       el('tr', {}, el('td', {}, 'bouwmoeite'), el('td', {}, b.bouw + ' van 5 (schatting)'))));
+  else if (b.uitleg !== rol.kort) box.append(el('details', {}, el('summary', {}, 'meer uitleg'), el('p', { class: 'zacht' }, b.uitleg + (b.let ? ' ' + b.let : ''))));
   for (const def of b.knoppen) {
     const pi = paramVan(kn.id, def.id), v = knopWaarde(kn, def), { min, max } = knopBereik(kn, def);
     const rij = el('div', { class: 'knoprij' },
@@ -461,24 +578,25 @@ function tekenInspector() {
         oninput: (ev) => { const t = ev.target.value / 1000; const w = def.exp ? min * Math.pow(max / min, t) : min + t * (max - min); zetKnop(kn, def, def.eenheid === 'ms' || def.eenheid === 'Hz' ? Math.round(w) : Math.round(w * 1000) / 1000, false); },
         onchange: () => gewijzigd(`${b.naam}: ${def.naam}`) })),
       el('span', { class: 'w' }, waardeTekst(v, def.eenheid)),
-      el('button', { class: 'seg' + (pi >= 0 ? ' aan' : ''), title: 'in de plugin = de host kan hem automatiseren',
+      el('button', { class: 'seg' + (pi >= 0 ? ' aan' : ''), title: tech() ? 'in de plugin = de host kan hem automatiseren' : 'op het paneel = een knop op je plugin (in Logic ook te automatiseren); vast = alleen hier ingesteld',
         onclick: () => {
           if (pi >= 0) S.ontwerp.parameters.splice(pi, 1);
           else S.ontwerp.parameters.push({ naam: def.naam[0].toUpperCase() + def.naam.slice(1), knoop: kn.id, knop: def.id, min: def.min, max: def.max, standaard: exactF32(v), glijMs: def.glijMs, uitleg: '' });
           gewijzigd(pi >= 0 ? `${def.naam} uit de plugin` : `${def.naam} in de plugin`);
-        } }, pi >= 0 ? 'in plugin' : 'vast'));
+        } }, pi >= 0 ? (tech() ? 'in plugin' : 'op paneel') : 'vast'));
     box.append(rij);
+    if (!tech() && rol.knoppen[def.id]) box.append(el('div', { class: 'knopuitleg' }, rol.knoppen[def.id]));
     if (pi >= 0) {
       const p = S.ontwerp.parameters[pi];
       box.append(el('div', { class: 'bereik' }, 'naam ', el('input', { value: p.naam, onchange: (ev) => { p.naam = ev.target.value; gewijzigd('naam ' + p.naam); } }),
         ' van ', el('input', { type: 'number', value: p.min, step: 'any', onchange: (ev) => { p.min = exactF32(+ev.target.value); gewijzigd('bereik ' + p.naam); } }),
         ' tot ', el('input', { type: 'number', value: p.max, step: 'any', onchange: (ev) => { p.max = exactF32(+ev.target.value); gewijzigd('bereik ' + p.naam); } }),
-        el('select', { onchange: (ev) => { p.glijden = ev.target.value; gewijzigd('draaien ' + p.naam); } },
+        tech() ? el('select', { onchange: (ev) => { p.glijden = ev.target.value; gewijzigd('draaien ' + p.naam); } },
           el('option', { value: 'glijden', selected: p.glijden !== 'overvloeien' }, 'draaien: glijden'),
-          el('option', { value: 'overvloeien', selected: p.glijden === 'overvloeien' }, 'draaien: overvloeien (plugin)'))));
+          el('option', { value: 'overvloeien', selected: p.glijden === 'overvloeien' }, 'draaien: overvloeien (plugin)')) : null));
     }
     const mod = (S.ontwerp.modulaties || []).find((m) => m.doel[0] === kn.id && m.doel[1] === def.id);
-    if (mod) box.append(el('div', { class: 'bereik mod' }, `beweegt door ${mod.bron[0]} · diepte `,
+    if (mod) box.append(el('div', { class: 'bereik mod' }, `beweegt door ${tech() ? mod.bron[0] : gewoneNaam(knoopVan(mod.bron[0])?.type)} · ${tech() ? 'diepte' : 'hoe ver'} `,
       el('input', { type: 'range', min: 0, max: 100, value: Math.round(mod.diepte * 100), onchange: (ev) => { mod.diepte = ev.target.value / 100; gewijzigd('modulatiediepte'); } }),
       el('button', { class: 'seg', onclick: () => { S.ontwerp.modulaties = S.ontwerp.modulaties.filter((m) => m !== mod); gewijzigd('modulatie weg'); } }, 'weg')));
   }
@@ -490,14 +608,27 @@ function tekenInspector() {
         ? el('select', { onchange: (ev) => zet(+ev.target.value) }, ...eig.keuzes.map((t, j) => el('option', { value: j, selected: j === huidig }, t)))
         : el('input', { type: 'number', value: huidig, step: 1, min: 1, onchange: (ev) => zet(Math.max(1, Math.round(+ev.target.value) || eig.std)) }))));
   }
+  // wat er goed bij past: één klik zet het erachter (of sluit het aan)
+  if (rol.goedMet?.length) {
+    box.append(el('div', { class: 'sub' }, 'past er goed bij'));
+    for (const [wie, waarom] of rol.goedMet) {
+      const r = wie.startsWith('recept:') ? recept(wie.slice(7)) : null, meng = wie === 'meng';
+      const naam = meng ? 'Mix' : r ? r.naam : gewoneNaam(wie), fam2 = meng ? 'verbinden' : r ? familieVan(r.knopen[0].type) : familieVan(wie);
+      const wat = meng ? { meng: true } : r ? { recept: r.id } : { type: wie };
+      box.append(el('div', { class: 'goedmet' }, el('button', { class: 'plus', title: naam + ' erbij', 'aria-label': naam + ' erbij', onclick: () => zetErin(wat) }, '+'),
+        el('span', {}, tekenEl(fam2), el('b', {}, naam), ' — ' + waarom)));
+    }
+  }
   if (!b.vast) box.append(el('button', { class: 'knopgroot', onclick: verwijderSelectie }, 'blok weg (Delete)'));
 }
 
 // ---------------------------------------------------------------------------------------------------- onder: tabs
-const TABS = [['horen', 'Horen'], ['paneel', 'Frontpaneel'], ['meten', 'Meten'], ['verken', 'Verken'], ['schetsboek', 'Schetsboek'], ['abx', 'ABX'], ['taak', 'Taaktoets']];
+// [id, eenvoudige naam, technische naam]; de taaktoets alleen in de technische weergave
+const TABS = [['horen', 'Horen', 'Horen'], ['paneel', 'Paneel', 'Frontpaneel'], ['meten', 'Meten', 'Meten'], ['verken', 'Varianten', 'Verken'], ['schetsboek', 'Schetsboek', 'Schetsboek'], ['abx', 'Blind vergelijken', 'ABX'], ['taak', null, 'Taaktoets']];
 function tekenOnder() {
   const box = $('#onder');
-  box.replaceChildren(el('div', { class: 'tabs' }, ...TABS.map(([t, n]) => el('button', { class: 'seg' + (S.tab === t ? ' aan' : ''), onclick: () => { S.tab = t; tekenOnder(); } }, n))));
+  if (!tech() && S.tab === 'taak') S.tab = 'horen';
+  box.replaceChildren(el('div', { class: 'tabs' }, ...TABS.filter((t) => tech() || t[1]).map(([t, n, nt]) => el('button', { class: 'seg' + (S.tab === t ? ' aan' : ''), 'data-tab': t, onclick: () => { S.tab = t; tekenOnder(); } }, tech() ? nt : n))));
   const inhoud = el('div', { class: 'tabinhoud' });
   box.append(inhoud);
   ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
@@ -531,6 +662,7 @@ async function speelNu() {
 }
 async function kiesVoorbeeld(a) {
   S.ontwerp = kloon(a); S.selectie = null;
+  if (overlap(S.ontwerp, blokMaat)) S.ontwerp = ordenen(S.ontwerp, blokMaat);   // de voorbeelden zijn getekend voor smallere blokken
   C = compileer(S.ontwerp);
   await speelNu();   // de klik is het gebaar dat de browser nodig heeft om geluid te mogen maken
   gewijzigd('voorbeeld ' + a.naam, { alGeladen: true });
