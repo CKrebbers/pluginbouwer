@@ -1,0 +1,15 @@
+{
+  "naam": "Self-oscillation",
+  "uitleg": "Boven 1: gaat vanzelf door en blijft begrensd door de band.",
+  "waarden": {
+    "Time": 250,
+    "Feedback": 1.125,
+    "Tone": 2500,
+    "Low cut": 200,
+    "Resonance": 1.25,
+    "Saturation": 12,
+    "Flutter": 0.3125,
+    "Mix": 0.5,
+    "Hiss": 0
+  }
+}

@@ -1,4 +1,4 @@
-# PROMPTS — Dub-echo (v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden))
+# PROMPTS — Dub echo (v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden))
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
 Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de
@@ -7,7 +7,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 ---
 ## Fase 0 — skelet, CI en alle validators
 **Prompt**
-> Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Dub-echo": een CLAP-plugin in
+> Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Dub echo": een CLAP-plugin in
 > `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit `patches/`, in naamvolgorde) voor VST3 en AUv2
 > (`make_clapfirst_plugins`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker `Vrve`, subtype `PDca`, type `aufx`). De plugin gebruikt het Ontwerp uit
 > `dsp/ontwerpen/keten_dub_echo.h` (include-pad `dsp/`); in deze fase geeft process de invoer door (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
@@ -105,7 +105,7 @@ binnen 1 dB, en de validators van fase 0 nog groen.
 
 ---
 ## Fase 7 — test in Logic (checklist voor Clay)
-- [ ] Plug-in Manager: PB Dub-echo "geslaagd" (na LEERPAD.md "Installeren").
+- [ ] Plug-in Manager: PB Dub echo "geslaagd" (na LEERPAD.md "Installeren").
 - [ ] Op een audiospoor laden; geluid gaat erdoor; knoppen doen wat SPEC.md zegt.
 - [ ] Een knop automatiseren (Tijd van langzaam naar snel): de toon glijdt, geen tikken.
 - [ ] Terugkoppeling boven 1: hij gaat vanzelf door en blijft begrensd.

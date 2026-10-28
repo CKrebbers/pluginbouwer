@@ -1,4 +1,4 @@
-# ARCHITECTUUR — Dub-echo
+# ARCHITECTUUR — Dub echo
 
 ## Lagen
 ```

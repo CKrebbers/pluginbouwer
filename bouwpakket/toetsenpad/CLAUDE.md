@@ -1,4 +1,4 @@
-# CLAUDE.md — bouwpakket "Toetsenpad" (toetsenpad)
+# CLAUDE.md — bouwpakket "Keys pad" (toetsenpad)
 
 Je bouwt een audioplugin uit dit pakket. Lees eerst SPEC.md, ARCHITECTUUR.md, TASKS.md en PROMPTS.md.
 Nederlands in docs, commits en comments; code-identifiers Engels. De gebruiker (Clay) programmeert geen C++ en test in

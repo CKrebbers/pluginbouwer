@@ -107,7 +107,7 @@ test('voortgang: gekend na drie keer goed, sterren, levels gaan open', () => {
 test('Wie ben ik?: de zin verraadt de naam van het blok niet', () => {
   for (const t of Object.keys(BIB).filter((x) => !BIB[x].vast)) {
     const z = zinZonderNaam(t, ROL[t].kort).toLowerCase();
-    for (const w of gewoneNaam(t).toLowerCase().split(/\s+/).filter((w) => w.length >= 4)) assert.ok(!z.includes(w.slice(0, -1)), `${t}: "${z}" noemt nog "${w}"`);
+    for (const w of `${gewoneNaam(t)} ${t}`.toLowerCase().split(/\s+/).filter((w) => w.length >= 4)) assert.ok(!z.includes(w.slice(0, -1)), `${t}: "${z}" noemt nog "${w}"`);
   }
-  assert.equal(zinZonderNaam('trommel', ROL.trommel.kort), 'Eén ___: kick, tom, snare of hihat.');
+  assert.equal(zinZonderNaam('snaar', ROL.snaar.kort), 'Een getokkelde ___.');
 });

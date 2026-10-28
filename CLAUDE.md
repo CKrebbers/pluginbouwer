@@ -153,10 +153,15 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **De telefoon (body.smal) kan alles met tikken.** Een nieuwe functie die slepen vraagt, krijgt ook een knop. Een
   schuif die je vasthoudt wordt niet opnieuw getekend (`actieveSchuif`), anders breekt slepen af. headless toetst iPhone staand en liggend.
 
+- **Parameternamen van de handgeschreven dub-echo** (`dsp/ontwerpen/dub_echo.h`) zijn gelijk aan die van DUB_ECHO in
+  `tool/src/archetypen.js` (graaf.test eist het); hernoem je er een, dan ook in `ref/dub_echo_ref.py`, `tools/au-proef.mjs`
+  en de toetsen. Daarna eerst de WASM opnieuw (`sh dsp/bouw-wasm.sh <ontwerp>`), pas dan `tools/null.mjs maak`: die leest
+  de namen uit de WASM, en de pluginval-JSON zet parameters op naam.
+
 ## Conventies
 | Onderwerp | Afspraak |
 |---|---|
-| Taal | Nederlands in docs, commits, comments, tooltekst. Identifiers Engels. |
+| Taal | Nederlands in docs, commits, comments en uitleg in de tool. Identifiers Engels. **Termen in het Engels** (Clay 28 okt): namen van blokken, knoppen, aansluitingen, families, combinaties, voorbeelden, plugin-parameters en presets, zoals in een DAW. De zinnen eromheen blijven Nederlands. |
 | Toetsen | `node --test tests/` lokaal; CI draait alles plus de validators. Geen toets uitzetten om groen te worden. |
 | WASM bouwen | `sh dsp/bouw-wasm.sh` (clang + wasm-ld). De .wasm staat in git zodat de tool zonder bouwstap werkt. |
 | Plugin bouwen | `cmake -B build -S plugin -DCMAKE_BUILD_TYPE=Release && cmake --build build`. |

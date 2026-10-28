@@ -47,7 +47,7 @@ function dft(x, w) { let re = 0, im = 0; for (let n = 0; n < x.length; n++) { re
 test('lineair (klein signaal, geen terugkoppeling): ADAA × Lagrange × hoogdoor × SVF', () => {
   const inst = { tijd: 20.5, laag: 80, toon: 4000, reso: 2 };
   const a = 1e-3;
-  const [h] = render(o, [impuls(1 << 14, a)], { waarden: met({ Tijd: inst.tijd, 'Laag weg': inst.laag, Toon: inst.toon, Resonantie: inst.reso, Terugkoppeling: 0, Verzadiging: 0, Haperen: 0, Mix: 1 }) });
+  const [h] = render(o, [impuls(1 << 14, a)], { waarden: met({ Time: inst.tijd, 'Low cut': inst.laag, Tone: inst.toon, Resonance: inst.reso, Feedback: 0, Saturation: 0, Flutter: 0, Mix: 1 }) });
   let maxDb = 0, maxGr = 0;
   for (let k = 1; k <= 300; k++) {
     const f = 20 * Math.pow((0.45 * SR) / 20, k / 300), w = 2 * Math.PI * f / SR;
@@ -73,8 +73,8 @@ function python(x, sr, p, ideaal = 0) {
   return new Float64Array(b.buffer, b.byteOffset, b.byteLength / 8);
 }
 const REF_SETS = [
-  { naam: 'gewoon', p: { Tijd: 123.4, Terugkoppeling: 0.6, Verzadiging: 6, Toon: 3000, 'Laag weg': 100, Resonantie: 0.70703125, Haperen: 0, Mix: 0.5 } },
-  { naam: 'heet', p: { Tijd: 77.7, Terugkoppeling: 0.95, Verzadiging: 18, Toon: 1500, 'Laag weg': 250, Resonantie: 2, Haperen: 0, Mix: 0.75 } },
+  { naam: 'gewoon', p: { Time: 123.4, Feedback: 0.6, Saturation: 6, Tone: 3000, 'Low cut': 100, Resonance: 0.70703125, Flutter: 0, Mix: 0.5 } },
+  { naam: 'heet', p: { Time: 77.7, Feedback: 0.95, Saturation: 18, Tone: 1500, 'Low cut': 250, Resonance: 2, Flutter: 0, Mix: 0.75 } },
 ];
 for (const set of REF_SETS) {
   test(`WASM tegen de Python-referentie (${set.naam}, float64, andere code)`, () => {
@@ -97,7 +97,7 @@ test('harmonischen (exponential sine sweep) tegen de ideale saturatie op 16×', 
   const T = 4, f1 = 50, f2 = 20000;
   const x = sweep(f1, f2, SR, T, 0.5);
   const pad = new Float32Array(x.length + SR); pad.set(x);
-  const p = { Tijd: 20, Terugkoppeling: 0, Verzadiging: 12, Toon: 12000, 'Laag weg': 20, Resonantie: 0.70703125, Haperen: 0, Mix: 1 };
+  const p = { Time: 20, Feedback: 0, Saturation: 12, Tone: 12000, 'Low cut': 20, Resonance: 0.70703125, Flutter: 0, Mix: 1 };
   const [w] = render(o, [pad], { waarden: met(p) });
   const r = python(pad, SR, p, 16);
   const delay = Math.round(20 * 0.001 * SR);
@@ -158,12 +158,12 @@ test('aliasing van het saturatieblok los: naïef, ADAA (het echte blok) en ideaa
 test('aliasing van de hele keten (zoals je hem hoort) tegen dezelfde keten met ideale saturatie', () => {
   // standaardinstelling, één herhaling (terugkoppeling 0), mix 1; f0 ≈ 2000 Hz, drive 12 dB, amplitude 0,5
   const k0 = 2731, x = sinusBin(k0, 0.5);
-  const p = { Tijd: 20, Terugkoppeling: 0, Verzadiging: 12, Toon: 3000, 'Laag weg': 100, Resonantie: 0.70703125, Haperen: 0, Mix: 1 };
+  const p = { Time: 20, Feedback: 0, Saturation: 12, Tone: 3000, 'Low cut': 100, Resonance: 0.70703125, Flutter: 0, Mix: 1 };
   const [w] = render(o, [x], { waarden: met(p) });
   const r = Float32Array.from(python(x, SR, p, 16));
   const res = { wasm: aliasing(w.subarray(EXTRA, EXTRA + N_AL), k0), ideaal: aliasing(r.subarray(EXTRA, EXTRA + N_AL), k0) };
   // ter informatie (geen eis): dezelfde keten met de toon helemaal open, 5 kHz — daar telt het blok zelf
-  const k5 = 6827, x5 = sinusBin(k5, 0.5), p5 = { ...p, Toon: 12000, 'Laag weg': 20 };
+  const k5 = 6827, x5 = sinusBin(k5, 0.5), p5 = { ...p, Tone: 12000, 'Low cut': 20 };
   const [w5] = render(o, [x5], { waarden: met(p5) });
   const r5 = Float32Array.from(python(x5, SR, p5, 16));
   meting.aliasingKeten = { f0: SR * k0 / N_AL, driveDb: 12, toon: 3000, ...res,
@@ -179,7 +179,7 @@ test('stabiel over het hele raster: nooit NaN/Inf, begrensd, zelfoscillatie houd
   const zelf = [];
   for (const fb of [0, 0.5, 0.95, 1, 1.1, 1.25]) for (const toon of [300, 3000, 12000]) for (const reso of [0.5, 2, 4])
     for (const verz of [0, 12, 24]) for (const haper of [0, 1]) {
-      const [y] = render(o, [x], { waarden: met({ Tijd: 60, Terugkoppeling: fb, Toon: toon, Resonantie: reso, Verzadiging: verz, Haperen: haper, Mix: 1 }) });
+      const [y] = render(o, [x], { waarden: met({ Time: 60, Feedback: fb, Tone: toon, Resonance: reso, Saturation: verz, Flutter: haper, Mix: 1 }) });
       let piek = 0, laatste = 0;
       for (let i = 0; i < y.length; i++) {
         if (!Number.isFinite(y[i])) assert.fail(`NaN/Inf bij fb ${fb} toon ${toon} reso ${reso} verz ${verz} haper ${haper}`);
@@ -199,7 +199,7 @@ test('stabiel over het hele raster: nooit NaN/Inf, begrensd, zelfoscillatie houd
 test('staart: komt onder −90 dBFS binnen de gemelde staarttijd', () => {
   const uit = [];
   for (const fb of [0.3, 0.8, 0.95]) {
-    const p = met({ Tijd: 200, Terugkoppeling: fb, Haperen: 0.5, Mix: 1, Verzadiging: 6 });
+    const p = met({ Time: 200, Feedback: fb, Flutter: 0.5, Mix: 1, Saturation: 6 });
     const h = o.e.pb_maak(SR); for (const [i, v] of Object.entries(p)) o.e.pb_zet(h, Number(i), v);
     const staart = o.e.pb_staart(h); o.e.pb_weg(h);
     const lengte = Math.ceil((staart + 1) * SR), x = new Float32Array(lengte); x.set(ruis(SR, 0.2, 0.5, 5));
@@ -219,7 +219,7 @@ test('intermodulatie (SMPTE, 60 Hz + 7 kHz, 4:1) tegen de ideale saturatie op 16
   // coherente bins: 60 Hz = bin 82, 7 kHz = bin 9557 (N = 2^16); zijbanden op 9557 ± n·82
   const kL = 82, kH = 9557, x = new Float32Array(N_AL + 2 * EXTRA);
   for (let i = 0; i < x.length; i++) x[i] = 0.4 * Math.sin(2 * Math.PI * kL * i / N_AL) + 0.1 * Math.sin(2 * Math.PI * kH * i / N_AL);
-  const p = { Tijd: 20, Terugkoppeling: 0, Verzadiging: 12, Toon: 12000, 'Laag weg': 20, Resonantie: 0.70703125, Haperen: 0, Mix: 1 };
+  const p = { Time: 20, Feedback: 0, Saturation: 12, Tone: 12000, 'Low cut': 20, Resonance: 0.70703125, Flutter: 0, Mix: 1 };
   const [w] = render(o, [x], { waarden: met(p) });
   const r = Float32Array.from(python(x, SR, p, 16));
   const imd = (y) => { const s = spectrum(y.subarray(EXTRA, EXTRA + N_AL)); let zb = 0; for (let n = 1; n <= 4; n++) zb += s[kH + n * kL] + s[kH - n * kL]; return 10 * Math.log10(zb / s[kH]); };

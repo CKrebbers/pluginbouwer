@@ -1,8 +1,8 @@
 {
-  "naam": "Helder",
+  "naam": "Bright",
   "uitleg": "Open filter, kort loslaten.",
   "waarden": {
     "Filter": 3000,
-    "Loslaten": 300
+    "Release": 300
   }
 }

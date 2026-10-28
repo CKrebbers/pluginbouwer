@@ -1,4 +1,4 @@
-# SPEC — Toetsenpad
+# SPEC — Keys pad
 
 Gegenereerd door de Pluginbouwer uit het ontwerp `toetsenpad`. De DSP staat
 vast in `dsp/` (één bron voor browser en plugin); deze SPEC zegt wat de plugin eromheen moet doen en waaraan hij
@@ -16,34 +16,34 @@ Zelf spelen: twee zaagtanden een octaaf uit elkaar, een filter dat per noot open
   `aumu` (staat als `PB_AU_TYPE` in `dsp/ontwerpen/keten_toetsenpad.h`, met `PB_INSTRUMENT`). De keten heeft geen
   ingangsknoop; geef `verwerk` een stille invoer (of de nulbuffer van de host), het Ontwerp leest hem niet.
 - **Noten.** Eén note port (ingang), alleen het CLAP-dialect (valkuil 19). Noot-aan en noot-uit (CLAP-noten, en
-  MIDI-bytes 0x90/0x80 die de AU-wrapper doorgeeft) worden op hun sample de parameters **Noot** (index 0) en
-  **Poort** (index 1): zie ARCHITECTUUR.md "Noten" voor de precieze regel. Die twee blijven ook gewone
+  MIDI-bytes 0x90/0x80 die de AU-wrapper doorgeeft) worden op hun sample de parameters **Note** (index 0) en
+  **Gate** (index 1): zie ARCHITECTUUR.md "Noten" voor de precieze regel. Die twee blijven ook gewone
   parameters (automatiseerbaar), maar een noot verandert de waarde die de host ziet niet.
 
 ## Keten (uitvoervolgorde per sample)
-1. toetsen (Toetsen)
-2. omh (Omhulling (ADSR)): poort ← toetsen.poort
+1. toetsen (Keyboard)
+2. omh (Envelope (ADSR)): poort ← toetsen.poort
 3. o2 (Oscillator): toon ← toetsen.toon
 4. o1 (Oscillator): toon ← toetsen.toon
-5. som (Optellen): a ← o1.uit, b ← o2.uit
+5. som (Sum): a ← o1.uit, b ← o2.uit
 6. filter (Filter (SVF)): in ← som.uit
-7. vca (Vermenigvuldig): a ← filter.laag, b ← omh.omhulling
+7. vca (Multiply (VCA)): a ← filter.laag, b ← omh.omhulling
 8. chorus (Chorus / flanger): in ← vca.uit
 9. mix (Mix): droog ← vca.uit, nat ← chorus.uit
-10. galm (Galm): in ← mix.uit
+10. galm (Reverb (FDN)): in ← mix.uit
 11. mix2 (Mix): droog ← mix.uit, nat ← galm.uit
-12. vol (Volume): in ← mix2.uit
-13. uit (Uitgang): in ← vol.uit
+12. vol (Gain): in ← mix2.uit
+13. uit (Output): in ← vol.uit
 
 Terugkoppeling: nee.
 
 ## Parameters (plugin-id = het nummer; nooit hergebruiken of hernummeren)
 | id | naam | bereik | eenheid | standaard | glijtijd | bij draaien | wat het doet |
 |---|---|---|---|---|---|---|---|
-| 1 | Noot | 0.25 – 4 | × | 1 | 5 ms | glijden |  |
-| 2 | Poort | 0 – 1 | — | 0 | 0 ms | glijden |  |
+| 1 | Note | 0.25 – 4 | × | 1 | 5 ms | glijden |  |
+| 2 | Gate | 0 – 1 | — | 0 | 0 ms | glijden |  |
 | 3 | Filter | 100 – 8000 | Hz | 900 | 20 ms | glijden |  |
-| 4 | Loslaten | 10 – 4000 | ms | 450 | 20 ms | glijden |  |
+| 4 | Release | 10 – 4000 | ms | 450 | 20 ms | glijden |  |
 
 - Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", `CLAP_PARAM_IS_BYPASS`. Ook dat id
   verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
@@ -59,10 +59,10 @@ Terugkoppeling: nee.
 ## Tekst ↔ waarde (paneel, host, clap `value_to_text`/`text_to_value`)
 | id | naam | label op het paneel | standaard als tekst | regel |
 |---|---|---|---|---|
-| 1 | Noot | Noot | 100 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
-| 2 | Poort | Poort | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 1 | Note | Note | 100 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 2 | Gate | Gate | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 3 | Filter | Filter | 900 Hz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
-| 4 | Loslaten | Loslaten | 450 ms | onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms") |
+| 4 | Release | Release | 450 ms | onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms") |
 
 - De grenzen gelden voor de afgeronde tekst: 999,7 Hz wordt "1,00 kHz" en 99,97 ms wordt "100 ms" (nooit "1000 Hz" of
   "100,0 ms"). Elke andere eenheid dan Hz, ms, dB of Q (ook `×` en geen eenheid) is eenheidloos: procenten.

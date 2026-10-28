@@ -80,13 +80,13 @@ const LEEG_INSTRUMENT = () => ({ naam: 'Opdracht', id: 'opdracht', uitleg: '', k
 const vanFamilie = (f) => Object.keys(BIB).filter((t) => !BIB[t].vast && familieVan(t) === f);
 
 export const LEVELS = [
-  { id: 'bron', naam: 'Maakt geluid', blokken: vanFamilie('bron'), opdracht: 'geluid' },
-  { id: 'kleur', naam: 'Kleurt de klank', blokken: vanFamilie('kleur'), opdracht: 'donker' },
-  { id: 'ruimte', naam: 'Ruimte en tijd', blokken: vanFamilie('ruimte'), opdracht: 'echo' },
-  { id: 'beweging', naam: 'Beweegt een knop', blokken: vanFamilie('beweging'), opdracht: 'wiebel' },
-  { id: 'spelen', naam: 'Speelt noten', blokken: vanFamilie('spelen'), opdracht: 'noot' },
-  { id: 'verbinden', naam: 'Verbindt', blokken: vanFamilie('verbinden'), opdracht: 'twee' },
-  { id: 'meester', naam: 'Meesterproef', blokken: Object.keys(BIB).filter((t) => !BIB[t].vast), opdracht: 'dub' },
+  { id: 'bron', naam: 'Sources', blokken: vanFamilie('bron'), opdracht: 'geluid' },
+  { id: 'kleur', naam: 'Tone', blokken: vanFamilie('kleur'), opdracht: 'donker' },
+  { id: 'ruimte', naam: 'Space & time', blokken: vanFamilie('ruimte'), opdracht: 'echo' },
+  { id: 'beweging', naam: 'Modulation', blokken: vanFamilie('beweging'), opdracht: 'wiebel' },
+  { id: 'spelen', naam: 'Notes', blokken: vanFamilie('spelen'), opdracht: 'noot' },
+  { id: 'verbinden', naam: 'Utility', blokken: vanFamilie('verbinden'), opdracht: 'twee' },
+  { id: 'meester', naam: 'Final', blokken: Object.keys(BIB).filter((t) => !BIB[t].vast), opdracht: 'dub' },
 ];
 export const level = (id) => LEVELS.find((l) => l.id === id);
 export const RONDES_PER_LEVEL = 8;
@@ -122,62 +122,62 @@ export function notenProef(o, c) {
 }
 
 export const OPDRACHTEN = {
-  geluid: { naam: 'Maak een geluid', doel: 'Laat de plugin zelf geluid maken: zet iets dat geluid maakt op de uitgang.',
-    hint: 'Kies een blok uit "Maakt geluid" en tik op +.', begin: LEEG_INSTRUMENT,
+  geluid: { naam: 'Make a sound', doel: 'Laat de plugin zelf geluid maken: zet een source op de Output.',
+    hint: 'Kies een blok uit "Sources" en tik op +.', begin: LEEG_INSTRUMENT,
     controleer(E, o) {
       const r = draai(E, o, stil(2)); if (r.fout) return { gehaald: false, waarom: r.fout };
       const n = db(rms(r.y));
       return n > -40 ? { gehaald: true, waarom: `Er komt geluid uit (${Math.round(n)} dB).` } : { gehaald: false, waarom: 'Er komt nog (bijna) niets uit.' };
     } },
-  donker: { naam: 'Maak het donkerder', doel: 'Haal het hoog uit de ruis, zodat hij dof en donker klinkt (minstens 12 dB minder hoog), maar wel hoorbaar blijft.',
-    hint: 'Een filter dat het hoog weghaalt, en draai zijn frequentie omlaag.', begin: LEEG_EFFECT,
+  donker: { naam: 'Darker', doel: 'Haal het hoog uit de noise, zodat hij dof en donker klinkt (minstens 12 dB minder hoog), maar wel hoorbaar blijft.',
+    hint: 'Een filter dat het hoog weghaalt (High cut), en draai zijn frequency omlaag.', begin: LEEG_EFFECT,
     controleer(E, o) {
       const x = ruis(SR, 2, 0.3, 7), r = draai(E, o, [x, x]); if (r.fout) return { gehaald: false, waarom: r.fout };
       const minder = hoog(x) - hoog(r.y), n = db(rms(r.y));
       if (n < -40) return { gehaald: false, waarom: 'Het is nu bijna stil: laat het geluid er wel door.' };
-      return minder >= 12 ? { gehaald: true, waarom: `Het hoog is ${Math.round(minder)} dB zachter.` } : { gehaald: false, waarom: `Het hoog is maar ${Math.max(0, Math.round(minder))} dB zachter; het moet 12 dB. Draai de frequentie verder omlaag.` };
+      return minder >= 12 ? { gehaald: true, waarom: `Het hoog is ${Math.round(minder)} dB zachter.` } : { gehaald: false, waarom: `Het hoog is maar ${Math.max(0, Math.round(minder))} dB zachter; het moet 12 dB. Draai de frequency verder omlaag.` };
     } },
-  echo: { naam: 'Een echo erbij', doel: 'Laat het origineel horen en daarna een echo, minstens 50 ms later.',
-    hint: 'Een vertraging alleen geeft alleen de echo: meng hem met het origineel. "Echo met herhalingen" bij Combinaties kan ook.', begin: LEEG_EFFECT,
+  echo: { naam: 'Add an echo', doel: 'Laat het origineel horen en daarna een echo, minstens 50 ms later.',
+    hint: 'Een Delay alleen geeft alleen de echo (wet): meng hem met het origineel (dry). "Feedback delay" bij Combinaties kan ook.', begin: LEEG_EFFECT,
     controleer(E, o) {
       const x = impuls(SR * 2, 0.5), r = draai(E, o, [x, x]); if (r.fout) return { gehaald: false, waarom: r.fout };
       const nu = piek(r.y, 0, SR * 0.01), later = piek(r.y, SR * 0.05, SR * 2);
-      if (nu < 0.05) return { gehaald: false, waarom: 'Het origineel hoor je niet meer: meng het droge geluid erbij.' };
+      if (nu < 0.05) return { gehaald: false, waarom: 'Het origineel hoor je niet meer: meng het droge geluid (dry) erbij.' };
       return later > 0.03 ? { gehaald: true, waarom: 'Origineel en echo zijn er allebei.' } : { gehaald: false, waarom: 'Na het origineel komt er nog geen echo.' };
     } },
-  wiebel: { naam: 'Laat iets wiebelen', doel: 'Laat een knop vanzelf bewegen, zodat het geluid golft.',
-    hint: 'Zet een filter in de keten, kies hem, en tik bij een knop op "laat bewegen".', begin: LEEG_EFFECT,
+  wiebel: { naam: 'Make it wobble', doel: 'Laat een knop vanzelf bewegen, zodat het geluid golft.',
+    hint: 'Zet een Filter in de keten, kies hem, en tik bij een knop op "laat bewegen" (een LFO).', begin: LEEG_EFFECT,
     controleer(E, o) {
       const c = compileer(o); if (c.fouten.length) return { gehaald: false, waarom: foutInWoorden(c.fouten[0]) };
       const { pad } = hoofdweg(o);
       const beweegt = (o.modulaties || []).some((m) => pad.includes(m.doel[0]) && m.diepte > 0);
       return beweegt ? { gehaald: true, waarom: 'Er beweegt een knop op de weg van het geluid.' } : { gehaald: false, waarom: 'Er beweegt nog geen knop van een blok waar het geluid doorheen gaat.' };
     } },
-  noot: { naam: 'Speel een noot', doel: 'Maak een instrument dat je met je toetsenbord speelt, en dat stil wordt als je loslaat.',
-    hint: '"Noot met vorm" bij Combinaties: toetsen, een toon en een omhulling.', begin: LEEG_INSTRUMENT,
+  noot: { naam: 'Play a note', doel: 'Maak een instrument dat je met je toetsenbord speelt, en dat stil wordt als je loslaat.',
+    hint: '"Synth voice" bij Combinaties: Keyboard, Oscillator en Envelope.', begin: LEEG_INSTRUMENT,
     controleer(E, o) {
       const c = compileer(o); if (c.fouten.length) return { gehaald: false, waarom: foutInWoorden(c.fouten[0]) };
-      const ev = notenProef(o, c); if (!ev.length) return { gehaald: false, waarom: 'Er zitten nog geen toetsen in (met Noot en Poort op het paneel).' };
+      const ev = notenProef(o, c); if (!ev.length) return { gehaald: false, waarom: 'Er zit nog geen Keyboard in (met Note en Gate op het paneel).' };
       const r = draai(E, o, stil(4), ev);
       const aan = db(rms(r.y, 0, SR * 2)), na = db(rms(r.y, SR * 3.2, SR * 4));
       if (aan < -40) return { gehaald: false, waarom: 'Als je speelt hoor je nog niets.' };
-      return na < -60 ? { gehaald: true, waarom: 'Hij speelt en wordt stil als je loslaat.' } : { gehaald: false, waarom: 'Hij klinkt door als je loslaat: geef elke noot een einde (een omhulling op het volume).' };
+      return na < -60 ? { gehaald: true, waarom: 'Hij speelt en wordt stil als je loslaat.' } : { gehaald: false, waarom: 'Hij klinkt door als je loslaat: geef elke noot een einde (een Envelope op een VCA).' };
     } },
-  twee: { naam: 'Twee tegelijk', doel: 'Laat twee dingen die geluid maken samen klinken.',
-    hint: 'Zet twee keer iets uit "Maakt geluid" erin: de tweede wordt vanzelf opgeteld.', begin: LEEG_INSTRUMENT,
+  twee: { naam: 'Two at once', doel: 'Laat twee dingen die geluid maken samen klinken.',
+    hint: 'Zet twee keer iets uit "Sources" erin: de tweede wordt vanzelf opgeteld (Sum).', begin: LEEG_INSTRUMENT,
     controleer(E, o) {
       const r = draai(E, o, stil(2)); if (r.fout) return { gehaald: false, waarom: r.fout };
       const n = hoofdweg(o).bereikt.filter((k) => familieVan(k.type) === 'bron').length;
-      if (n < 2) return { gehaald: false, waarom: n ? 'Er komt nog maar één bron bij de uitgang.' : 'Er komt nog geen bron bij de uitgang.' };
-      return db(rms(r.y)) > -40 ? { gehaald: true, waarom: 'Twee bronnen samen, en je hoort ze.' } : { gehaald: false, waarom: 'Twee bronnen, maar het is (bijna) stil.' };
+      if (n < 2) return { gehaald: false, waarom: n ? 'Er komt nog maar één source bij de Output.' : 'Er komt nog geen source bij de Output.' };
+      return db(rms(r.y)) > -40 ? { gehaald: true, waarom: 'Twee sources samen, en je hoort ze.' } : { gehaald: false, waarom: 'Twee sources, maar het is (bijna) stil.' };
     } },
-  dub: { naam: 'De dub-echo', doel: 'Bouw een echo die vanzelf doorgaat als je stopt met spelen, maar niet ontploft.',
-    hint: 'Een echo met herhalingen, terugkoppeling boven 1, en een band (tapeverzadiging) in de lus die hem in toom houdt.', begin: LEEG_EFFECT,
+  dub: { naam: 'The dub echo', doel: 'Bouw een echo die vanzelf doorgaat als je stopt met spelen, maar niet ontploft.',
+    hint: 'Een Feedback delay, feedback boven 1, en Tape in de lus die hem in toom houdt.', begin: LEEG_EFFECT,
     controleer(E, o) {
       const x = new Float32Array(SR * 4); for (let i = 0; i < 4800; i++) x[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR);
       const r = draai(E, o, [x, x]); if (r.fout) return { gehaald: false, waarom: r.fout };
       const na = db(rms(r.y, SR * 3, SR * 4));
-      return na > -40 ? { gehaald: true, waarom: `Hij gaat door: na 3 s nog ${Math.round(na)} dB.` } : { gehaald: false, waarom: 'Na 3 seconden is hij uitgestorven: meer terugkoppeling (boven 1), met een band in de lus.' };
+      return na > -40 ? { gehaald: true, waarom: `Hij gaat door: na 3 s nog ${Math.round(na)} dB.` } : { gehaald: false, waarom: 'Na 3 seconden is hij uitgestorven: meer feedback (boven 1), met Tape in de lus.' };
     } },
 };
 
@@ -218,7 +218,8 @@ export function maakRondes(levelId, zaad = 1) {
 // naam van vier letters of meer, ook vervoegd (vouwer, vouwt; toetsen, toetsenbord), wordt ___. Wat tussen haakjes staat
 // ("Hoog weg (zacht)") telt niet.
 export function zinZonderNaam(type, zin) {
-  const woorden = [gewoneNaam(type), BIB[type].naam.replace(/\(.*?\)/g, '')].join(' ').toLowerCase().split(/[^a-zà-ÿ]+/).filter((w) => w.length >= 4);
+  // de Engelse naam en het Nederlandse woord waar het blok naar heet (de zin is Nederlands)
+  const woorden = [gewoneNaam(type), BIB[type].naam.replace(/\(.*?\)/g, ''), type].join(' ').toLowerCase().split(/[^a-zà-ÿ]+/).filter((w) => w.length >= 4);
   let uit = zin;
   for (const w of new Set(woorden)) uit = uit.replace(new RegExp(`\\b${w.slice(0, Math.max(4, w.length - 2))}[a-zà-ÿ]*`, 'gi'), '___');
   return uit;

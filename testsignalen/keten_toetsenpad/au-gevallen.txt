@@ -1,4 +1,4 @@
-geval	sr	Noot	Poort	Filter	Loslaten
+geval	sr	Note	Gate	Filter	Release
 ruis-half	48000	2.125	0.5	4050	2005
 sweep-kwart	48000	1.1875	0.25	2075	1007.5
 stukjes-laag	48000	0.484375	0.75	6025	3002.5

@@ -1,4 +1,4 @@
-# PROMPTS — Toetsenpad (v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden))
+# PROMPTS — Keys pad (v3.1 (18 okt 2026: instrument, en wat de verse gesprekken van proef F4 en G1–G3 vonden))
 
 Per fase één prompt. Geef een vers Claude Code-gesprek dit pakket (alle bestanden) en de prompt van de fase.
 Een fase is klaar als het stopcriterium waar is en de poorten in CI groen zijn. Uitslagen per fase: hoeveel van de
@@ -7,7 +7,7 @@ losse verse gesprekken (pass@3) het haalden, met de oorzaak als het misging.
 ---
 ## Fase 0 — skelet, CI en alle validators
 **Prompt**
-> Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Toetsenpad": een CLAP-plugin in
+> Lees CLAUDE.md, SPEC.md, ARCHITECTUUR.md. Bouw het skelet van de plugin "Keys pad": een CLAP-plugin in
 > `plugin/` (C++17) met CMake, en clap-wrapper v0.16.0 via FetchContent (met de patches uit `patches/`, in naamvolgorde) voor VST3 en AUv2
 > (`make_clapfirst_plugins`; de CLAP-headers komen mee met clap-wrapper, haal ze niet apart op; AU maker `Vrve`, subtype `PTgg`, type `aumu`). De plugin gebruikt het Ontwerp uit
 > `dsp/ontwerpen/keten_toetsenpad.h` (include-pad `dsp/`); in deze fase is het een instrument zonder audio-ingang (SPEC.md "Instrument": 0 ingangen, 1 stereo-uitgang, features instrument en synthesizer, AU-type `aumu` via `AUV2_INSTRUMENT_TYPE`) en schrijft process stilte (de DSP aansluiten is fase 1, zodat de null-test het bewijst).
@@ -105,8 +105,8 @@ VST3 macOS), auval "AU VALIDATION SUCCEEDED", RTSan-bouw draait schoon en de kan
 
 ---
 ## Fase 7 — test in Logic (checklist voor Clay)
-- [ ] Plug-in Manager: PB Toetsenpad "geslaagd" (na LEERPAD.md "Installeren"), bij de instrumenten (AU Instruments → Varve).
-- [ ] Een nieuw spoor "Software-instrument", PB Toetsenpad als instrument.
+- [ ] Plug-in Manager: PB Keys pad "geslaagd" (na LEERPAD.md "Installeren"), bij de instrumenten (AU Instruments → Varve).
+- [ ] Een nieuw spoor "Software-instrument", PB Keys pad als instrument.
 - [ ] Spelen met het keyboard (of Musical Typing, Cmd+K): elke toets klinkt, de toon klopt (A onder de middelste C = 220 Hz).
 - [ ] Legato: houd een toets vast, druk een tweede, laat de tweede los: de toon gaat terug naar de eerste zonder nieuwe aanslag.
 - [ ] Een MIDI-regio afspelen, ook op een ander tempo: noten op tijd, geen hangende noot na stop.

@@ -6,10 +6,10 @@
   "reference": "../sweep-kwart.verwacht.wav",
   "state": {
     "parameters": {
-      "Afsnijding": 0.25,
-      "Resonantie": 0.25,
+      "Cutoff": 0.25,
+      "Resonance": 0.25,
       "Tempo": 0.25,
-      "Verzadiging": 0.25
+      "Drive": 0.25
     }
   },
   "sample_rate": 48000,

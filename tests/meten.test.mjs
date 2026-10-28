@@ -19,16 +19,16 @@ const meet = (zet) => {
 };
 
 test('readout: de dub-echo stil gemeten heeft geen aliasing boven −100 dB, en loopt eerst in', () => {
-  const r = meet({ Haperen: 0 });
+  const r = meet({ Flutter: 0 });
   assert.ok(r.inloop > 1 && r.inloop <= 8, `inloop ${r.inloop}`);
   assert.ok(r.aliasingDb < -100, `aliasing ${r.aliasingDb}`);
   assert.ok(r.thdDb < -20 && r.thdDb > -60, `thd ${r.thdDb}`);
 });
 test('readout: meer verzadiging = meer vervorming', () => {
-  assert.ok(meet({ Haperen: 0, Verzadiging: 18 }).thdDb > meet({ Haperen: 0, Verzadiging: 0 }).thdDb);
+  assert.ok(meet({ Flutter: 0, Saturation: 18 }).thdDb > meet({ Flutter: 0, Saturation: 0 }).thdDb);
 });
 test('readout: zelfoscillatie geeft een reden, geen getal', () => {
-  const r = meet({ Haperen: 0, Terugkoppeling: 1.2 });
+  const r = meet({ Flutter: 0, Feedback: 1.2 });
   assert.equal(r.staart, -1);
   assert.equal(r.aliasingDb, null);
   assert.match(r.reden, /zelfoscillatie/);

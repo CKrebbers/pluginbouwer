@@ -68,7 +68,7 @@ if (opdracht === 'maak') {
   const stoot = new Float32Array(SR * 8); for (let i = 0; i < SR * 0.05; i++) stoot[i] = 0.5 * Math.sin(2 * Math.PI * 330 * i / SR);
   schrijfWav(join(map, 'stoot.in.wav'), [stoot, stoot], SR);
   writeFileSync(join(map, 'instellingen.json'), JSON.stringify({
-    blok: BLOK, zelfosc: { Terugkoppeling: 1.1875, Mix: 1, Verzadiging: 12 },
+    blok: BLOK, zelfosc: { Feedback: 1.1875, Mix: 1, Saturation: 12 },
     state: Object.fromEntries(o.params.map((p, i) => [p.naam, Math.fround(p.min + [0.125, 0.75, 0.125, 0.0625, 0.25, 0.5, 0.5, 0.75][i % 8] * (p.max - p.min))])),
   }, null, 2) + '\n');
   console.log(`${rijen.length} blokken parameterstappen in ${map}`);

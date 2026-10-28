@@ -11,7 +11,8 @@ const ALLE = [...new Map([...ARCHETYPEN, ...INSTRUMENTEN, ...EFFECTEN].map((o) =
 const LEEG_E = { naam: 'Leeg effect', id: 'e', knopen: [{ id: 'in', type: 'in', x: 40, y: 200 }, { id: 'uit', type: 'uit', x: 960, y: 200 }], kabels: [], parameters: [], modulaties: [] };
 const LEEG_I = { naam: 'Leeg instrument', id: 'i', knopen: [{ id: 'uit', type: 'uit', x: 960, y: 200 }], kabels: [], parameters: [], modulaties: [] };
 const WAT = [...Object.keys(BIB).filter((t) => !BIB[t].vast).map((type) => ({ type })), ...RECEPTEN.map((r) => ({ recept: r.id }))];
-const JARGON = /\b(ADAA|TPT|RBJ|FDN|polyBLEP|Lagrange|tanh|Karplus|Zavalishin|dBFS|sample|VCA|feedback)\b/i;
+// vaktaal die een producer niet nodig heeft (Engelse termen als feedback, VCA of cutoff mogen: die staan ook in een DAW)
+const JARGON = /\b(ADAA|TPT|RBJ|FDN|polyBLEP|Lagrange|tanh|Karplus|Zavalishin|dBFS|sample)\b/i;
 
 test('elk blok heeft een familie, een zin zonder vaktaal, en uitleg bij elke knop', () => {
   const families = new Set(FAMILIES.map((f) => f.id));
@@ -55,7 +56,7 @@ test('invoegen: elk blok en elke combinatie, in elk voorbeeld en in leeg, breekt
 test('invoegen in een leeg effect: het geluid loopt van ingang via het nieuwe blok naar de uitgang', () => {
   for (const wat of WAT.filter((w) => w.type ? ROL[w.type].familie !== 'bron' && !['beweging', 'spelen'].includes(ROL[w.type].familie) : RECEPTEN.find((r) => r.id === w.recept).ingang.length)) {
     const o = voegIn(LEEG_E, wat).ontwerp;
-    assert.ok(beschrijf(o).startsWith('Weg van het geluid: Ingang → '), `${JSON.stringify(wat)}: ${beschrijf(o)}`);
+    assert.ok(beschrijf(o).startsWith('Weg van het geluid: Input → '), `${JSON.stringify(wat)}: ${beschrijf(o)}`);
     assert.ok(!o.kabels.some((k) => k.van[0] === 'in' && k.naar[0] === 'uit'), 'de oude kabel ingang → uitgang is weg');
   }
 });
@@ -65,7 +66,7 @@ test('invoegen na een blok: het komt direct achter dat blok', () => {
   const galm = r.nieuw[0];
   assert.ok(r.ontwerp.kabels.some((k) => k.van[0] === 'mix' && k.naar[0] === galm));
   assert.ok(r.ontwerp.kabels.some((k) => k.van[0] === galm && k.naar[0] === 'uit'));
-  assert.match(r.wat, /tussen Mix en Uitgang/);
+  assert.match(r.wat, /tussen Mix en Output/);
 });
 
 test('een bron bij een bestaand geluid wordt opgeteld, en hoort de noten als er al iemand speelt', () => {
@@ -79,13 +80,13 @@ test('een bron bij een bestaand geluid wordt opgeteld, en hoort de noten als er 
 test('een LFO op een gekozen blok beweegt zijn frequentie', () => {
   const r = voegIn(DUB_ECHO, { type: 'lfo' }, { na: 'toon' });
   assert.ok(r.ontwerp.modulaties.some((m) => m.doel[0] === 'toon' && m.doel[1] === 'freq'));
-  assert.match(r.wat, /beweegt nu frequentie van Filter/);
+  assert.match(r.wat, /beweegt nu frequency van Filter/);
 });
 
-test('"Noot met vorm" speelt meteen: toetsen met Noot en Poort, één toetsenbord per ontwerp', () => {
+test('"Synth voice" speelt meteen: keyboard met Note en Gate, één toetsenbord per ontwerp', () => {
   const r = voegIn(LEEG_I, { recept: 'noot' });
   assert.equal(compileer(r.ontwerp).fouten.length, 0);
-  assert.deepEqual(r.ontwerp.parameters.map((p) => p.naam), ['Noot', 'Poort']);
+  assert.deepEqual(r.ontwerp.parameters.map((p) => p.naam), ['Note', 'Gate']);
   const twee = voegIn(r.ontwerp, { recept: 'noot' }).ontwerp;
   assert.equal(twee.knopen.filter((k) => k.type === 'toetsen').length, 1, 'het toetsenbord wordt gedeeld');
 });
@@ -103,9 +104,9 @@ test('netjes neerleggen: geen enkel voorbeeld overlapt daarna, en invoegen + nee
 
 test('de beschrijving volgt de weg van het geluid en noemt de lus', () => {
   const t = beschrijf(DUB_ECHO);
-  assert.match(t, /^Weg van het geluid: Ingang → Tapeverzadiging → Vertraging → Laag weg → Filter → Uitgang\./);
+  assert.match(t, /^Weg van het geluid: Input → Tape → Delay → Low cut → Filter → Output\./);
   assert.match(t, /gaat terug/);
-  assert.match(beschrijf(EFFECTEN.find((o) => o.id === 'sidechain') ?? ALLE.find((o) => /sidechain/i.test(o.naam))), /Compressor luistert naar Trommel/);
+  assert.match(beschrijf(EFFECTEN.find((o) => o.id === 'sidechain') ?? ALLE.find((o) => /sidechain/i.test(o.naam))), /Compressor luistert naar Drum/);
 });
 
 test('mengen: een Mix om een galm, met het origineel op "origineel"', () => {
@@ -116,13 +117,13 @@ test('mengen: een Mix om een galm, met het origineel op "origineel"', () => {
   assert.ok(r.ontwerp.kabels.some((k) => k.van[0] === galm && k.naar.join() === `${mix},nat`));
   assert.ok(r.ontwerp.kabels.some((k) => k.van[0] === mix && k.naar[0] === 'uit'));
   assert.equal(compileer(r.ontwerp).fouten.length, 0);
-  assert.match(beschrijf(r.ontwerp), /Ingang → Galm → Uitgang/);
+  assert.match(beschrijf(r.ontwerp), /Input → Reverb → Output/);
 });
 
 test('loslaten op een kabel: het blok komt precies op die kabel', () => {
   const kabel = DUB_ECHO.kabels.find((k) => k.van[0] === 'tape' && k.naar[0] === 'lijn');
   const r = voegIn(DUB_ECHO, { type: 'vouwer' }, { kabel });
-  assert.match(r.wat, /tussen Tapeverzadiging en Vertraging/);
+  assert.match(r.wat, /tussen Tape en Delay/);
   assert.equal(compileer(r.ontwerp).fouten.length, 0);
 });
 

@@ -5,15 +5,15 @@
   .spoor0{fill:none;stroke:#3a3e42;stroke-width:3}.spoor{fill:none;stroke:#40cbda;stroke-width:3}</style>
   <rect x="3" y="3" width="554" height="214" fill="#0d0e0f"/>
   <rect x="0" y="0" width="554" height="214" fill="#232629" stroke="#e7e5dd" stroke-width="2"/>
-  <rect x="24" y="18" width="140" height="24" fill="#f2c200"/>
-  <text x="30" y="35" class="n">PB TOETSENPAD</text>
-  <g transform="translate(62 130)"><title>Noot</title>
-    <text y="-34" class="l">Noot</text>
+  <rect x="24" y="18" width="121" height="24" fill="#f2c200"/>
+  <text x="30" y="35" class="n">PB KEYS PAD</text>
+  <g transform="translate(62 130)"><title>Note</title>
+    <text y="-34" class="l">Note</text>
     <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -21.73 -3.44" class="spoor"/>
     <circle r="16" class="knop"/><line x1="0" y1="0" x2="-13.83" y2="-2.19" class="wijzer"/>
     <text y="44" class="w">100 %</text></g>
-  <g transform="translate(138 130)"><title>Poort</title>
-    <text y="-34" class="l">Poort</text>
+  <g transform="translate(138 130)"><title>Gate</title>
+    <text y="-34" class="l">Gate</text>
     <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -15.56 15.56" class="spoor"/>
     <circle r="16" class="knop"/><line x1="0" y1="0" x2="-9.90" y2="9.90" class="wijzer"/>
     <text y="44" class="w">0 %</text></g>
@@ -22,8 +22,8 @@
     <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -20.96 6.67" class="spoor"/>
     <circle r="16" class="knop"/><line x1="0" y1="0" x2="-13.34" y2="4.25" class="wijzer"/>
     <text y="44" class="w">900 Hz</text></g>
-  <g transform="translate(290 130)"><title>Loslaten</title>
-    <text y="-34" class="l">Loslaten</text>
+  <g transform="translate(290 130)"><title>Release</title>
+    <text y="-34" class="l">Release</text>
     <path d="M-15.56 15.56 A22 22 0 1 1 15.56 15.56" class="spoor0"/><path d="M-15.56 15.56 A22 22 0 0 1 -21.23 5.78" class="spoor"/>
     <circle r="16" class="knop"/><line x1="0" y1="0" x2="-13.51" y2="3.68" class="wijzer"/>
     <text y="44" class="w">450 ms</text></g>

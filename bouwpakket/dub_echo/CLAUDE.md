@@ -1,4 +1,4 @@
-# CLAUDE.md — bouwpakket "Dub-echo" (dub_echo)
+# CLAUDE.md — bouwpakket "Dub echo" (dub_echo)
 
 Je bouwt een audioplugin uit dit pakket. Lees eerst SPEC.md, ARCHITECTUUR.md, TASKS.md en PROMPTS.md.
 Nederlands in docs, commits en comments; code-identifiers Engels. De gebruiker (Clay) programmeert geen C++ en test in

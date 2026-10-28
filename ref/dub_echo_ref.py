@@ -10,7 +10,7 @@ Twee modi:
   render(x, sr, p, ideaal=16)       de saturatie ZONDER anti-aliasing op 16× de samplerate, dan terug naar sr:
                                     de "ideale" bandbegrensde saturatie, de meetlat voor aliasing en harmonischen
 Gebruik vanaf de commandoregel (door tests/dubecho.test.mjs):
-  python3 ref/dub_echo_ref.py in.f64 uit.f64 sr '{"Tijd":..}' [ideaal]
+  python3 ref/dub_echo_ref.py in.f64 uit.f64 sr '{"Time":..}' [ideaal]
   (ruwe float64-bestanden, één kanaal)
 """
 import json
@@ -19,8 +19,8 @@ import sys
 
 import numpy as np
 
-STANDAARD = {"Tijd": 375.0, "Terugkoppeling": 0.5, "Toon": 3000.0, "Laag weg": 100.0, "Resonantie": 0.70703125,
-             "Verzadiging": 6.0, "Haperen": 0.0, "Mix": 0.375, "Ruis": 0.0}
+STANDAARD = {"Time": 375.0, "Feedback": 0.5, "Tone": 3000.0, "Low cut": 100.0, "Resonance": 0.70703125,
+             "Saturation": 6.0, "Flutter": 0.0, "Mix": 0.375, "Hiss": 0.0}
 
 
 def lagrange3(buf, schrijfpos, d):
@@ -87,17 +87,17 @@ def logcosh(x):
 
 def render(x, sr, p, ideaal=0):
     p = {**STANDAARD, **p}
-    if p["Haperen"] != 0:
-        raise ValueError("de referentie kent geen bandbeweging: zet Haperen op 0")
-    if p.get("Ruis", 0) != 0:
+    if p["Flutter"] != 0:
+        raise ValueError("de referentie kent geen bandbeweging: zet Flutter op 0")
+    if p.get("Hiss", 0) != 0:
         raise ValueError("de referentie kent geen bandruis: zet Ruis op 0")
-    g = 10 ** (p["Verzadiging"] / 20)
-    fb, mix = p["Terugkoppeling"], p["Mix"]
-    d = p["Tijd"] * 1e-3 * sr - (0 if ideaal else 0.5)
+    g = 10 ** (p["Saturation"] / 20)
+    fb, mix = p["Feedback"], p["Mix"]
+    d = p["Time"] * 1e-3 * sr - (0 if ideaal else 0.5)
     n = len(x)
     buf = [0.0] * (1 << int(math.ceil(math.log2(d + 8))))
     pos = 0
-    hp, lp = HoogEenPool(p["Laag weg"], sr), Svf(p["Toon"], p["Resonantie"], sr)
+    hp, lp = HoogEenPool(p["Low cut"], sr), Svf(p["Tone"], p["Resonance"], sr)
     x1, F1 = 0.0, 0.0
     terug = 0.0
     uit = np.zeros(n)
@@ -107,7 +107,7 @@ def render(x, sr, p, ideaal=0):
     # en als geheel kan worden voorbewerkt.
     if ideaal:
         if fb != 0:
-            raise ValueError("ideaal alleen met Terugkoppeling 0")
+            raise ValueError("ideaal alleen met Feedback 0")
         sat = ideale_saturatie(np.asarray(x, dtype=float), g, ideaal)
     for t in range(n):
         u = x[t] + terug

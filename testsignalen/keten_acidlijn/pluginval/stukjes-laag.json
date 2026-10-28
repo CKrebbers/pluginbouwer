@@ -6,10 +6,10 @@
   "reference": "../stukjes-laag.verwacht.wav",
   "state": {
     "parameters": {
-      "Afsnijding": 0.0625,
-      "Resonantie": 0.75,
+      "Cutoff": 0.0625,
+      "Resonance": 0.75,
       "Tempo": 0.75,
-      "Verzadiging": 0.75
+      "Drive": 0.75
     }
   },
   "sample_rate": 48000,

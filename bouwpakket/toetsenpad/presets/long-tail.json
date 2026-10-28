@@ -1,8 +1,8 @@
 {
-  "naam": "Lange staart",
+  "naam": "Long tail",
   "uitleg": "De galm krijgt de tijd.",
   "waarden": {
     "Filter": 1200,
-    "Loslaten": 4000
+    "Release": 4000
   }
 }

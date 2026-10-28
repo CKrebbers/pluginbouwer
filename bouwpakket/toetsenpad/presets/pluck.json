@@ -1,8 +1,8 @@
 {
-  "naam": "Pluk",
+  "naam": "Pluck",
   "uitleg": "Kort en scherp.",
   "waarden": {
     "Filter": 2000,
-    "Loslaten": 60
+    "Release": 60
   }
 }

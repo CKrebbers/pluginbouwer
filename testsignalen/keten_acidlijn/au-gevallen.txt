@@ -1,4 +1,4 @@
-geval	sr	Afsnijding	Resonantie	Tempo	Verzadiging
+geval	sr	Cutoff	Resonance	Tempo	Drive
 ruis-half	48000	2030	4.25	130	12
 sweep-kwart	48000	1045	2.375	105	6
 stukjes-laag	48000	306.25	6.125	155	18

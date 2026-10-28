@@ -3,8 +3,8 @@
 // Namen naar wat ze doen, niet naar een merk (design.md).
 
 export const DUB_ECHO = {
-  naam: 'Dub-echo', id: 'dub_echo', voorbeeld: 'effect',
-  uitleg: 'Tape-echo voor dub: saturatie en een filter in de terugkoppeling. Boven terugkoppeling 1 gaat hij vanzelf door, en de band houdt hem in toom.',
+  naam: 'Dub echo', id: 'dub_echo', voorbeeld: 'effect',
+  uitleg: 'Tape echo voor dub: saturation en een filter in de feedbacklus. Boven feedback 1 gaat hij vanzelf door, en de tape houdt hem in toom.',
   knopen: [
     { id: 'in', type: 'in', x: 20, y: 200 },
     { id: 'band', type: 'bandsnelheid', x: 360, y: 60, waarden: { diepte: 0.25 } },
@@ -36,38 +36,38 @@ export const DUB_ECHO = {
   ],
   // in deze volgorde ook in de plugin (en dezelfde grenzen als dsp/ontwerpen/dub_echo.h)
   parameters: [
-    { naam: 'Tijd', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 375, glijMs: 250, glijden: 'glijden',
+    { naam: 'Time', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 375, glijMs: 250, glijden: 'glijden',
       uitleg: 'Hoe lang tot de echo komt. Draaien laat de toon glijden, zoals een band die sneller gaat' },
-    { naam: 'Terugkoppeling', kort: 'Terug', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.25, standaard: 0.5, glijMs: 30,
+    { naam: 'Feedback', kort: 'Fdbk', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.25, standaard: 0.5, glijMs: 30,
       uitleg: 'Hoeveel van de echo weer de band op gaat. Boven 1 gaat hij vanzelf door (zelfoscillatie)' },
-    { naam: 'Toon', knoop: 'toon', knop: 'freq', min: 300, max: 12000, standaard: 3000, glijMs: 20,
+    { naam: 'Tone', knoop: 'toon', knop: 'freq', min: 300, max: 12000, standaard: 3000, glijMs: 20,
       uitleg: 'Hoe donker elke herhaling wordt: het filter in de lus haalt hoog weg' },
-    { naam: 'Laag weg', knoop: 'laag', knop: 'freq', min: 20, max: 1000, standaard: 100, glijMs: 20,
+    { naam: 'Low cut', knoop: 'laag', knop: 'freq', min: 20, max: 1000, standaard: 100, glijMs: 20,
       uitleg: 'Haalt laag uit de lus zodat de herhalingen niet dichtslibben' },
-    { naam: 'Resonantie', knoop: 'toon', knop: 'q', min: 0.5, max: 4, standaard: 0.70703125, glijMs: 20,
+    { naam: 'Resonance', knoop: 'toon', knop: 'q', min: 0.5, max: 4, standaard: 0.70703125, glijMs: 20,
       uitleg: 'Een piek op de toonfrequentie in de lus; hoger = fluitender herhalingen' },
-    { naam: 'Verzadiging', knoop: 'tape', knop: 'verzadiging', min: 0, max: 24, standaard: 6, glijMs: 20,
+    { naam: 'Saturation', knoop: 'tape', knop: 'verzadiging', min: 0, max: 24, standaard: 6, glijMs: 20,
       uitleg: 'Hoe vroeg de band dichtloopt: warmer, en het remt de zelfoscillatie' },
-    { naam: 'Haperen', knoop: 'band', knop: 'diepte', min: 0, max: 1, standaard: 0.25, glijMs: 20,
+    { naam: 'Flutter', knoop: 'band', knop: 'diepte', min: 0, max: 1, standaard: 0.25, glijMs: 20,
       uitleg: 'Wow en flutter: hoe onrustig de band loopt. 0,25 is een goede bandrecorder, 1 een versleten band' },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.375, glijMs: 20,
       uitleg: 'Hoeveel echo je hoort naast het origineel' },
-    { naam: 'Ruis', knoop: 'sis', knop: 'niveau', min: 0, max: 1, standaard: 0, glijMs: 20,
+    { naam: 'Hiss', knoop: 'sis', knop: 'niveau', min: 0, max: 1, standaard: 0, glijMs: 20,
       uitleg: 'De sis van de band in de echo; bij 1 zoals een echte bandrecorder, en hij stapelt in de herhalingen' },
   ],
   modulaties: [],
   // fabriekspresets (fase 4): waarden per parameternaam, elk exact in float32 en binnen het bereik
   presets: [
-    { naam: 'Standaard', uitleg: 'De beginstand van de plugin.',
-      waarden: { Tijd: 375, Terugkoppeling: 0.5, Toon: 3000, 'Laag weg': 100, Resonantie: 0.70703125, Verzadiging: 6, Haperen: 0.25, Mix: 0.375, Ruis: 0 } },
+    { naam: 'Default', uitleg: 'De beginstand van de plugin.',
+      waarden: { Time: 375, Feedback: 0.5, Tone: 3000, 'Low cut': 100, Resonance: 0.70703125, Saturation: 6, Flutter: 0.25, Mix: 0.375, Hiss: 0 } },
     { naam: 'Slapback', uitleg: 'Eén korte, heldere tik achter het origineel.',
-      waarden: { Tijd: 110, Terugkoppeling: 0.1875, Toon: 6000, 'Laag weg': 150, Resonantie: 0.70703125, Verzadiging: 4, Haperen: 0.125, Mix: 0.3125, Ruis: 0 } },
-    { naam: 'Lange dub', uitleg: 'Lange, donker wordende herhalingen.',
-      waarden: { Tijd: 500, Terugkoppeling: 0.75, Toon: 2200, 'Laag weg': 250, Resonantie: 1, Verzadiging: 9, Haperen: 0.375, Mix: 0.4375, Ruis: 0.25 } },
-    { naam: 'Versleten band', uitleg: 'Onrustige band, vroeg verzadigd, dof.',
-      waarden: { Tijd: 375, Terugkoppeling: 0.625, Toon: 1500, 'Laag weg': 300, Resonantie: 1.5, Verzadiging: 14, Haperen: 0.8125, Mix: 0.375, Ruis: 1 } },
-    { naam: 'Zelfoscillatie', uitleg: 'Boven 1: gaat vanzelf door en blijft begrensd door de band.',
-      waarden: { Tijd: 250, Terugkoppeling: 1.125, Toon: 2500, 'Laag weg': 200, Resonantie: 1.25, Verzadiging: 12, Haperen: 0.3125, Mix: 0.5, Ruis: 0 } },
+      waarden: { Time: 110, Feedback: 0.1875, Tone: 6000, 'Low cut': 150, Resonance: 0.70703125, Saturation: 4, Flutter: 0.125, Mix: 0.3125, Hiss: 0 } },
+    { naam: 'Long dub', uitleg: 'Lange, donker wordende herhalingen.',
+      waarden: { Time: 500, Feedback: 0.75, Tone: 2200, 'Low cut': 250, Resonance: 1, Saturation: 9, Flutter: 0.375, Mix: 0.4375, Hiss: 0.25 } },
+    { naam: 'Worn tape', uitleg: 'Onrustige band, vroeg verzadigd, dof.',
+      waarden: { Time: 375, Feedback: 0.625, Tone: 1500, 'Low cut': 300, Resonance: 1.5, Saturation: 14, Flutter: 0.8125, Mix: 0.375, Hiss: 1 } },
+    { naam: 'Self-oscillation', uitleg: 'Boven 1: gaat vanzelf door en blijft begrensd door de band.',
+      waarden: { Time: 250, Feedback: 1.125, Tone: 2500, 'Low cut': 200, Resonance: 1.25, Saturation: 12, Flutter: 0.3125, Mix: 0.5, Hiss: 0 } },
   ],
   // toetsgevallen voor de null-test (genormaliseerd; in deze volgorde: Tijd, Terug, Toon, Laag, Reso, Verz, Haper, Mix, Ruis)
   toetsgevallen: [
@@ -79,19 +79,19 @@ export const DUB_ECHO = {
 };
 
 export const SIDECHAIN_POMP = {
-  naam: 'Pomp (LFO)', id: 'pomp', voorbeeld: 'effect',
-  uitleg: 'Een LFO laat het volume pompen op een vast tempo. Echte sidechain: zie Sidechain-pomp.',
+  naam: 'LFO pump', id: 'pomp', voorbeeld: 'effect',
+  uitleg: 'Een LFO laat het volume pompen op een vast tempo. Echte sidechain: zie Sidechain pump.',
   knopen: [
     { id: 'in', type: 'in', x: 40, y: 200 }, { id: 'lfo', type: 'lfo', x: 120, y: 60, waarden: { snelheid: 2 } },
     { id: 'vol', type: 'versterker', x: 240, y: 200, waarden: { hoeveel: 0.7 } }, { id: 'uit', type: 'uit', x: 400, y: 200 }],
   kabels: [{ van: ['in', 'uit'], naar: ['vol', 'in'] }, { van: ['vol', 'uit'], naar: ['uit', 'in'] }],
-  parameters: [{ naam: 'Diepte', knoop: 'vol', knop: 'hoeveel', min: 0, max: 1, standaard: 0.75, glijMs: 20 },
-    { naam: 'Snelheid', knoop: 'lfo', knop: 'snelheid', min: 0.125, max: 16, standaard: 2, glijMs: 20 }],
+  parameters: [{ naam: 'Depth', knoop: 'vol', knop: 'hoeveel', min: 0, max: 1, standaard: 0.75, glijMs: 20 },
+    { naam: 'Rate', knoop: 'lfo', knop: 'snelheid', min: 0.125, max: 16, standaard: 2, glijMs: 20 }],
   modulaties: [{ bron: ['lfo', 'golf'], doel: ['vol', 'hoeveel'], diepte: 0.25 }],
 };
 
 export const VEERGALM_SCHETS = {
-  naam: 'Veergalm (schets)', id: 'veer', voorbeeld: 'effect',
+  naam: 'Spring reverb (sketch)', id: 'veer', voorbeeld: 'effect',
   uitleg: 'Een grove schets: korte vertraging met veel terugkoppeling en een banddoorlaat geeft het boing van een veer. Een echte veer (dispersie) staat in de bibliotheek voor later. (15 okt: de banddoorlaat is nu een biquad met 0 dB piek; de SVF-band versterkte Q keer en liet de lus ontploffen.)',
   knopen: [
     { id: 'in', type: 'in', x: 40, y: 200 }, { id: 'som', type: 'som', x: 160, y: 200 },
@@ -104,7 +104,7 @@ export const VEERGALM_SCHETS = {
     { van: ['som', 'uit'], naar: ['lijn', 'in'] }, { van: ['lijn', 'uit'], naar: ['kleur', 'in'] },
     { van: ['kleur', 'uit'], naar: ['terug', 'in'] }, { van: ['in', 'uit'], naar: ['mix', 'droog'] },
     { van: ['kleur', 'uit'], naar: ['mix', 'nat'] }, { van: ['mix', 'uit'], naar: ['uit', 'in'] }],
-  parameters: [{ naam: 'Galm', knoop: 'terug', knop: 'hoeveel', min: 0, max: 0.9375, standaard: 0.8125, glijMs: 30 },
+  parameters: [{ naam: 'Decay', knoop: 'terug', knop: 'hoeveel', min: 0, max: 0.9375, standaard: 0.8125, glijMs: 30 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.3125, glijMs: 20 }],
   modulaties: [],
 };
@@ -115,7 +115,7 @@ export const VEERGALM_SCHETS = {
 const kabel = (van, poort, naar, ingang) => ({ van: [van, poort], naar: [naar, ingang] });
 
 export const DUBSIRENE = {
-  naam: 'Dubsirene', id: 'dubsirene', voorbeeld: 'instrument',
+  naam: 'Dub siren', id: 'dubsirene', voorbeeld: 'instrument',
   uitleg: 'De sirene van een soundsystem: een blokgolf die een LFO laat jammeren, door een tape-echo met terugkoppeling.',
   knopen: [
     { id: 'lfo', type: 'lfo', x: 20, y: 40, waarden: { snelheid: 3 } },
@@ -133,17 +133,17 @@ export const DUBSIRENE = {
     kabel('tape', 'uit', 'lijn', 'in'), kabel('lijn', 'uit', 'toon', 'in'), kabel('toon', 'laag', 'terug', 'in'),
     kabel('vol', 'uit', 'mix', 'droog'), kabel('toon', 'laag', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Toon', knoop: 'osc', knop: 'freq', min: 100, max: 2000, standaard: 520, glijMs: 30 },
-    { naam: 'Jammeren', knoop: 'lfo', knop: 'snelheid', min: 0.125, max: 16, standaard: 3, glijMs: 20 },
-    { naam: 'Echotijd', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 333, glijMs: 250 },
-    { naam: 'Terugkoppeling', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.125, standaard: 0.625, glijMs: 30 },
+    { naam: 'Pitch', knoop: 'osc', knop: 'freq', min: 100, max: 2000, standaard: 520, glijMs: 30 },
+    { naam: 'Wail rate', knoop: 'lfo', knop: 'snelheid', min: 0.125, max: 16, standaard: 3, glijMs: 20 },
+    { naam: 'Echo time', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 333, glijMs: 250 },
+    { naam: 'Feedback', knoop: 'terug', knop: 'hoeveel', min: 0, max: 1.125, standaard: 0.625, glijMs: 30 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.375, glijMs: 20 },
   ],
   modulaties: [{ bron: ['lfo', 'golf'], doel: ['osc', 'freq'], diepte: 0.0625 }],
 };
 
 export const DUBBAS = {
-  naam: 'Dubbas', id: 'dubbas', voorbeeld: 'instrument',
+  naam: 'Dub bass', id: 'dubbas', voorbeeld: 'instrument',
   uitleg: 'Een diepe roots-baslijn: sinus plus driehoek een octaaf hoger, een omhulling per noot en een laagdoorlaat. De sequencer speelt het patroon.',
   knopen: [
     { id: 'seq', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 76, lengte: 0.75 }, vast: { patroon: 4 } },
@@ -163,15 +163,15 @@ export const DUBBAS = {
     kabel('filter', 'laag', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
     { naam: 'Tempo', knoop: 'seq', knop: 'tempo', min: 60, max: 180, standaard: 76, glijMs: 20 },
-    { naam: 'Grondtoon', knoop: 'osc', knop: 'freq', min: 30, max: 120, standaard: 55, glijMs: 20, ook: [['osc2', 'freq', 2]] },
-    { naam: 'Nootlengte', knoop: 'seq', knop: 'lengte', min: 0.125, max: 1, standaard: 0.75, glijMs: 20 },
+    { naam: 'Root', knoop: 'osc', knop: 'freq', min: 30, max: 120, standaard: 55, glijMs: 20, ook: [['osc2', 'freq', 2]] },
+    { naam: 'Gate length', knoop: 'seq', knop: 'lengte', min: 0.125, max: 1, standaard: 0.75, glijMs: 20 },
     { naam: 'Filter', knoop: 'filter', knop: 'freq', min: 80, max: 4000, standaard: 500, glijMs: 20 },
   ],
   modulaties: [],
 };
 
 export const ACIDLIJN = {
-  naam: 'Acidlijn', id: 'acidlijn', voorbeeld: 'instrument',
+  naam: 'Acid line', id: 'acidlijn', voorbeeld: 'instrument',
   uitleg: 'Zaagtand door een resonerend filter dat per noot opengaat (de omhulling beweegt de afsnijding), en dan de band in.',
   knopen: [
     { id: 'seq', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 128, lengte: 0.5 }, vast: { patroon: 5 } },
@@ -187,16 +187,16 @@ export const ACIDLIJN = {
     kabel('omh', 'omhulling', 'vca', 'b'), kabel('vca', 'uit', 'filter', 'in'), kabel('filter', 'laag', 'tape', 'in'),
     kabel('tape', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Afsnijding', knoop: 'filter', knop: 'freq', min: 60, max: 4000, standaard: 300, glijMs: 20 },
-    { naam: 'Resonantie', knoop: 'filter', knop: 'q', min: 0.5, max: 8, standaard: 6, glijMs: 20 },
+    { naam: 'Cutoff', knoop: 'filter', knop: 'freq', min: 60, max: 4000, standaard: 300, glijMs: 20 },
+    { naam: 'Resonance', knoop: 'filter', knop: 'q', min: 0.5, max: 8, standaard: 6, glijMs: 20 },
     { naam: 'Tempo', knoop: 'seq', knop: 'tempo', min: 80, max: 180, standaard: 128, glijMs: 20 },
-    { naam: 'Verzadiging', knoop: 'tape', knop: 'verzadiging', min: 0, max: 24, standaard: 9, glijMs: 20 },
+    { naam: 'Drive', knoop: 'tape', knop: 'verzadiging', min: 0, max: 24, standaard: 9, glijMs: 20 },
   ],
   modulaties: [{ bron: ['omh', 'omhulling'], doel: ['filter', 'freq'], diepte: 0.5 }],
 };
 
 export const RITMEBOX = {
-  naam: 'Ritmebox', id: 'ritmebox', voorbeeld: 'instrument',
+  naam: 'Drum box', id: 'ritmebox', voorbeeld: 'instrument',
   uitleg: 'Drie trommels op drie patronen: kick op elke tel, snare op 2 en 4, hihat op de tegentijd. Eén tempoknop stuurt alle drie.',
   knopen: [
     { id: 'seqK', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 120 }, vast: { patroon: 0 } },
@@ -216,15 +216,15 @@ export const RITMEBOX = {
     kabel('s1', 'uit', 's2', 'a'), kabel('hatvol', 'uit', 's2', 'b'), kabel('s2', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
     { naam: 'Tempo', knoop: 'seqK', knop: 'tempo', min: 60, max: 180, standaard: 120, glijMs: 20, ook: [['seqS', 'tempo'], ['seqH', 'tempo']] },
-    { naam: 'Kicktoon', knoop: 'kick', knop: 'freq', min: 30, max: 120, standaard: 50, glijMs: 20 },
-    { naam: 'Snare-ruis', knoop: 'snare', knop: 'ruis', min: 0, max: 1, standaard: 0.75, glijMs: 20 },
-    { naam: 'Hihat-verval', knoop: 'hat', knop: 'verval', min: 10, max: 400, standaard: 45, glijMs: 20 },
+    { naam: 'Kick pitch', knoop: 'kick', knop: 'freq', min: 30, max: 120, standaard: 50, glijMs: 20 },
+    { naam: 'Snare noise', knoop: 'snare', knop: 'ruis', min: 0, max: 1, standaard: 0.75, glijMs: 20 },
+    { naam: 'Hi-hat decay', knoop: 'hat', knop: 'verval', min: 10, max: 400, standaard: 45, glijMs: 20 },
   ],
   modulaties: [],
 };
 
 export const SNARENREGEN = {
-  naam: 'Snarenregen', id: 'snarenregen', voorbeeld: 'instrument',
+  naam: 'String rain', id: 'snarenregen', voorbeeld: 'instrument',
   uitleg: 'Getokkelde snaren (Karplus–Strong) op een arpeggio, in een grote galm.',
   knopen: [
     { id: 'seq', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 100, lengte: 0.3 }, vast: { patroon: 6 } },
@@ -237,16 +237,16 @@ export const SNARENREGEN = {
   kabels: [kabel('seq', 'poort', 'snaar', 'poort'), kabel('seq', 'toon', 'snaar', 'toon'), kabel('snaar', 'uit', 'galm', 'in'),
     kabel('snaar', 'uit', 'mix', 'droog'), kabel('galm', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Toon', knoop: 'snaar', knop: 'freq', min: 55, max: 880, standaard: 147, glijMs: 20 },
-    { naam: 'Verval', knoop: 'snaar', knop: 'verval', min: 0.125, max: 12, standaard: 3, glijMs: 20 },
-    { naam: 'Helderheid', knoop: 'snaar', knop: 'helder', min: 0, max: 1, standaard: 0.625, glijMs: 20 },
-    { naam: 'Galm', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.375, glijMs: 20 },
+    { naam: 'Pitch', knoop: 'snaar', knop: 'freq', min: 55, max: 880, standaard: 147, glijMs: 20 },
+    { naam: 'Decay', knoop: 'snaar', knop: 'verval', min: 0.125, max: 12, standaard: 3, glijMs: 20 },
+    { naam: 'Brightness', knoop: 'snaar', knop: 'helder', min: 0, max: 1, standaard: 0.625, glijMs: 20 },
+    { naam: 'Reverb', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.375, glijMs: 20 },
   ],
   modulaties: [],
 };
 
 export const DRONEWOLK = {
-  naam: 'Dronewolk', id: 'dronewolk', voorbeeld: 'instrument',
+  naam: 'Drone cloud', id: 'dronewolk', voorbeeld: 'instrument',
   uitleg: 'Drie zaagtanden (grondtoon, iets ontstemd, kwint) door een filter dat heel langzaam ademt, in een lange galm. Gaat vanzelf door.',
   knopen: [
     { id: 'o1', type: 'osc', x: 20, y: 40, waarden: { freq: 55 }, vast: { golf: 1 } },
@@ -265,16 +265,16 @@ export const DRONEWOLK = {
     kabel('s2', 'uit', 'filter', 'in'), kabel('filter', 'laag', 'zacht', 'in'), kabel('zacht', 'uit', 'galm', 'in'),
     kabel('zacht', 'uit', 'mix', 'droog'), kabel('galm', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Grondtoon', knoop: 'o1', knop: 'freq', min: 27.5, max: 220, standaard: 55, glijMs: 200, ook: [['o2', 'freq'], ['o3', 'freq', 1.5]] },
-    { naam: 'Helderheid', knoop: 'filter', knop: 'freq', min: 100, max: 6000, standaard: 700, glijMs: 50 },
-    { naam: 'Ademen', knoop: 'adem', knop: 'snelheid', min: 0.015625, max: 2, standaard: 0.0625, glijMs: 20 },
-    { naam: 'Galm', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.5, glijMs: 20 },
+    { naam: 'Root', knoop: 'o1', knop: 'freq', min: 27.5, max: 220, standaard: 55, glijMs: 200, ook: [['o2', 'freq'], ['o3', 'freq', 1.5]] },
+    { naam: 'Brightness', knoop: 'filter', knop: 'freq', min: 100, max: 6000, standaard: 700, glijMs: 50 },
+    { naam: 'Breath', knoop: 'adem', knop: 'snelheid', min: 0.015625, max: 2, standaard: 0.0625, glijMs: 20 },
+    { naam: 'Reverb', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.5, glijMs: 20 },
   ],
   modulaties: [{ bron: ['adem', 'golf'], doel: ['filter', 'freq'], diepte: 0.125 }],
 };
 
 export const RUISZEE = {
-  naam: 'Ruiszee', id: 'ruiszee', voorbeeld: 'instrument',
+  naam: 'Noise sea', id: 'ruiszee', voorbeeld: 'instrument',
   uitleg: 'Donkere ruis door een banddoorlaat die golft, een volume dat aanzwelt en een plek die langzaam van links naar rechts gaat.',
   knopen: [
     { id: 'ruis', type: 'ruis', x: 20, y: 200, waarden: { kleur: 0.5 } },
@@ -291,8 +291,8 @@ export const RUISZEE = {
   kabels: [kabel('ruis', 'uit', 'band', 'in'), kabel('band', 'band', 'vol', 'in'), kabel('vol', 'uit', 'plek', 'in'),
     kabel('plek', 'uit', 'galm', 'in'), kabel('plek', 'uit', 'mix', 'droog'), kabel('galm', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Kleur', knoop: 'band', knop: 'freq', min: 150, max: 4000, standaard: 700, glijMs: 50 },
-    { naam: 'Golven', knoop: 'golf', knop: 'snelheid', min: 0.03125, max: 2, standaard: 0.109375, glijMs: 20 },
+    { naam: 'Color', knoop: 'band', knop: 'freq', min: 150, max: 4000, standaard: 700, glijMs: 50 },
+    { naam: 'Waves', knoop: 'golf', knop: 'snelheid', min: 0.03125, max: 2, standaard: 0.109375, glijMs: 20 },
     { naam: 'Volume', knoop: 'vol', knop: 'hoeveel', min: 0, max: 1, standaard: 0.5, glijMs: 30 },
   ],
   modulaties: [{ bron: ['golf', 'golf'], doel: ['band', 'freq'], diepte: 0.125 }, { bron: ['vlaag', 'golf'], doel: ['vol', 'hoeveel'], diepte: 0.375 },
@@ -300,7 +300,7 @@ export const RUISZEE = {
 };
 
 export const GLITCHMACHINE = {
-  naam: 'Glitchmachine', id: 'glitchmachine', voorbeeld: 'instrument',
+  naam: 'Glitch machine', id: 'glitchmachine', voorbeeld: 'instrument',
   uitleg: 'Toevalsnoten in een blokgolf, vergruisd tot een paar bits, met een samplerate die willekeurig verspringt en een korte echo.',
   knopen: [
     { id: 'seq', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 150, lengte: 0.35 }, vast: { patroon: 11, zaad: 7 } },
@@ -328,7 +328,7 @@ export const GLITCHMACHINE = {
 };
 
 export const FMBEL = {
-  naam: 'FM-bel', id: 'fmbel', voorbeeld: 'instrument',
+  naam: 'FM bell', id: 'fmbel', voorbeeld: 'instrument',
   uitleg: 'Frequentiemodulatie: een tweede sinus (1,4× de toon) laat de eerste trillen. Een snelle omhulling op de modulator geeft de klank van een bel.',
   knopen: [
     { id: 'seq', type: 'sequencer', x: 20, y: 40, waarden: { tempo: 84, lengte: 0.25 }, vast: { patroon: 6 } },
@@ -349,15 +349,15 @@ export const FMBEL = {
     kabel('vca', 'uit', 'galm', 'in'), kabel('vca', 'uit', 'mix', 'droog'), kabel('galm', 'uit', 'mix', 'nat'),
     kabel('mix', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Toon', knoop: 'drager', knop: 'freq', min: 55, max: 880, standaard: 220, glijMs: 20, ook: [['mod', 'freq', 1.4]] },
-    { naam: 'Helderheid', knoop: 'drager', knop: 'fm', min: 0, max: 8, standaard: 3, glijMs: 20 },
-    { naam: 'Galm', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.3125, glijMs: 20 },
+    { naam: 'Pitch', knoop: 'drager', knop: 'freq', min: 55, max: 880, standaard: 220, glijMs: 20, ook: [['mod', 'freq', 1.4]] },
+    { naam: 'Brightness', knoop: 'drager', knop: 'fm', min: 0, max: 8, standaard: 3, glijMs: 20 },
+    { naam: 'Reverb', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.3125, glijMs: 20 },
   ],
   modulaties: [],
 };
 
 export const TOETSENPAD = {
-  naam: 'Toetsenpad', id: 'toetsenpad', voorbeeld: 'instrument',
+  naam: 'Keys pad', id: 'toetsenpad', voorbeeld: 'instrument',
   uitleg: 'Zelf spelen: twee zaagtanden een octaaf uit elkaar, een filter dat per noot opent, chorus en galm. Speel met a s d f g h j k l ; \' of met de knoppen onder Horen.',
   knopen: [
     { id: 'toetsen', type: 'toetsen', x: 20, y: 40 },
@@ -380,18 +380,18 @@ export const TOETSENPAD = {
     kabel('vca', 'uit', 'mix', 'droog'), kabel('chorus', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'galm', 'in'),
     kabel('mix', 'uit', 'mix2', 'droog'), kabel('galm', 'uit', 'mix2', 'nat'), kabel('mix2', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   parameters: [
-    { naam: 'Noot', knoop: 'toetsen', knop: 'toon', min: 0.25, max: 4, standaard: 1, glijMs: 5 },
-    { naam: 'Poort', knoop: 'toetsen', knop: 'poort', min: 0, max: 1, standaard: 0, glijMs: 0 },
+    { naam: 'Note', knoop: 'toetsen', knop: 'toon', min: 0.25, max: 4, standaard: 1, glijMs: 5 },
+    { naam: 'Gate', knoop: 'toetsen', knop: 'poort', min: 0, max: 1, standaard: 0, glijMs: 0 },
     { naam: 'Filter', knoop: 'filter', knop: 'freq', min: 100, max: 8000, standaard: 900, glijMs: 20 },
-    { naam: 'Loslaten', knoop: 'omh', knop: 'loslaten', min: 10, max: 4000, standaard: 450, glijMs: 20 },
+    { naam: 'Release', knoop: 'omh', knop: 'loslaten', min: 10, max: 4000, standaard: 450, glijMs: 20 },
   ],
   modulaties: [{ bron: ['omh', 'omhulling'], doel: ['filter', 'freq'], diepte: 0.25 }],
-  // fabriekspresets: alleen de klank, nooit Noot en Poort (die spelen de toetsen; Poort 1 zou zonder toets klinken)
+  // fabriekspresets: alleen de klank, nooit Note en Gate (die spelen de toetsen; Gate 1 zou zonder toets klinken)
   presets: [
-    { naam: 'Zacht pad', uitleg: 'Donker en lang uitklinkend.', waarden: { Filter: 600, Loslaten: 1500 } },
-    { naam: 'Helder', uitleg: 'Open filter, kort loslaten.', waarden: { Filter: 3000, Loslaten: 300 } },
-    { naam: 'Lange staart', uitleg: 'De galm krijgt de tijd.', waarden: { Filter: 1200, Loslaten: 4000 } },
-    { naam: 'Pluk', uitleg: 'Kort en scherp.', waarden: { Filter: 2000, Loslaten: 60 } },
+    { naam: 'Soft pad', uitleg: 'Donker en lang uitklinkend.', waarden: { Filter: 600, Release: 1500 } },
+    { naam: 'Bright', uitleg: 'Open filter, kort loslaten.', waarden: { Filter: 3000, Release: 300 } },
+    { naam: 'Long tail', uitleg: 'De galm krijgt de tijd.', waarden: { Filter: 1200, Release: 4000 } },
+    { naam: 'Pluck', uitleg: 'Kort en scherp.', waarden: { Filter: 2000, Release: 60 } },
   ],
 };
 
@@ -401,64 +401,64 @@ const effect = (naam, id, uitleg, midden, kabelsMidden, parameters, modulaties =
   knopen: [{ id: 'in', type: 'in', x: 20, y: 200 }, ...midden, ...extra, { id: 'uit', type: 'uit', x: 900, y: 200 }],
   kabels: kabelsMidden, parameters, modulaties,
 });
-export const GALMKAMER = effect('Galmkamer', 'galmkamer', 'Een ruimte om je geluid heen: acht vertragingen die alles mengen. Van kleine kamer tot kathedraal.',
+export const GALMKAMER = effect('Reverb room', 'galmkamer', 'Een ruimte om je geluid heen: acht vertragingen die alles mengen. Van kleine kamer tot kathedraal.',
   [{ id: 'galm', type: 'galm', x: 300, y: 320, waarden: { tijd: 2.5, demping: 6000, grootte: 1 } }, { id: 'mix', type: 'mix', x: 640, y: 200, waarden: { mix: 0.3 } }],
   [kabel('in', 'uit', 'galm', 'in'), kabel('in', 'uit', 'mix', 'droog'), kabel('galm', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
-  [{ naam: 'Galmtijd', knoop: 'galm', knop: 'tijd', min: 0.25, max: 20, standaard: 2.5, glijMs: 50 },
-    { naam: 'Demping', knoop: 'galm', knop: 'demping', min: 500, max: 16000, standaard: 6000, glijMs: 20 },
-    { naam: 'Grootte', knoop: 'galm', knop: 'grootte', min: 0.5, max: 2, standaard: 1, glijMs: 100 },
+  [{ naam: 'Decay time', knoop: 'galm', knop: 'tijd', min: 0.25, max: 20, standaard: 2.5, glijMs: 50 },
+    { naam: 'Damping', knoop: 'galm', knop: 'demping', min: 500, max: 16000, standaard: 6000, glijMs: 20 },
+    { naam: 'Size', knoop: 'galm', knop: 'grootte', min: 0.5, max: 2, standaard: 1, glijMs: 100 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.3125, glijMs: 20 }]);
-export const BREEDCHORUS = effect('Breed chorus', 'breedchorus', 'Zweven en breed maken: een korte vertraging die links en rechts verschillend wiebelt.',
+export const BREEDCHORUS = effect('Wide chorus', 'breedchorus', 'Zweven en breed maken: een korte vertraging die links en rechts verschillend wiebelt.',
   [{ id: 'ch', type: 'chorus', x: 300, y: 320, waarden: { tijd: 14, diepte: 4, snelheid: 0.375, terug: 0 } }, { id: 'mix', type: 'mix', x: 640, y: 200, waarden: { mix: 0.5 } }],
   [kabel('in', 'uit', 'ch', 'in'), kabel('in', 'uit', 'mix', 'droog'), kabel('ch', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
-  [{ naam: 'Snelheid', knoop: 'ch', knop: 'snelheid', min: 0.03125, max: 8, standaard: 0.375, glijMs: 20 },
-    { naam: 'Diepte', knoop: 'ch', knop: 'diepte', min: 0, max: 12, standaard: 4, glijMs: 50 },
-    { naam: 'Terugkoppeling', knoop: 'ch', knop: 'terug', min: -0.875, max: 0.875, standaard: 0, glijMs: 20 },
+  [{ naam: 'Rate', knoop: 'ch', knop: 'snelheid', min: 0.03125, max: 8, standaard: 0.375, glijMs: 20 },
+    { naam: 'Depth', knoop: 'ch', knop: 'diepte', min: 0, max: 12, standaard: 4, glijMs: 50 },
+    { naam: 'Feedback', knoop: 'ch', knop: 'terug', min: -0.875, max: 0.875, standaard: 0, glijMs: 20 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.5, glijMs: 20 }]);
-export const STRAALJAGER = effect('Straaljager', 'straaljager', 'Flanger: een heel korte vertraging met veel terugkoppeling die langzaam heen en weer gaat.',
+export const STRAALJAGER = effect('Jet flanger', 'straaljager', 'Flanger: een heel korte vertraging met veel terugkoppeling die langzaam heen en weer gaat.',
   [{ id: 'ch', type: 'chorus', x: 300, y: 320, waarden: { tijd: 1.5, diepte: 5, snelheid: 0.15, terug: 0.75 } }, { id: 'mix', type: 'mix', x: 640, y: 200, waarden: { mix: 0.5 } }],
   [kabel('in', 'uit', 'ch', 'in'), kabel('in', 'uit', 'mix', 'droog'), kabel('ch', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
-  [{ naam: 'Snelheid', knoop: 'ch', knop: 'snelheid', min: 0.03125, max: 4, standaard: 0.15625, glijMs: 20 },
-    { naam: 'Terugkoppeling', knoop: 'ch', knop: 'terug', min: -0.875, max: 0.875, standaard: 0.75, glijMs: 20 },
+  [{ naam: 'Rate', knoop: 'ch', knop: 'snelheid', min: 0.03125, max: 4, standaard: 0.15625, glijMs: 20 },
+    { naam: 'Feedback', knoop: 'ch', knop: 'terug', min: -0.875, max: 0.875, standaard: 0.75, glijMs: 20 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.5, glijMs: 20 }]);
-export const LOFIKRAKER = effect('Lo-fi kraker', 'lofikraker', 'Minder bits, lagere samplerate, het hoog eraf en een beetje ruis eronder: een kapotte sampler.',
+export const LOFIKRAKER = effect('Lo-fi crusher', 'lofikraker', 'Minder bits, lagere samplerate, het hoog eraf en een beetje ruis eronder: een kapotte sampler.',
   [{ id: 'gruis', type: 'vergruizer', x: 180, y: 200, waarden: { bits: 6, deling: 6 } }, { id: 'dof', type: 'laagdoor1', x: 330, y: 200, waarden: { freq: 4500 } },
     { id: 'ruis', type: 'ruis', x: 330, y: 380, waarden: { kleur: 0.25 } }, { id: 'stil', type: 'versterker', x: 480, y: 380, waarden: { hoeveel: 0.03 } },
     { id: 'som', type: 'som', x: 520, y: 200 }, { id: 'mix', type: 'mix', x: 680, y: 200, waarden: { mix: 0.8 } }],
   [kabel('in', 'uit', 'gruis', 'in'), kabel('gruis', 'uit', 'dof', 'in'), kabel('dof', 'uit', 'som', 'a'), kabel('ruis', 'uit', 'stil', 'in'),
     kabel('stil', 'uit', 'som', 'b'), kabel('in', 'uit', 'mix', 'droog'), kabel('som', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
   [{ naam: 'Bits', knoop: 'gruis', knop: 'bits', min: 1, max: 16, standaard: 6, glijMs: 20 },
-    { naam: 'Samplerate ÷', knoop: 'gruis', knop: 'deling', min: 1, max: 32, standaard: 6, glijMs: 0 },
-    { naam: 'Toon', knoop: 'dof', knop: 'freq', min: 500, max: 16000, standaard: 4500, glijMs: 20 },
+    { naam: 'Downsample', knoop: 'gruis', knop: 'deling', min: 1, max: 32, standaard: 6, glijMs: 0 },
+    { naam: 'Tone', knoop: 'dof', knop: 'freq', min: 500, max: 16000, standaard: 4500, glijMs: 20 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.8125, glijMs: 20 }]);
-export const RINGROBOT = effect('Ringrobot', 'ringrobot', 'Ringmodulatie: je geluid keer een sinus. Stemmen worden robots, drums worden bellen.',
+export const RINGROBOT = effect('Ring robot', 'ringrobot', 'Ringmodulatie: je geluid keer een sinus. Stemmen worden robots, drums worden bellen.',
   [{ id: 'osc', type: 'osc', x: 180, y: 380, waarden: { freq: 120 }, vast: { golf: 0 } }, { id: 'ring', type: 'vermenigvuldig', x: 360, y: 260 },
     { id: 'mix', type: 'mix', x: 640, y: 200, waarden: { mix: 0.6 } }],
   [kabel('in', 'uit', 'ring', 'a'), kabel('osc', 'uit', 'ring', 'b'), kabel('in', 'uit', 'mix', 'droog'), kabel('ring', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
-  [{ naam: 'Frequentie', knoop: 'osc', knop: 'freq', min: 20, max: 2000, standaard: 120, glijMs: 30 },
+  [{ naam: 'Frequency', knoop: 'osc', knop: 'freq', min: 20, max: 2000, standaard: 120, glijMs: 30 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.625, glijMs: 20 }]);
-export const ECHTE_POMP = effect('Sidechain-pomp', 'sidechainpomp', 'Echte sidechain: een stille kick op elke tel drukt de compressor in, je geluid pompt mee. De kick zelf hoor je niet.',
+export const ECHTE_POMP = effect('Sidechain pump', 'sidechainpomp', 'Echte sidechain: een stille kick op elke tel drukt de compressor in, je geluid pompt mee. De kick zelf hoor je niet.',
   [{ id: 'seq', type: 'sequencer', x: 20, y: 20, waarden: { tempo: 120, lengte: 0.25 }, vast: { patroon: 0 } },
     { id: 'kick', type: 'trommel', x: 200, y: 20, waarden: { freq: 50, val: 2, verval: 250, ruis: 0 } },
     { id: 'comp', type: 'compressor', x: 360, y: 200, waarden: { drempel: -24, verhouding: 10, aanzet: 2, loslaten: 220 } },
     { id: 'vol', type: 'versterker', x: 600, y: 200, waarden: { hoeveel: 1.25 } }],
   [kabel('seq', 'poort', 'kick', 'poort'), kabel('in', 'uit', 'comp', 'in'), kabel('kick', 'uit', 'comp', 'zijketen'), kabel('comp', 'uit', 'vol', 'in'), kabel('vol', 'uit', 'uit', 'in')],
   [{ naam: 'Tempo', knoop: 'seq', knop: 'tempo', min: 60, max: 180, standaard: 120, glijMs: 20 },
-    { naam: 'Diepte', knoop: 'comp', knop: 'drempel', min: -60, max: 0, standaard: -24, glijMs: 20 },
-    { naam: 'Loslaten', knoop: 'comp', knop: 'loslaten', min: 20, max: 1000, standaard: 220, glijMs: 20 }]);
-export const VOUWWARM = effect('Vouwvervormer', 'vouwvervormer', 'Wavefolder met een filter erachter: van warm tot zingend en scheef.',
+    { naam: 'Depth', knoop: 'comp', knop: 'drempel', min: -60, max: 0, standaard: -24, glijMs: 20 },
+    { naam: 'Release', knoop: 'comp', knop: 'loslaten', min: 20, max: 1000, standaard: 220, glijMs: 20 }]);
+export const VOUWWARM = effect('Wavefolder', 'vouwvervormer', 'Wavefolder met een filter erachter: van warm tot zingend en scheef.',
   [{ id: 'vouw', type: 'vouwer', x: 200, y: 200, waarden: { drive: 12, scheef: 0 } }, { id: 'dof', type: 'svf', x: 380, y: 200, waarden: { freq: 5000, q: 0.70703125 } },
     { id: 'vol', type: 'versterker', x: 540, y: 200, waarden: { hoeveel: 0.5 } }, { id: 'mix', type: 'mix', x: 700, y: 200, waarden: { mix: 0.75 } }],
   [kabel('in', 'uit', 'vouw', 'in'), kabel('vouw', 'uit', 'dof', 'in'), kabel('dof', 'laag', 'vol', 'in'), kabel('in', 'uit', 'mix', 'droog'),
     kabel('vol', 'uit', 'mix', 'nat'), kabel('mix', 'uit', 'uit', 'in')],
   [{ naam: 'Drive', knoop: 'vouw', knop: 'drive', min: 0, max: 36, standaard: 12, glijMs: 20 },
-    { naam: 'Scheef', knoop: 'vouw', knop: 'scheef', min: -1, max: 1, standaard: 0, glijMs: 20 },
-    { naam: 'Toon', knoop: 'dof', knop: 'freq', min: 300, max: 16000, standaard: 5000, glijMs: 20 },
+    { naam: 'Bias', knoop: 'vouw', knop: 'scheef', min: -1, max: 1, standaard: 0, glijMs: 20 },
+    { naam: 'Tone', knoop: 'dof', knop: 'freq', min: 300, max: 16000, standaard: 5000, glijMs: 20 },
     { naam: 'Mix', knoop: 'mix', knop: 'mix', min: 0, max: 1, standaard: 0.75, glijMs: 20 }]);
 
 // De groove waar effecten standaard op draaien (Horen → "groove"): ritmebox plus dubbas, in de motor gerenderd.
 export const GROOVE = {
-  naam: 'Groove (bron)', id: 'groove',
+  naam: 'Groove (source)', id: 'groove',
   knopen: [...RITMEBOX.knopen.filter((k) => k.id !== 'uit').map((k) => ({ ...k, waarden: { ...(k.waarden || {}), ...(k.type === 'sequencer' ? { tempo: 96 } : {}) } })),
     ...DUBBAS.knopen.filter((k) => k.id !== 'uit').map((k) => ({ ...k, id: 'b_' + k.id, waarden: { ...(k.waarden || {}), ...(k.type === 'sequencer' ? { tempo: 96 } : {}) } })),
     { id: 'som', type: 'som', x: 0, y: 0 }, { id: 'zacht', type: 'versterker', x: 0, y: 0, waarden: { hoeveel: 0.5 } }, { id: 'uit', type: 'uit', x: 0, y: 0 }],

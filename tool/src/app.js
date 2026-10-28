@@ -149,7 +149,7 @@ function meetOntwerp(o) {
   if (!heeftIngang(o)) return instrumentReadout(E, c.rij, { waarden, gebeurtenissen: speelProef(o, c) });
   return meetReadout(E, c.rij, { waarden });
 }
-// Een instrument met toetsen meet je terwijl het speelt: vier noten van een halve seconde (Noot en Poort).
+// Een instrument met toetsen meet je terwijl het speelt: vier noten van een halve seconde (Note en Gate).
 function speelProef(o, c) {
   const t = o.knopen.find((k) => k.type === 'toetsen'); if (!t) return [];
   const pn = c.params.findIndex((p) => p.knoop === t.id && p.knop === 'toon'), pp = c.params.findIndex((p) => p.knoop === t.id && p.knop === 'poort');
@@ -235,43 +235,43 @@ function tekenReadout() {
     return el('span', { class: 'pijl ' + (beter ? 'ok' : 'bad'), title: 'laatste wijziging: ' + S.laatsteWijziging }, omhoog ? '▲' : '▼');
   };
   const vak = (label, waarde, p, uitleg) => el('div', { class: 'rv', title: uitleg, onclick: () => { if (smal() && uitleg) melding(uitleg); } }, el('span', { class: 'rl' }, label), el('span', { class: 'rw' }, waarde, p));
-  const toetsen = el('div', { class: 'rv', title: 'wat er nu al gecontroleerd wordt; de rest doet CI' }, el('span', { class: 'rl' }, tech() ? 'toetsen' : 'klopt het'),
+  const toetsen = el('div', { class: 'rv', title: 'wat er nu al gecontroleerd wordt; de rest doet CI' }, el('span', { class: 'rl' }, tech() ? 'tests' : 'checks'),
     el('span', { class: 'blokjes' }, ...toetsBlokjes()));
   if (!r || r.fout) {
-    box.append(vak('keten', C.fouten.length ? C.fouten.length + (tech() ? ' fout' + (C.fouten.length > 1 ? 'en' : '') : ' probleem') : (r?.fout || 'meten…'), null, C.fouten.join('\n')), toetsen);
+    box.append(vak('chain', C.fouten.length ? C.fouten.length + (C.fouten.length > 1 ? ' errors' : ' error') : (r?.fout || 'meten…'), null, C.fouten.join('\n')), toetsen);
     return;
   }
   const staart = r.staart < 0 ? '∞' : nl(r.staart, 1) + ' s';
   if (!tech()) {
     // in gewone woorden; de getallen staan in de tooltip en in de technische weergave
-    const naklank = r.staart < 0 ? 'blijft gaan' : r.staart < 0.05 ? 'meteen stil' : nl(r.staart, 1) + ' s';
-    const zwaar = r.cpuSchatting < 1 ? 'licht' : r.cpuSchatting < 5 ? 'gemiddeld' : 'zwaar';
+    const naklank = r.staart < 0 ? 'endless' : r.staart < 0.05 ? 'none' : nl(r.staart, 1) + ' s';
+    const zwaar = r.cpuSchatting < 1 ? 'light' : r.cpuSchatting < 5 ? 'medium' : 'heavy';
     const vakken = [];
     if (r.instrument) {
-      const volume = r.piekDb > 0 ? 'te hard' : r.rmsDb < -40 ? 'zacht' : 'goed';
+      const volume = r.piekDb > 0 ? 'clipping' : r.rmsDb < -40 ? 'quiet' : 'ok';
       vakken.push(vak('volume', volume, pijl(r.rmsDb, v?.rmsDb, false), `gemiddeld ${nl(r.rmsDb, 0)} dB, piek ${nl(r.piekDb, 1)} dB (boven 0 vervormt het in je muziekprogramma)`));
     } else {
-      const klank = !Number.isFinite(r.thdDb) ? '—' : r.thdDb < -45 ? 'schoon' : r.thdDb < -25 ? 'warm' : 'vervormd';
-      vakken.push(vak('klank', klank, pijl(r.thdDb, v?.thdDb, true), r.reden || `hoeveel het een zuivere toon kleurt: vervorming ${dbTekst(r.thdDb)}, aliasing ${dbTekst(r.aliasingDb)}`));
+      const klank = !Number.isFinite(r.thdDb) ? '—' : r.thdDb < -45 ? 'clean' : r.thdDb < -25 ? 'warm' : 'distorted';
+      vakken.push(vak('tone', klank, pijl(r.thdDb, v?.thdDb, true), r.reden || `hoeveel het een zuivere toon kleurt: vervorming ${dbTekst(r.thdDb)}, aliasing ${dbTekst(r.aliasingDb)}`));
     }
-    vakken.push(vak('naklinken', naklank, pijl(r.staart, v?.staart, true), 'hoe lang er nog geluid komt als je stopt'),
-      vak('rekenwerk', zwaar, pijl(r.cpuSchatting, v?.cpuSchatting, true), `hoeveel van de computer dit vraagt: ${nl(r.cpuSchatting, 2)} % van één kern`), toetsen);
+    vakken.push(vak('tail', naklank, pijl(r.staart, v?.staart, true), 'hoe lang er nog geluid komt als je stopt'),
+      vak('cpu', zwaar, pijl(r.cpuSchatting, v?.cpuSchatting, true), `hoeveel van de computer dit vraagt: ${nl(r.cpuSchatting, 2)} % van één kern`), toetsen);
     box.append(...vakken);
     return;
   }
   if (r.instrument) {
     box.append(
       vak('cpu', nl(r.cpuSchatting, 2) + ' %', pijl(r.cpuSchatting, v?.cpuSchatting, true), 'geschat uit de gemeten blokken (één kern, WASM)'),
-      vak('niveau', nl(r.rmsDb, 0) + ' dB', pijl(r.rmsDb, v?.rmsDb, false), 'effectieve waarde van wat het instrument zelf maakt (dBFS, de eerste 2 s' + (r.bespeeld ? ', bespeeld met vier noten' : '') + ')'),
-      vak('piek', nl(r.piekDb, 1) + ' dB', pijl(r.piekDb, v?.piekDb, true), 'hoogste sample (dBFS); boven 0 = vervorming in de host'),
-      vak('staart', staart, pijl(r.staart, v?.staart, true), 'hoe lang er na de laatste noot nog geluid komt'),
+      vak('level', nl(r.rmsDb, 0) + ' dB', pijl(r.rmsDb, v?.rmsDb, false), 'effectieve waarde van wat het instrument zelf maakt (dBFS, de eerste 2 s' + (r.bespeeld ? ', bespeeld met vier noten' : '') + ')'),
+      vak('peak', nl(r.piekDb, 1) + ' dB', pijl(r.piekDb, v?.piekDb, true), 'hoogste sample (dBFS); boven 0 = vervorming in de host'),
+      vak('tail', staart, pijl(r.staart, v?.staart, true), 'hoe lang er na de laatste noot nog geluid komt'),
       toetsen);
     return;
   }
   box.append(
     vak('cpu', nl(r.cpuSchatting, 2) + ' %', pijl(r.cpuSchatting, v?.cpuSchatting, true), 'geschat uit de gemeten blokken (één kern, WASM)' + (r.cpuProcent !== null ? '; live meting van deze render: ' + nl(r.cpuProcent, 1) + ' %' : '')),
     vak('latency', latentie(S.ontwerp) + ' smp', null, 'wat de plugin aan de host meldt'),
-    vak('staart', staart, pijl(r.staart, v?.staart, true), 'hoe lang er nog geluid komt na stilte (∞ = gaat vanzelf door)'),
+    vak('tail', staart, pijl(r.staart, v?.staart, true), 'hoe lang er nog geluid komt na stilte (∞ = gaat vanzelf door)'),
     vak('aliasing', dbTekst(r.aliasingDb), pijl(r.aliasingDb, v?.aliasingDb, true), r.reden || 'energie buiten de harmonischen bij een sinus van 5 kHz, t.o.v. de grondtoon (lager = beter); gemeten met bandbeweging en modulatie stil, na ' + nl(r.inloop, 1) + ' s inlopen'),
     vak('thd 1k', dbTekst(r.thdDb), pijl(r.thdDb, v?.thdDb, true), r.reden || 'harmonische vervorming bij 1 kHz, −6 dBFS'),
     toetsen);
@@ -362,8 +362,8 @@ function voegToe(type, x, y) {
   if (type === 'vertraging') kn.vast = { max: 1200 };
   S.ontwerp.knopen.push(kn);
   if (type === 'toetsen') S.ontwerp.parameters.push(
-    { naam: 'Noot', knoop: id, knop: 'toon', min: 0.25, max: 4, standaard: 1, glijMs: 5, uitleg: 'welke toets (verhouding t.o.v. de grondtoon)' },
-    { naam: 'Poort', knoop: id, knop: 'poort', min: 0, max: 1, standaard: 0, glijMs: 0, uitleg: 'toets ingedrukt (1) of los (0)' });
+    { naam: 'Note', knoop: id, knop: 'toon', min: 0.25, max: 4, standaard: 1, glijMs: 5, uitleg: 'welke toets (verhouding t.o.v. de grondtoon)' },
+    { naam: 'Gate', knoop: id, knop: 'poort', min: 0, max: 1, standaard: 0, glijMs: 0, uitleg: 'toets ingedrukt (1) of los (0)' });
   S.selectie = { soort: 'knoop', id };
   gewijzigd(`${BIB[type].naam} erbij`);
 }
@@ -739,7 +739,7 @@ function tabHoren(box) {
       ...(instrument
         ? [el('span', { class: 'zacht' }, toetsen ? 'Speel met a s d f g h j k l ; \' (of de toetsen hieronder).' : 'Dit ontwerp maakt zelf geluid: geen ingang nodig.')]
         : [el('select', { onchange: async (ev) => { S.bron = ev.target.value; if (speler.speelt()) await speler.speel(S.bron); } },
-          ...[['groove', 'groove (drums en bas)'], ['stukjes', 'stukjes (korte tonen)'], ['ruis', 'ruisstoten'], ['sweep', 'sweep'], ['sinus', 'sinus 1 kHz'], ['eigen', speler.buffer ? speler.bronNaam : 'eigen audio…']].map(([w, t]) => el('option', { value: w, selected: S.bron === w }, t))),
+          ...[['groove', 'groove (drums & bass)'], ['stukjes', 'blips (short tones)'], ['ruis', 'noise bursts'], ['sweep', 'sweep'], ['sinus', 'sine 1 kHz'], ['eigen', speler.buffer ? speler.bronNaam : 'eigen audio…']].map(([w, t]) => el('option', { value: w, selected: S.bron === w }, t))),
         el('label', { class: 'bestand' }, 'eigen audio', el('input', { type: 'file', accept: 'audio/*', onchange: async (ev) => { const f = ev.target.files[0]; if (!f) return; await speler.eigenBestand(f); S.bron = 'eigen'; await speler.speel('eigen'); speler.laad(C.rij, standaardWaarden()); tekenOnder(); } })),
         el('button', { class: 'seg vasthoud', onpointerdown: (ev) => { ev.preventDefault(); speler.droog(true); }, onpointerup: () => speler.droog(false), onpointerleave: () => speler.droog(false), onpointercancel: () => speler.droog(false), oncontextmenu: (ev) => ev.preventDefault(), title: 'vasthouden = zonder plugin' }, 'droog (vasthouden)')])),
     el('div', { class: 'meterbak' }, el('div', { id: 'meter', class: 'meterbalk' })),
@@ -771,7 +771,7 @@ const ingedrukt = [];
 async function noot(code, st, aan) {
   const t = S.ontwerp.knopen.find((k) => k.type === 'toetsen'); if (!t) return;
   const pn = C.params.findIndex((p) => p.knoop === t.id && p.knop === 'toon'), pp = C.params.findIndex((p) => p.knoop === t.id && p.knop === 'poort');
-  if (pn < 0 || pp < 0) { melding('Zet "toon" en "poort" van Toetsen op "in plugin" om te spelen.'); return; }
+  if (pn < 0 || pp < 0) { melding('Zet "pitch" en "gate" van Keyboard op het paneel om te spelen.'); return; }
   const i = ingedrukt.findIndex((x) => x[0] === code);
   if (aan) {
     if (i >= 0) return;
@@ -813,9 +813,9 @@ function tabMeten(box) {
   h.niveaus.slice(1).forEach((d, i) => { const hh = Math.max(0, (d + 120) / 120 * 120); balk.append(svg('rect', { x: 20 + i * 56, y: 140 - hh, width: 36, height: hh, class: 'balk' }), svg('text', { x: 38 + i * 56, y: 155, class: 'astekst' }, 'H' + (i + 2)), svg('text', { x: 38 + i * 56, y: 136 - hh, class: 'astekst' }, nl(d, 0))); });
   const tabel = el('table', { class: 'kv' }, ...S.ontwerp.knopen.filter((k) => !BIB[k.type].vast).map((k) => el('tr', {}, el('td', {}, BIB[k.type].naam), el('td', {}, nl(DATA.metingBlokken?.blokken?.[k.type]?.cpuProcent ?? 0, 2) + ' %'))));
   box.append(el('div', { class: 'rij' },
-    el('div', {}, el('div', { class: 'sub' }, 'respons (klein signaal, impuls van −60 dBFS)'), g),
-    el('div', {}, el('div', { class: 'sub' }, 'harmonischen bij 1 kHz, −6 dBFS (dB t.o.v. de grondtoon)'), balk),
-    el('div', {}, el('div', { class: 'sub' }, 'cpu per blok (gemeten)'), tabel)),
+    el('div', {}, el('div', { class: 'sub' }, 'frequency response (klein signaal, impuls van −60 dBFS)'), g),
+    el('div', {}, el('div', { class: 'sub' }, 'harmonics bij 1 kHz, −6 dBFS (dB t.o.v. de grondtoon)'), balk),
+    el('div', {}, el('div', { class: 'sub' }, 'cpu per block (gemeten)'), tabel)),
     el('p', { class: 'zacht' }, 'Dezelfde meetcode als de CI-toetsen (tool/src/meten.js). Aliasing in de readout: sinus van 5 kHz, coherent op een bin; alles buiten de harmonischen telt als aliasing.'));
 }
 // Een instrument heeft geen ingang: geen respons of vervorming, wel wat hij zelf maakt (gemiddeld spectrum, 2 s).
@@ -832,7 +832,7 @@ function tabMetenInstrument(box) {
   const tabel = el('table', { class: 'kv' }, ...S.ontwerp.knopen.filter((k) => !BIB[k.type].vast).map((k) => el('tr', {}, el('td', {}, BIB[k.type].naam), el('td', {}, nl(DATA.metingBlokken?.blokken?.[k.type]?.cpuProcent ?? 0, 2) + ' %'))));
   box.append(el('div', { class: 'rij' },
     el('div', {}, el('div', { class: 'sub' }, 'spectrum van wat hij maakt (eerste 2 s, t.o.v. de piek)'), g),
-    el('div', {}, el('div', { class: 'sub' }, 'cpu per blok (gemeten)'), tabel)),
+    el('div', {}, el('div', { class: 'sub' }, 'cpu per block (gemeten)'), tabel)),
     el('p', { class: 'zacht' }, 'Dit ontwerp heeft geen ingang: respons en vervorming zeggen dan niets. De readout bovenin toont niveau en piek.'));
 }
 function tabVerken(box) {

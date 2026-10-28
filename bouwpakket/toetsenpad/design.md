@@ -1,4 +1,4 @@
-# design.md — frontpaneel van Toetsenpad
+# design.md — frontpaneel van Keys pad
 
 Zelfde taal als de Pluginbouwer: hoeken 0, rand 2 px, harde schaduw (3 px 3 px 0), geen gradiënten, geen
 glassmorphism, geen Inter. Lettertype IBM Plex Mono (cijfers tabular), kopjes Silkscreen. Beide staan niet op een Mac:
@@ -22,7 +22,7 @@ eronder (tekst zoals SPEC.md "Tekst ↔ waarde"), in de volgorde van SPEC.md. Du
 omhoog = het hele bereik (schermpunten, ook als het paneel geschaald is), lineair in de CLAP-waarde (zoals de host
 normaliseert); Shift + slepen = 10× fijner. "De gekozen knop" = de laatst aangeraakte; zijn boog is tape. Beginmaat
 560 × 220 (precies `frontpaneel.svg`); kleiner of groter schaalt het paneel gelijkmatig.
-Kolom per knop 76 px. Labels (hooguit 11 tekens, de volle naam in de tooltip en bij de host): Noot · Poort · Filter · Loslaten.
+Kolom per knop 76 px. Labels (hooguit 11 tekens, de volle naam in de tooltip en bij de host): Note · Gate · Filter · Release.
 Minimaal 560 × 220 px, schaalbaar. Labels in de gewone tekststijl (IBM Plex Mono 11 px, inkt).
 Toets het paneel in CI door de view in een eigen sRGB-bitmap te laten tekenen en daar de bytes te lezen (niet
 `NSBitmapImageRep colorAtX:` met een kleurconversie: die geeft een gammaverschil), met steekproeven midden op een boog;

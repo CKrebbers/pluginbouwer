@@ -6,10 +6,10 @@
   "reference": "../ruis-half.verwacht.wav",
   "state": {
     "parameters": {
-      "Afsnijding": 0.5,
-      "Resonantie": 0.5,
+      "Cutoff": 0.5,
+      "Resonance": 0.5,
       "Tempo": 0.5,
-      "Verzadiging": 0.5
+      "Drive": 0.5
     }
   },
   "sample_rate": 48000,

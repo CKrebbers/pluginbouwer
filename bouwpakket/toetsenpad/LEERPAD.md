@@ -4,11 +4,11 @@
 1. Download in GitHub bij de laatste groene CI-run het artefact `macos-keten_toetsenpad` (een zip). Een artefact van
    GitHub bewaart geen Unix-rechten of symlinks: laat CI daarom de bundels zelf nog eens zippen (`ditto -c -k
    --keepParent` of `zip -y`) en pak díe zip uit.
-2. Uitpakken. macOS zet een quarantainevlag op downloads: `xattr -dr com.apple.quarantine "PB Toetsenpad.component"`
+2. Uitpakken. macOS zet een quarantainevlag op downloads: `xattr -dr com.apple.quarantine "PB Keys pad.component"`
    (en hetzelfde voor .vst3 en .clap).
-3. Kopieer `PB Toetsenpad.component` naar `~/Library/Audio/Plug-Ins/Components/`.
+3. Kopieer `PB Keys pad.component` naar `~/Library/Audio/Plug-Ins/Components/`.
 4. Terminal: `killall -9 AudioComponentRegistrar` (anders ziet Logic hem niet meteen).
-5. Logic: Instellingen → Plug-in Manager → "Reset & Rescan Selection" op PB Toetsenpad. Status moet "geslaagd" zijn.
+5. Logic: Instellingen → Plug-in Manager → "Reset & Rescan Selection" op PB Keys pad. Status moet "geslaagd" zijn.
 
 ## Kosten en het gratis alternatief
 | wat | kost | gratis alternatief | wanneer je wél moet betalen |

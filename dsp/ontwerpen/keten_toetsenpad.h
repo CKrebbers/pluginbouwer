@@ -1,10 +1,10 @@
-// keten_toetsenpad.h — GEGENEREERD door tools/bouwpakket.mjs uit het ontwerp "Toetsenpad". Niet met de hand wijzigen:
+// keten_toetsenpad.h — GEGENEREERD door tools/bouwpakket.mjs uit het ontwerp "Keys pad". Niet met de hand wijzigen:
 // verander het ontwerp in de tool en exporteer opnieuw. De rij hieronder is wat de ketenmotor (pb_graaf.h) leest,
 // in de browser en in de plugin hetzelfde.
 #pragma once
 #include "../pb_core.h"
 
-#define PB_NAAM "PB Toetsenpad"
+#define PB_NAAM "PB Keys pad"
 #define PB_CLAP_ID "nl.varve.pluginbouwer.toetsenpad"
 #define PB_VERSIE "0.1.0"
 #define PB_MAKER "Varve"
@@ -19,10 +19,10 @@
 #define PB_LATENTIE 0
 #define PB_N_PARAMS 4
 #define PB_PARAMS \
-    {1, "Noot", "", "×", 0.25, 4, 1, 5, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
-    {2, "Poort", "", "", 0, 1, 0, 0, pb::AUTOMATEERBAAR}, \
+    {1, "Note", "", "×", 0.25, 4, 1, 5, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
+    {2, "Gate", "", "", 0, 1, 0, 0, pb::AUTOMATEERBAAR}, \
     {3, "Filter", "", "Hz", 100, 8000, 900, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
-    {4, "Loslaten", "", "ms", 10, 4000, 450, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}
+    {4, "Release", "", "ms", 10, 4000, 450, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}
 
 static constexpr double PB_KETEN[] = {
   13, 4, 16, -1, 0, -1, 0, 0, 1,

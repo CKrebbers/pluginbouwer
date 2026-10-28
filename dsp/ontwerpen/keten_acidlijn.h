@@ -1,10 +1,10 @@
-// keten_acidlijn.h — GEGENEREERD door tools/bouwpakket.mjs uit het ontwerp "Acidlijn". Niet met de hand wijzigen:
+// keten_acidlijn.h — GEGENEREERD door tools/bouwpakket.mjs uit het ontwerp "Acid line". Niet met de hand wijzigen:
 // verander het ontwerp in de tool en exporteer opnieuw. De rij hieronder is wat de ketenmotor (pb_graaf.h) leest,
 // in de browser en in de plugin hetzelfde.
 #pragma once
 #include "../pb_core.h"
 
-#define PB_NAAM "PB Acidlijn"
+#define PB_NAAM "PB Acid line"
 #define PB_CLAP_ID "nl.varve.pluginbouwer.acidlijn"
 #define PB_VERSIE "0.1.0"
 #define PB_MAKER "Varve"
@@ -16,10 +16,10 @@
 #define PB_LATENTIE 0
 #define PB_N_PARAMS 4
 #define PB_PARAMS \
-    {1, "Afsnijding", "", "Hz", 60, 4000, 300, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
-    {2, "Resonantie", "", "Q", 0.5, 8, 6, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
+    {1, "Cutoff", "", "Hz", 60, 4000, 300, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
+    {2, "Resonance", "", "Q", 0.5, 8, 6, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
     {3, "Tempo", "", "BPM", 80, 180, 128, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}, \
-    {4, "Verzadiging", "", "dB", 0, 24, 9, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}
+    {4, "Drive", "", "dB", 0, 24, 9, 20, pb::AUTOMATEERBAAR | pb::GLIJDEN}
 
 static constexpr double PB_KETEN[] = {
   8, 4, 15, -1, 0, -1, 0, 2, 128,

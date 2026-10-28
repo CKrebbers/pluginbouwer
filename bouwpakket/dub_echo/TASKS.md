@@ -1,4 +1,4 @@
-# TASKS — Dub-echo
+# TASKS — Dub echo
 
 - [ ] Fase 0 — skelet, CI en alle validators (PROMPTS.md §0)
 - [ ] Fase 1 — DSP aansluiten; null-test door het binary groen (§1)

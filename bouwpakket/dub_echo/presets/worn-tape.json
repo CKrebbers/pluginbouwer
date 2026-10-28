@@ -1,0 +1,15 @@
+{
+  "naam": "Worn tape",
+  "uitleg": "Onrustige band, vroeg verzadigd, dof.",
+  "waarden": {
+    "Time": 375,
+    "Feedback": 0.625,
+    "Tone": 1500,
+    "Low cut": 300,
+    "Resonance": 1.5,
+    "Saturation": 14,
+    "Flutter": 0.8125,
+    "Mix": 0.375,
+    "Hiss": 1
+  }
+}

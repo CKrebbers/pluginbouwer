@@ -1,5 +1,5 @@
 {
-  "naam": "Toetsenpad",
+  "naam": "Keys pad",
   "id": "toetsenpad",
   "voorbeeld": "instrument",
   "uitleg": "Zelf spelen: twee zaagtanden een octaaf uit elkaar, een filter dat per noot opent, chorus en galm. Speel met a s d f g h j k l ; ' of met de knoppen onder Horen.",
@@ -290,7 +290,7 @@
   ],
   "parameters": [
     {
-      "naam": "Noot",
+      "naam": "Note",
       "knoop": "toetsen",
       "knop": "toon",
       "min": 0.25,
@@ -299,7 +299,7 @@
       "glijMs": 5
     },
     {
-      "naam": "Poort",
+      "naam": "Gate",
       "knoop": "toetsen",
       "knop": "poort",
       "min": 0,
@@ -317,7 +317,7 @@
       "glijMs": 20
     },
     {
-      "naam": "Loslaten",
+      "naam": "Release",
       "knoop": "omh",
       "knop": "loslaten",
       "min": 10,
@@ -341,35 +341,35 @@
   ],
   "presets": [
     {
-      "naam": "Zacht pad",
+      "naam": "Soft pad",
       "uitleg": "Donker en lang uitklinkend.",
       "waarden": {
         "Filter": 600,
-        "Loslaten": 1500
+        "Release": 1500
       }
     },
     {
-      "naam": "Helder",
+      "naam": "Bright",
       "uitleg": "Open filter, kort loslaten.",
       "waarden": {
         "Filter": 3000,
-        "Loslaten": 300
+        "Release": 300
       }
     },
     {
-      "naam": "Lange staart",
+      "naam": "Long tail",
       "uitleg": "De galm krijgt de tijd.",
       "waarden": {
         "Filter": 1200,
-        "Loslaten": 4000
+        "Release": 4000
       }
     },
     {
-      "naam": "Pluk",
+      "naam": "Pluck",
       "uitleg": "Kort en scherp.",
       "waarden": {
         "Filter": 2000,
-        "Loslaten": 60
+        "Release": 60
       }
     }
   ]

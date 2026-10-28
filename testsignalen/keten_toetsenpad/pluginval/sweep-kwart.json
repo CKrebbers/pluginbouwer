@@ -6,10 +6,10 @@
   "reference": "../sweep-kwart.verwacht.wav",
   "state": {
     "parameters": {
-      "Noot": 0.25,
-      "Poort": 0.25,
+      "Note": 0.25,
+      "Gate": 0.25,
       "Filter": 0.25,
-      "Loslaten": 0.25
+      "Release": 0.25
     }
   },
   "sample_rate": 48000,

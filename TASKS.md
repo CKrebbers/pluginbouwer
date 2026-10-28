@@ -169,3 +169,12 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
 - Bewezen: tests/spel.test.mjs (elke proef klinkt en verschilt van elke andere, elke knop doet iets, elke opdracht: begin
   faalt, oplossing met een paar tikken slaagt, halve oplossing faalt), tools/headless/tool.mjs (een level helemaal spelen,
   geluid uit de motor, opdracht gehaald na een oscillator, de iPhone).
+
+## J. Termen in het Engels (28 okt 2026, op Clay's "Alle termen moeten in het engels zijn")
+- [x] Blokken, knoppen, aansluitingen, families, combinaties, voorbeelden, patronen en golfvormen in de tool in het Engels
+  (Delay, Feedback, Low cut, Reverb, Envelope, Sources, Space & time …), net als de readout en de meetlabels.
+- [x] Plugin-parameters en presets ook (wat je in Logic ziet): de handgeschreven dub-echo (Time, Feedback, Tone, Low cut,
+  Resonance, Saturation, Flutter, Mix, Hiss) en de gegenereerde ketens. De CLAP-id's blijven dezelfde: een bewaard project
+  vindt de plugin terug, alleen de namen veranderen. Het geluid is bit voor bit hetzelfde (geen WAV in testsignalen/ veranderd).
+- Blijft Nederlands: de uitlegzinnen, de knoppen van de tool zelf (Ontwerpen, Bouwen, Spel) en de docs.
+- Bewezen: 141/141 toetsen, tools/headless/tool.mjs, de CI-generatoren opnieuw gedraaid.

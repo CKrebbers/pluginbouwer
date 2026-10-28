@@ -1,4 +1,4 @@
-# ARCHITECTUUR — Toetsenpad
+# ARCHITECTUUR — Keys pad
 
 ## Lagen
 ```
@@ -55,9 +55,9 @@ het bereik is een bouwfout), dan hoeft er niets naast de plugin te staan en geen
 - clap-validator 0.4.1 bewaart gevonden presets per locatie, en met één provider per preset (alle PLUGIN-locaties
   heten hetzelfde) laadt `preset-discovery-load` alleen de laatste: PASSED bewijst niet dat elke preset laadt. Laad
   ze in een eigen toets door het binary allemaal (proef F4).
-- Een preset zet alleen de klank. Noot en Poort staan er niet in en
-  gaan bij het laden dus naar hun standaard, zoals elke ontbrekende naam (Poort 0: stil tot je een toets speelt;
-  de toetsen spelen ze, en Poort 1 in een preset zou zonder toets klinken).
+- Een preset zet alleen de klank. Note en Gate staan er niet in en
+  gaan bij het laden dus naar hun standaard, zoals elke ontbrekende naam (Gate 0: stil tot je een toets speelt;
+  de toetsen spelen ze, en Gate 1 in een preset zou zonder toets klinken).
 
 ## Instrument
 - Geen audio-ingang: `audio-ports` meldt 0 ingangen en 1 uitgang; `audio-ports-config` (fase 5) alleen stereo en mono
@@ -75,7 +75,7 @@ dit, dus wijk er niet van af:
    buiten 0..127 negeren (geen stap 2).
 2. Daarna altijd: is er een bovenste noot `n = stapel.boven()` (≥ 0), dan
    `zetParam(0, nootVerhouding(n))` en daarna `zetParam(1, 1.0)`; anders alleen `zetParam(1, 0.0)`.
-   (Noot = index 0, Poort = index 1; dit zijn indexen in `PARAMS`, geen id's.)
+   (Note = index 0, Gate = index 1; dit zijn indexen in `PARAMS`, geen id's.)
 3. MIDI-bytes (`CLAP_EVENT_MIDI`, de AU-wrapper geeft ze zo door): `0x9n` met velocity > 0 = noot-aan, `0x8n` of `0x9n`
    met velocity 0 = noot-uit, `0xBn` CC 120 of 123 = stapel leeg en dan stap 2.
 4. Velocity speelt geen rol. De noot zet de parameterspiegel NIET (de host ziet de knopwaarde, niet de laatste noot); state

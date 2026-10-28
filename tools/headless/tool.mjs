@@ -34,17 +34,17 @@ await page.waitForFunction(() => globalThis.PB && document.querySelector('#reado
 await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.fout, null, { timeout: 30000 });
 // eenvoudig (de standaard): gewone woorden, geen samples of dB in beeld
 const eenvoudig = await page.evaluate(() => ({ weergave: globalThis.PB.S.weergave, tekst: document.querySelector('#readout').innerText, bib: document.querySelector('#bib').innerText, samenvatting: document.querySelector('.samenvatting')?.innerText || '' }));
-ok(eenvoudig.weergave === 'eenvoudig' && /naklinken/i.test(eenvoudig.tekst) && !/smp|latency|aliasing/i.test(eenvoudig.tekst), 'eenvoudig: de readout in gewone woorden (' + eenvoudig.tekst.replace(/\s+/g, ' ') + ')');
-ok(/maakt geluid/i.test(eenvoudig.bib) && /combinaties/i.test(eenvoudig.bib) && !/% cpu|smp/.test(eenvoudig.bib), 'eenvoudig: blokken per familie en combinaties, zonder cpu en samples');
-ok(/^Weg van het geluid: Ingang → /.test(eenvoudig.samenvatting), 'boven de keten staat wat het ontwerp doet');
+ok(eenvoudig.weergave === 'eenvoudig' && /tail/i.test(eenvoudig.tekst) && !/smp|latency|aliasing/i.test(eenvoudig.tekst), 'eenvoudig: de readout in gewone woorden (' + eenvoudig.tekst.replace(/\s+/g, ' ') + ')');
+ok(/sources/i.test(eenvoudig.bib) && /combinaties/i.test(eenvoudig.bib) && !/% cpu|smp/.test(eenvoudig.bib), 'eenvoudig: blokken per familie en combinaties, zonder cpu en samples');
+ok(/^Weg van het geluid: Input → /.test(eenvoudig.samenvatting), 'boven de keten staat wat het ontwerp doet');
 // + bij Galm zet hem in de keten (vóór de uitgang), en het blijft klinken: daarna terug naar de dub-echo
 const voor = await page.evaluate(() => globalThis.PB.S.ontwerp.knopen.length);
 await page.click('#bib .kaart:has-text("Een ruimte om het geluid heen") .plus');
 await page.waitForTimeout(300);
 const na = await page.evaluate(() => ({ n: globalThis.PB.S.ontwerp.knopen.length, fouten: globalThis.PB.compileer().fouten, galm: globalThis.PB.S.ontwerp.kabels.some((k) => k.van[0].startsWith('galm') && k.naar[0] === 'uit'), melding: document.querySelector('#melding').innerText }));
-ok(na.n === voor + 1 && na.fouten.length === 0 && na.galm && /Galm tussen/.test(na.melding), '+ zet Galm in de keten vóór de uitgang: ' + na.melding);
+ok(na.n === voor + 1 && na.fouten.length === 0 && na.galm && /Reverb tussen/.test(na.melding), '+ zet Reverb in de keten vóór de uitgang: ' + na.melding);
 await page.click('[data-weergave="technisch"]');
-await page.click('.voorbeelden button:text-is("Dub-echo")').catch(() => {});
+await page.click('.voorbeelden button:text-is("Dub echo")').catch(() => {});
 await page.evaluate(() => { localStorage.removeItem('pb.ontwerp'); });
 await page.waitForTimeout(400);
 if (await page.evaluate(() => globalThis.PB.speler.speelt())) await page.click('text=■ stop');
@@ -52,10 +52,10 @@ await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.rea
 const r = await page.evaluate(() => ({ ...globalThis.PB.S.readout, fouten: globalThis.PB.compileer().fouten, tekst: document.querySelector('#readout').innerText }));
 ok(r.fouten.length === 0, 'de dub-echo compileert zonder fouten');
 ok(Number.isFinite(r.thdDb) && Number.isFinite(r.aliasingDb), `readout meet (thd ${r.thdDb?.toFixed(1)} dB, aliasing ${r.aliasingDb?.toFixed(1)} dB)`);
-ok(/latency/i.test(r.tekst) && /staart/i.test(r.tekst), 'readout toont latency en staart');
+ok(/latency/i.test(r.tekst) && /tail/i.test(r.tekst), 'readout toont latency en tail');
 
 // een knop draaien = de readout meet opnieuw, met een pijl
-await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Verzadiging'); p.standaard = 18; globalThis.PB.gewijzigd('verzadiging 18 dB'); });
+await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Saturation'); p.standaard = 18; globalThis.PB.gewijzigd('verzadiging 18 dB'); });
 const pijl = await page.waitForFunction(() => !!document.querySelector('#readout .pijl'), null, { timeout: 30000 }).then(() => true, () => false);
 ok(pijl, 'na een wijziging staat er een pijl in de readout');
 
@@ -78,23 +78,23 @@ const stil = [];
 for (const naam of namen) {
   await page.evaluate(() => { globalThis.__max = 0; clearInterval(globalThis.__peil); globalThis.__peil = setInterval(() => { globalThis.__max = Math.max(globalThis.__max, parseFloat(document.querySelector('#meter')?.style.width || '0') / 100); }, 40); });
   await page.click(`.voorbeelden button:text-is("${naam}")`);
-  if (naam === 'Toetsenpad') { await page.waitForTimeout(300); for (const k of ['a', 'f', 'h']) { await page.keyboard.down(k); await page.waitForTimeout(350); await page.keyboard.up(k); } }
+  if (naam === 'Keys pad') { await page.waitForTimeout(300); for (const k of ['a', 'f', 'h']) { await page.keyboard.down(k); await page.waitForTimeout(350); await page.keyboard.up(k); } }
   await page.waitForTimeout(1500);
   const r = await page.evaluate(() => ({ max: globalThis.__max, fouten: globalThis.PB.compileer().fouten, speelt: globalThis.PB.speler.speelt() }));
   if (r.fouten.length || !r.speelt || r.max < 0.03) stil.push(`${naam} (meter ${r.max.toFixed(3)}, ${r.fouten.length} fouten, speelt ${r.speelt})`);
 }
 await page.evaluate(() => clearInterval(globalThis.__peil));
 ok(stil.length === 0, 'elk voorbeeld klinkt meteen na één klik' + (stil.length ? ': niet — ' + stil.join('; ') : ''));
-await page.click('.voorbeelden button:text-is("Dubbas")');
+await page.click('.voorbeelden button:text-is("Dub bass")');
 await page.waitForFunction(() => globalThis.PB.S.readout?.instrument, null, { timeout: 30000 });
 const ri = await page.evaluate(() => ({ ...globalThis.PB.S.readout, tekst: document.querySelector('#readout').innerText }));
-ok(ri.rmsDb > -40 && ri.piekDb <= 0 && /niveau/i.test(ri.tekst), `readout van een instrument: niveau ${ri.rmsDb?.toFixed(1)} dB, piek ${ri.piekDb?.toFixed(1)} dB`);
+ok(ri.rmsDb > -40 && ri.piekDb <= 0 && /level/i.test(ri.tekst), `readout van een instrument: niveau ${ri.rmsDb?.toFixed(1)} dB, piek ${ri.piekDb?.toFixed(1)} dB`);
 await page.click('text=■ stop');
 // stop is echt stil, ook voor een instrument (dat zonder invoer doorspeelt): de motor fadet uit en de audio slaapt
 const stilNa = async () => { await page.waitForTimeout(500); return page.evaluate(() => ({ bevestigd: globalThis.PB.speler.stilBevestigd, staat: globalThis.PB.speler.ctx?.state })); };
 const st1 = await stilNa();
 ok(st1.bevestigd && st1.staat === 'suspended', `stop maakt een instrument echt stil (motor ${st1.bevestigd ? 'stil' : 'speelt door'}, audio ${st1.staat})`);
-await page.click('.voorbeelden button:text-is("Dub-echo")');
+await page.click('.voorbeelden button:text-is("Dub echo")');
 await page.waitForTimeout(400);
 await page.click('text=■ stop');
 await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.instrument && Number.isFinite(globalThis.PB.S.readout.thdDb), null, { timeout: 30000 });
@@ -116,7 +116,7 @@ const zipPad = await dl.path();
 const zipBytes = readFileSync(zipPad);
 ok(zipBytes.length > 100000, `zip gedownload (${(zipBytes.length / 1024).toFixed(0)} kB)`);
 // de testsignalen uit de browser == die van CI (bouwpakket/dub_echo), na het terugzetten van het ontwerp
-await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Verzadiging'); p.standaard = 6; globalThis.PB.gewijzigd('terug'); });
+await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Saturation'); p.standaard = 6; globalThis.PB.gewijzigd('terug'); });
 await page.waitForTimeout(200);
 const lijst = await page.evaluate(() => { const pak = globalThis.PB.maakPakket(); const uit = {}; for (const [p, v] of Object.entries(pak)) if (p.startsWith('testsignalen/') && p.endsWith('.wav')) { let h = 0; const b = typeof v === 'string' ? new TextEncoder().encode(v) : v; for (let i = 0; i < b.length; i++) h = (h * 31 + b[i]) >>> 0; uit[p] = [b.length, h]; } return uit; });
 let gelijk = 0, totaal = 0; const anders = [];
@@ -229,12 +229,12 @@ for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone ligg
   await tel.tap('#bib .kaart:has-text("Een ruimte om het geluid heen") .plus');
   await tel.waitForTimeout(300);
   const galm = await tel.evaluate(() => ({ scherm: document.body.dataset.scherm, fouten: globalThis.PB.compileer().fouten.length, galm: globalThis.PB.S.ontwerp.knopen.some((k) => k.type === 'galm'), melding: document.querySelector('#melding').innerText }));
-  ok(galm.scherm === 'keten' && galm.galm && galm.fouten === 0 && /Galm tussen/.test(galm.melding), `${naam}: Galm erin met één tik, terug in de keten: ${galm.melding}`);
+  ok(galm.scherm === 'keten' && galm.galm && galm.fouten === 0 && /Reverb tussen/.test(galm.melding), `${naam}: Reverb erin met één tik, terug in de keten: ${galm.melding}`);
   // een schuif in de lijst verzet de knop
-  const voorV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Tijd').standaard);
-  await tel.locator('.blokkaart:has-text("Vertraging") input[type="range"]').first().fill('800');
+  const voorV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Time').standaard);
+  await tel.locator('.blokkaart:has-text("Delay") input[type="range"]').first().fill('800');
   await tel.waitForTimeout(200);
-  const naV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Tijd').standaard);
+  const naV = await tel.evaluate(() => globalThis.PB.S.ontwerp.parameters.find((p) => p.naam === 'Time').standaard);
   ok(naV !== voorV && naV > voorV, `${naam}: een schuif in de lijst verzet de tijd (${voorV} → ${naV} ms)`);
   // spelen met de knop bovenin, en een knop laten bewegen zonder slepen
   await tel.tap('#mini');

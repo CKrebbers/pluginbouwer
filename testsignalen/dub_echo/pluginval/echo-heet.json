@@ -6,15 +6,15 @@
   "reference": "../echo-heet.verwacht.wav",
   "state": {
     "parameters": {
-      "Tijd": 0.125,
-      "Terugkoppeling": 0.75,
-      "Toon": 0.125,
-      "Laag weg": 0.0625,
-      "Resonantie": 0.25,
-      "Verzadiging": 0.5,
-      "Haperen": 0.5,
+      "Time": 0.125,
+      "Feedback": 0.75,
+      "Tone": 0.125,
+      "Low cut": 0.0625,
+      "Resonance": 0.25,
+      "Saturation": 0.5,
+      "Flutter": 0.5,
       "Mix": 0.75,
-      "Ruis": 0.5
+      "Hiss": 0.5
     }
   },
   "sample_rate": 48000,

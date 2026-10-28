@@ -372,7 +372,7 @@
  ],
  "params": [
   {
-   "naam": "Noot",
+   "naam": "Note",
    "eenheid": "×",
    "min": 0.25,
    "max": 4,
@@ -384,7 +384,7 @@
    "glijden": "glijden"
   },
   {
-   "naam": "Poort",
+   "naam": "Gate",
    "eenheid": "",
    "min": 0,
    "max": 1,
@@ -408,7 +408,7 @@
    "glijden": "glijden"
   },
   {
-   "naam": "Loslaten",
+   "naam": "Release",
    "eenheid": "ms",
    "min": 10,
    "max": 4000,

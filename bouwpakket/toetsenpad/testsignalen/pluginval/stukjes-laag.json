@@ -6,10 +6,10 @@
   "reference": "../stukjes-laag.verwacht.wav",
   "state": {
     "parameters": {
-      "Noot": 0.0625,
-      "Poort": 0.75,
+      "Note": 0.0625,
+      "Gate": 0.75,
       "Filter": 0.75,
-      "Loslaten": 0.75
+      "Release": 0.75
     }
   },
   "sample_rate": 48000,

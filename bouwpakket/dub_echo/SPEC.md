@@ -1,11 +1,11 @@
-# SPEC — Dub-echo
+# SPEC — Dub echo
 
 Gegenereerd door de Pluginbouwer uit het ontwerp `dub_echo`. De DSP staat
 vast in `dsp/` (één bron voor browser en plugin); deze SPEC zegt wat de plugin eromheen moet doen en waaraan hij
 getoetst wordt.
 
 ## Doel
-Tape-echo voor dub: saturatie en een filter in de terugkoppeling. Boven terugkoppeling 1 gaat hij vanzelf door, en de band houdt hem in toom.
+Tape echo voor dub: saturation en een filter in de feedbacklus. Boven feedback 1 gaat hij vanzelf door, en de tape houdt hem in toom.
 
 ## Doelgeluid
 **Nog niet vastgelegd.** Er is (nog) geen referentieopname van een echte tape-echo. Tot die er is, toetst
@@ -19,33 +19,33 @@ service-handboek staat op archive.org ("Roland_RE-101_RE-201_Service_Manual") en
 vanuit de bouwomgeving niet te openen. De bereiken hieronder zijn ontwerpkeuzes, geen RE-201-waarden.
 
 ## Keten (uitvoervolgorde per sample)
-1. band (Bandsnelheid)
-2. sis (Bandruis)
-3. in (Ingang)
-4. som (Optellen): a ← in.uit, b ← terug.uit (vorige sample: terugkoppeling)
-5. tape (Tapeverzadiging): in ← som.uit
-6. lijn (Vertraging): in ← tape.uit, beweging ← band.snelheid
-7. opband (Optellen): a ← lijn.uit, b ← sis.uit
-8. laag (Laag weg): in ← opband.uit
+1. band (Wow & flutter)
+2. sis (Tape hiss)
+3. in (Input)
+4. som (Sum): a ← in.uit, b ← terug.uit (vorige sample: terugkoppeling)
+5. tape (Tape saturation): in ← som.uit
+6. lijn (Delay): in ← tape.uit, beweging ← band.snelheid
+7. opband (Sum): a ← lijn.uit, b ← sis.uit
+8. laag (High-pass (6 dB)): in ← opband.uit
 9. toon (Filter (SVF)): in ← laag.uit
 10. mix (Mix): droog ← in.uit, nat ← toon.laag
-11. uit (Uitgang): in ← mix.uit
-12. terug (Volume): in ← toon.laag
+11. uit (Output): in ← mix.uit
+12. terug (Gain): in ← toon.laag
 
 Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de vorige sample (z⁻¹).
 
 ## Parameters (plugin-id = het nummer; nooit hergebruiken of hernummeren)
 | id | naam | bereik | eenheid | standaard | glijtijd | bij draaien | wat het doet |
 |---|---|---|---|---|---|---|---|
-| 1 | Tijd | 20 – 1200 | ms | 375 | 250 ms | glijden | Hoe lang tot de echo komt. Draaien laat de toon glijden, zoals een band die sneller gaat |
-| 2 | Terugkoppeling | 0 – 1.25 | — | 0.5 | 30 ms | glijden | Hoeveel van de echo weer de band op gaat. Boven 1 gaat hij vanzelf door (zelfoscillatie) |
-| 3 | Toon | 300 – 12000 | Hz | 3000 | 20 ms | glijden | Hoe donker elke herhaling wordt: het filter in de lus haalt hoog weg |
-| 4 | Laag weg | 20 – 1000 | Hz | 100 | 20 ms | glijden | Haalt laag uit de lus zodat de herhalingen niet dichtslibben |
-| 5 | Resonantie | 0.5 – 4 | Q | 0.70703125 | 20 ms | glijden | Een piek op de toonfrequentie in de lus; hoger = fluitender herhalingen |
-| 6 | Verzadiging | 0 – 24 | dB | 6 | 20 ms | glijden | Hoe vroeg de band dichtloopt: warmer, en het remt de zelfoscillatie |
-| 7 | Haperen | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt. 0,25 is een goede bandrecorder, 1 een versleten band |
+| 1 | Time | 20 – 1200 | ms | 375 | 250 ms | glijden | Hoe lang tot de echo komt. Draaien laat de toon glijden, zoals een band die sneller gaat |
+| 2 | Feedback | 0 – 1.25 | — | 0.5 | 30 ms | glijden | Hoeveel van de echo weer de band op gaat. Boven 1 gaat hij vanzelf door (zelfoscillatie) |
+| 3 | Tone | 300 – 12000 | Hz | 3000 | 20 ms | glijden | Hoe donker elke herhaling wordt: het filter in de lus haalt hoog weg |
+| 4 | Low cut | 20 – 1000 | Hz | 100 | 20 ms | glijden | Haalt laag uit de lus zodat de herhalingen niet dichtslibben |
+| 5 | Resonance | 0.5 – 4 | Q | 0.70703125 | 20 ms | glijden | Een piek op de toonfrequentie in de lus; hoger = fluitender herhalingen |
+| 6 | Saturation | 0 – 24 | dB | 6 | 20 ms | glijden | Hoe vroeg de band dichtloopt: warmer, en het remt de zelfoscillatie |
+| 7 | Flutter | 0 – 1 | — | 0.25 | 20 ms | glijden | Wow en flutter: hoe onrustig de band loopt. 0,25 is een goede bandrecorder, 1 een versleten band |
 | 8 | Mix | 0 – 1 | — | 0.375 | 20 ms | glijden | Hoeveel echo je hoort naast het origineel |
-| 9 | Ruis | 0 – 1 | — | 0 | 20 ms | glijden | De sis van de band in de echo; bij 1 zoals een echte bandrecorder, en hij stapelt in de herhalingen |
+| 9 | Hiss | 0 – 1 | — | 0 | 20 ms | glijden | De sis van de band in de echo; bij 1 zoals een echte bandrecorder, en hij stapelt in de herhalingen |
 
 - Bypass (fase 5) is een parameter erbij: id **1000**, naam "Bypass", tekst "Uit"/"Aan", `CLAP_PARAM_IS_BYPASS`. Ook dat id
   verandert nooit. Een preset zet hem niet. "De laatste parameter" in de state-toets van fase 2 is de laatste uit
@@ -61,15 +61,15 @@ Terugkoppeling: ja — een kabel naar een eerdere knoop leest de uitgang van de 
 ## Tekst ↔ waarde (paneel, host, clap `value_to_text`/`text_to_value`)
 | id | naam | label op het paneel | standaard als tekst | regel |
 |---|---|---|---|---|
-| 1 | Tijd | Tijd | 375 ms | onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms") |
-| 2 | Terugkoppeling | Terug | 50 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
-| 3 | Toon | Toon | 3,00 kHz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
-| 4 | Laag weg | Laag weg | 100 Hz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
-| 5 | Resonantie | Resonantie | Q 0,71 | "Q " en 2 decimalen ("Q 0,71") |
-| 6 | Verzadiging | Verzadiging | 6,0 dB | 1 decimaal ("6,0 dB") |
-| 7 | Haperen | Haperen | 25 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 1 | Time | Time | 375 ms | onder 99,95: 1 decimaal ("20,0 ms"); vanaf 99,95 hele ms ("100 ms", "375 ms") |
+| 2 | Feedback | Fdbk | 50 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 3 | Tone | Tone | 3,00 kHz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
+| 4 | Low cut | Low cut | 100 Hz | onder 999,5: hele Hz ("300 Hz"); vanaf 999,5 kHz met 2 decimalen ("1,00 kHz"), vanaf 9995 met 1 ("12,0 kHz") |
+| 5 | Resonance | Resonance | Q 0,71 | "Q " en 2 decimalen ("Q 0,71") |
+| 6 | Saturation | Saturation | 6,0 dB | 1 decimaal ("6,0 dB") |
+| 7 | Flutter | Flutter | 25 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 | 8 | Mix | Mix | 38 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
-| 9 | Ruis | Ruis | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
+| 9 | Hiss | Hiss | 0 % | eenheidloos: × 100, hele procenten ("38 %"); boven 1 gaat het door ("125 %") |
 
 - De grenzen gelden voor de afgeronde tekst: 999,7 Hz wordt "1,00 kHz" en 99,97 ms wordt "100 ms" (nooit "1000 Hz" of
   "100,0 ms"). Elke andere eenheid dan Hz, ms, dB of Q (ook `×` en geen eenheid) is eenheidloos: procenten.

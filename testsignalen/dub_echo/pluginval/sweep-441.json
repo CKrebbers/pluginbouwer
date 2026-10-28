@@ -6,15 +6,15 @@
   "reference": "../sweep-441.verwacht.wav",
   "state": {
     "parameters": {
-      "Tijd": 0.5,
-      "Terugkoppeling": 0.5,
-      "Toon": 0.5,
-      "Laag weg": 0.125,
-      "Resonantie": 0.125,
-      "Verzadiging": 0.75,
-      "Haperen": 0.75,
+      "Time": 0.5,
+      "Feedback": 0.5,
+      "Tone": 0.5,
+      "Low cut": 0.125,
+      "Resonance": 0.125,
+      "Saturation": 0.75,
+      "Flutter": 0.75,
       "Mix": 0.5,
-      "Ruis": 0
+      "Hiss": 0
     }
   },
   "sample_rate": 44100,

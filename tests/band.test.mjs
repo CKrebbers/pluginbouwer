@@ -22,8 +22,8 @@ function bandOntwerp() {
       { van: ['lijn', 'uit'], naar: ['uit', 'in'] },
     ],
     parameters: [
-      { naam: 'Haperen', knoop: 'band', knop: 'diepte', min: 0, max: 1, standaard: 0.25, glijMs: 0 },
-      { naam: 'Tijd', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 160, glijMs: 0 },
+      { naam: 'Flutter', knoop: 'band', knop: 'diepte', min: 0, max: 1, standaard: 0.25, glijMs: 0 },
+      { naam: 'Time', knoop: 'lijn', knop: 'tijd', min: 20, max: 1200, standaard: 160, glijMs: 0 },
     ],
   };
 }

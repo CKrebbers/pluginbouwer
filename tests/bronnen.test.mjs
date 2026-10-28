@@ -22,8 +22,8 @@ const binFreq = (k) => k * SR / N;
 test('de patronen in keten.js zijn die van pb_bronnen.h (aantal en volgorde van de bijzondere)', () => {
   const h = readFileSync(join(ROOT, 'dsp', 'pb_bronnen.h'), 'utf8');
   assert.equal(PATRONEN.length, Number(h.match(/N_PATRONEN = (\d+)/)[1]));
-  assert.equal(PATRONEN.indexOf('aanhouden (drone)'), Number(h.match(/PATROON_AANHOUDEN = (\d+)/)[1]));
-  assert.equal(PATRONEN.indexOf('toeval (pentatonisch)'), Number(h.match(/PATROON_TOEVAL = (\d+)/)[1]));
+  assert.equal(PATRONEN.indexOf('hold (drone)'), Number(h.match(/PATROON_AANHOUDEN = (\d+)/)[1]));
+  assert.equal(PATRONEN.indexOf('random (pentatonic)'), Number(h.match(/PATROON_TOEVAL = (\d+)/)[1]));
 });
 
 test('elk blok in de BIB heeft een soort in de motor en hooguit 4 knoppen, 2 ingangen en 3 uitgangen', () => {
@@ -248,7 +248,7 @@ test('de uitgang beveiligt: een keten die ontploft geeft stilte, geen NaN of one
 });
 
 // ---- elk voorbeeld ------------------------------------------------------------------------------------------------
-// Toetsenpad wordt bespeeld: acht noten van een halve seconde (parameter 0 = Noot, 1 = Poort).
+// Toetsenpad wordt bespeeld: acht noten van een halve seconde (parameter 0 = Note, 1 = Gate).
 const SPEEL = Array.from({ length: 8 }, (_, i) => [[i * SR, 0, 2 ** ([0, 3, 7, 10, 12, 7, 3, 0][i] / 12)], [i * SR, 1, 1], [i * SR + SR / 2, 1, 0]]).flat();
 function renderVoorbeeld(a, sec = 8, blok = 128) {
   if (!a.knopen.some((k) => k.type === 'toetsen')) return renderOntwerp(a, { sec, blok });

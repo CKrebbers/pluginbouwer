@@ -6,10 +6,10 @@
   "reference": "../sinus-441.verwacht.wav",
   "state": {
     "parameters": {
-      "Noot": 0.5,
-      "Poort": 0.5,
+      "Note": 0.5,
+      "Gate": 0.5,
       "Filter": 0.5,
-      "Loslaten": 0.5
+      "Release": 0.5
     }
   },
   "sample_rate": 44100,

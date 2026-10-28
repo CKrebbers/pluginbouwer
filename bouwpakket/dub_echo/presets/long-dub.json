@@ -1,0 +1,15 @@
+{
+  "naam": "Long dub",
+  "uitleg": "Lange, donker wordende herhalingen.",
+  "waarden": {
+    "Time": 500,
+    "Feedback": 0.75,
+    "Tone": 2200,
+    "Low cut": 250,
+    "Resonance": 1,
+    "Saturation": 9,
+    "Flutter": 0.375,
+    "Mix": 0.4375,
+    "Hiss": 0.25
+  }
+}

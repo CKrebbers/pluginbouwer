@@ -1,8 +1,8 @@
 {
-  "naam": "Dub-echo",
+  "naam": "Dub echo",
   "id": "dub_echo",
   "voorbeeld": "effect",
-  "uitleg": "Tape-echo voor dub: saturatie en een filter in de terugkoppeling. Boven terugkoppeling 1 gaat hij vanzelf door, en de band houdt hem in toom.",
+  "uitleg": "Tape echo voor dub: saturation en een filter in de feedbacklus. Boven feedback 1 gaat hij vanzelf door, en de tape houdt hem in toom.",
   "knopen": [
     {
       "id": "in",
@@ -240,7 +240,7 @@
   ],
   "parameters": [
     {
-      "naam": "Tijd",
+      "naam": "Time",
       "knoop": "lijn",
       "knop": "tijd",
       "min": 20,
@@ -251,8 +251,8 @@
       "uitleg": "Hoe lang tot de echo komt. Draaien laat de toon glijden, zoals een band die sneller gaat"
     },
     {
-      "naam": "Terugkoppeling",
-      "kort": "Terug",
+      "naam": "Feedback",
+      "kort": "Fdbk",
       "knoop": "terug",
       "knop": "hoeveel",
       "min": 0,
@@ -262,7 +262,7 @@
       "uitleg": "Hoeveel van de echo weer de band op gaat. Boven 1 gaat hij vanzelf door (zelfoscillatie)"
     },
     {
-      "naam": "Toon",
+      "naam": "Tone",
       "knoop": "toon",
       "knop": "freq",
       "min": 300,
@@ -272,7 +272,7 @@
       "uitleg": "Hoe donker elke herhaling wordt: het filter in de lus haalt hoog weg"
     },
     {
-      "naam": "Laag weg",
+      "naam": "Low cut",
       "knoop": "laag",
       "knop": "freq",
       "min": 20,
@@ -282,7 +282,7 @@
       "uitleg": "Haalt laag uit de lus zodat de herhalingen niet dichtslibben"
     },
     {
-      "naam": "Resonantie",
+      "naam": "Resonance",
       "knoop": "toon",
       "knop": "q",
       "min": 0.5,
@@ -292,7 +292,7 @@
       "uitleg": "Een piek op de toonfrequentie in de lus; hoger = fluitender herhalingen"
     },
     {
-      "naam": "Verzadiging",
+      "naam": "Saturation",
       "knoop": "tape",
       "knop": "verzadiging",
       "min": 0,
@@ -302,7 +302,7 @@
       "uitleg": "Hoe vroeg de band dichtloopt: warmer, en het remt de zelfoscillatie"
     },
     {
-      "naam": "Haperen",
+      "naam": "Flutter",
       "knoop": "band",
       "knop": "diepte",
       "min": 0,
@@ -322,7 +322,7 @@
       "uitleg": "Hoeveel echo je hoort naast het origineel"
     },
     {
-      "naam": "Ruis",
+      "naam": "Hiss",
       "knoop": "sis",
       "knop": "niveau",
       "min": 0,
@@ -335,78 +335,78 @@
   "modulaties": [],
   "presets": [
     {
-      "naam": "Standaard",
+      "naam": "Default",
       "uitleg": "De beginstand van de plugin.",
       "waarden": {
-        "Tijd": 375,
-        "Terugkoppeling": 0.5,
-        "Toon": 3000,
-        "Laag weg": 100,
-        "Resonantie": 0.70703125,
-        "Verzadiging": 6,
-        "Haperen": 0.25,
+        "Time": 375,
+        "Feedback": 0.5,
+        "Tone": 3000,
+        "Low cut": 100,
+        "Resonance": 0.70703125,
+        "Saturation": 6,
+        "Flutter": 0.25,
         "Mix": 0.375,
-        "Ruis": 0
+        "Hiss": 0
       }
     },
     {
       "naam": "Slapback",
       "uitleg": "Eén korte, heldere tik achter het origineel.",
       "waarden": {
-        "Tijd": 110,
-        "Terugkoppeling": 0.1875,
-        "Toon": 6000,
-        "Laag weg": 150,
-        "Resonantie": 0.70703125,
-        "Verzadiging": 4,
-        "Haperen": 0.125,
+        "Time": 110,
+        "Feedback": 0.1875,
+        "Tone": 6000,
+        "Low cut": 150,
+        "Resonance": 0.70703125,
+        "Saturation": 4,
+        "Flutter": 0.125,
         "Mix": 0.3125,
-        "Ruis": 0
+        "Hiss": 0
       }
     },
     {
-      "naam": "Lange dub",
+      "naam": "Long dub",
       "uitleg": "Lange, donker wordende herhalingen.",
       "waarden": {
-        "Tijd": 500,
-        "Terugkoppeling": 0.75,
-        "Toon": 2200,
-        "Laag weg": 250,
-        "Resonantie": 1,
-        "Verzadiging": 9,
-        "Haperen": 0.375,
+        "Time": 500,
+        "Feedback": 0.75,
+        "Tone": 2200,
+        "Low cut": 250,
+        "Resonance": 1,
+        "Saturation": 9,
+        "Flutter": 0.375,
         "Mix": 0.4375,
-        "Ruis": 0.25
+        "Hiss": 0.25
       }
     },
     {
-      "naam": "Versleten band",
+      "naam": "Worn tape",
       "uitleg": "Onrustige band, vroeg verzadigd, dof.",
       "waarden": {
-        "Tijd": 375,
-        "Terugkoppeling": 0.625,
-        "Toon": 1500,
-        "Laag weg": 300,
-        "Resonantie": 1.5,
-        "Verzadiging": 14,
-        "Haperen": 0.8125,
+        "Time": 375,
+        "Feedback": 0.625,
+        "Tone": 1500,
+        "Low cut": 300,
+        "Resonance": 1.5,
+        "Saturation": 14,
+        "Flutter": 0.8125,
         "Mix": 0.375,
-        "Ruis": 1
+        "Hiss": 1
       }
     },
     {
-      "naam": "Zelfoscillatie",
+      "naam": "Self-oscillation",
       "uitleg": "Boven 1: gaat vanzelf door en blijft begrensd door de band.",
       "waarden": {
-        "Tijd": 250,
-        "Terugkoppeling": 1.125,
-        "Toon": 2500,
-        "Laag weg": 200,
-        "Resonantie": 1.25,
-        "Verzadiging": 12,
-        "Haperen": 0.3125,
+        "Time": 250,
+        "Feedback": 1.125,
+        "Tone": 2500,
+        "Low cut": 200,
+        "Resonance": 1.25,
+        "Saturation": 12,
+        "Flutter": 0.3125,
         "Mix": 0.5,
-        "Ruis": 0
+        "Hiss": 0
       }
     }
   ],

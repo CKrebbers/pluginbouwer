@@ -2,14 +2,14 @@
   "naam": "Slapback",
   "uitleg": "Eén korte, heldere tik achter het origineel.",
   "waarden": {
-    "Tijd": 110,
-    "Terugkoppeling": 0.1875,
-    "Toon": 6000,
-    "Laag weg": 150,
-    "Resonantie": 0.70703125,
-    "Verzadiging": 4,
-    "Haperen": 0.125,
+    "Time": 110,
+    "Feedback": 0.1875,
+    "Tone": 6000,
+    "Low cut": 150,
+    "Resonance": 0.70703125,
+    "Saturation": 4,
+    "Flutter": 0.125,
     "Mix": 0.3125,
-    "Ruis": 0
+    "Hiss": 0
   }
 }
