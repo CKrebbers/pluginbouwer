@@ -178,3 +178,13 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
   vindt de plugin terug, alleen de namen veranderen. Het geluid is bit voor bit hetzelfde (geen WAV in testsignalen/ veranderd).
 - Blijft Nederlands: de uitlegzinnen, de knoppen van de tool zelf (Ontwerpen, Bouwen, Spel) en de docs.
 - Bewezen: 141/141 toetsen, tools/headless/tool.mjs, de CI-generatoren opnieuw gedraaid.
+
+## K. Templates maken en ordenen, samen met Claude (28 okt 2026, op Clay's "templates kunnen maken en ordenen")
+- [x] Tab **Templates** (ook op de iPhone, onder Horen): het open ontwerp bewaren als template (naam, map, notitie),
+  mappen maken, hernoemen en weghalen (de templates gaan dan naar Los), ▲ ▼ voor templates en mappen, naar een andere
+  map, openen (laadt en speelt), kopie, bijwerken met wat nu open is, zoeken, exporteren en importeren als JSON.
+- [x] Gedeeld met Claude: op claude.ai in de database van het artifact; Claude maakt templates met `tools/template.mjs`
+  (toetst dat ze klinken) en schrijft ze erin, en leest de indeling van Clay terug. Als losse pagina in de browser.
+- Bewezen: tests/templates.test.mjs (nalopen, ordenen, schuiven, verplaatsen, zoeken, export/import), tools/headless/tool.mjs
+  (de hele route met de muis, na herladen, export, map weg; op de iPhone met tikken). Niet headless te toetsen: de
+  database zelf (die bestaat alleen op claude.ai); daar één lees- en schrijfronde na het publiceren.

@@ -377,6 +377,13 @@ body.smal .draaischuif input[type="range"] { height: 44px; }
 body.smal .sterren i { width: 14px; height: 14px; }
 body[data-stand="spel"] .readout { display: none; }
 
+/* templates: mappen met een kop, daaronder de kaarten; alles met tikken (▲ ▼ en een mapkeuze) */
+.mapkop { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 16px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+.mapnaam { font-weight: 700; }
+.kaart.template .rij { gap: 4px; }
+.rij.bewerk input { flex: 1 1 140px; min-width: 0; }
+#tpnaam, #tpnotitie, #tpnieuwemap, #tpzoek { flex: 1 1 160px; min-width: 0; }
+
 </style>
 <noscript>De Pluginbouwer heeft JavaScript nodig (de ketenmotor draait als WebAssembly).</noscript>
 <script>
@@ -3473,6 +3480,138 @@ const structuredCloneVeilig = (o) => JSON.parse(JSON.stringify(o));
 return { GEKEND, HOORBAAR, LEVELS, OPDRACHTEN, PROEF, RONDES_PER_LEVEL, antwoord, draaiScore, foutInWoorden, gekendAantal, knopStand, knopWaarde, level, levelKlaar, maakRondes, nieuweStand, notenProef, opdrachtGehaald, open, proefOntwerp, totaalBlokken, zaadVan, zinZonderNaam };
 })();
 
+// ---- tool/src/templates.js
+const M_templates = (() => {
+// templates.js — templates: eigen startpunten, geordend in mappen. Puur (geen DOM, geen opslag): wat een template is,
+// of een bewaarde rij te vertrouwen is, de volgorde, en wat er verandert bij verplaatsen. app.js bewaart: op claude.ai
+// in de gedeelde database van het artifact (zodat Claude templates kan maken en lezen), anders in de browser.
+// Bewaard formaat (één document per template, één per map):
+//   templates/<id>: { naam, map, plek, ontwerp, notitie, door: 'jij' | 'claude', wanneer }
+//   mappen/<id>:    { naam, plek }
+const { BIB, compileer } = M_keten;
+const LOS = 'los';   // waar een template zonder (bestaande) map staat
+const MAX = { naam: 60, notitie: 400, knopen: 64, kabels: 256, templates: 500, mappen: 50 };
+const EXPORT_SOORT = 'pluginbouwer-templates';
+
+const tekst = (s, n) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+const getal = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
+const ID = /^[A-Za-z0-9_\-.~:@+]{1,80}$/;
+const geldigId = (id) => typeof id === 'string' && ID.test(id) && id !== '.' && id !== '..';
+const nieuwId = (voor, rnd = Math.random) => voor + '-' + Date.now().toString(36) + rnd().toString(36).slice(2, 8);
+
+// Een ontwerp uit opslag is pas te gebruiken als elk blok bestaat en de compiler er niet op omvalt (een half ontwerp
+// mag: dan zegt de tool wat er nog mist). Geeft een schone kopie of null.
+function normaliseerOntwerp(o) {
+  if (!o || typeof o !== 'object' || !Array.isArray(o.knopen) || o.knopen.length > MAX.knopen) return null;
+  for (const k of o.knopen) if (!k || typeof k.id !== 'string' || !BIB[k.type]) return null;
+  for (const lijst of ['kabels', 'parameters', 'modulaties']) if (o[lijst] !== undefined && !Array.isArray(o[lijst])) return null;
+  if ((o.kabels?.length ?? 0) > MAX.kabels) return null;
+  let kopie;
+  try { kopie = JSON.parse(JSON.stringify(o)); } catch { return null; }
+  kopie.naam = tekst(kopie.naam, MAX.naam) || 'Template';
+  kopie.kabels ??= []; kopie.parameters ??= []; kopie.modulaties ??= [];
+  for (const k of kopie.knopen) { k.x = getal(k.x, 40); k.y = getal(k.y, 200); }
+  try { compileer(kopie); } catch { return null; }
+  return kopie;
+}
+
+function normaliseerTemplate(doc, id) {
+  if (!geldigId(id) || !doc || typeof doc !== 'object') return null;
+  const ontwerp = normaliseerOntwerp(doc.ontwerp);
+  if (!ontwerp) return null;
+  return {
+    id, ontwerp,
+    naam: tekst(doc.naam, MAX.naam) || ontwerp.naam,
+    map: geldigId(doc.map) ? doc.map : LOS,
+    plek: getal(doc.plek, 0),
+    notitie: tekst(doc.notitie, MAX.notitie),
+    door: doc.door === 'claude' ? 'claude' : 'jij',
+    wanneer: tekst(doc.wanneer, 30),
+  };
+}
+function normaliseerMap(doc, id) {
+  if (!geldigId(id) || id === LOS || !doc || typeof doc !== 'object') return null;
+  return { id, naam: tekst(doc.naam, MAX.naam) || 'Map', plek: getal(doc.plek, 0) };
+}
+// wat er in de opslag komt (zonder id: dat is de documentnaam)
+const bewaarVorm = (t) => ({ naam: t.naam, map: t.map, plek: t.plek, ontwerp: t.ontwerp, notitie: t.notitie, door: t.door, wanneer: t.wanneer });
+const mapVorm = (m) => ({ naam: m.naam, plek: m.plek });
+
+const opPlek = (a, b) => a.plek - b.plek || a.naam.localeCompare(b.naam, 'nl') || (a.id < b.id ? -1 : 1);
+
+// Mappen op hun plek, daarbinnen de templates op hun plek; templates van een map die er niet (meer) is staan onder "Los",
+// en die groep staat achteraan, alleen als er iets in zit.
+function ordenen(templates, mappen) {
+  const ms = [...mappen].sort(opPlek);
+  const ids = new Set(ms.map((m) => m.id));
+  const groepen = ms.map((m) => ({ map: m, templates: [] }));
+  const los = { map: { id: LOS, naam: 'Los', plek: Infinity }, templates: [] };
+  for (const t of templates) (ids.has(t.map) ? groepen.find((g) => g.map.id === t.map) : los).templates.push(t);
+  for (const g of groepen) g.templates.sort(opPlek);
+  los.templates.sort(opPlek);
+  return los.templates.length ? [...groepen, los] : groepen;
+}
+const inMap = (templates, mappen, mapId) => ordenen(templates, mappen).find((g) => g.map.id === mapId)?.templates ?? [];
+
+// een plek achteraan in een rij
+const plekAchteraan = (rij) => rij.reduce((m, x) => Math.max(m, x.plek), 0) + 1;
+
+// Eén omhoog (−1) of omlaag (+1) in zijn rij: de rij wordt 1, 2, 3 … genummerd en alleen wat echt verschuift komt terug
+// als { id, plek }. Zo werkt het ook als twee items dezelfde plek hadden (bv. tegelijk gemaakt).
+function schuif(rij, id, richting) {
+  const r = [...rij].sort(opPlek);
+  const i = r.findIndex((x) => x.id === id), j = i + richting;
+  if (i < 0 || j < 0 || j >= r.length) return [];
+  [r[i], r[j]] = [r[j], r[i]];
+  return r.map((x, k) => ({ id: x.id, plek: k + 1, oud: x.plek })).filter((x) => x.plek !== x.oud).map(({ id, plek }) => ({ id, plek }));
+}
+const schuifTemplate = (templates, mappen, id, richting) => {
+  const t = templates.find((x) => x.id === id);
+  return t ? schuif(inMap(templates, mappen, mappen.some((m) => m.id === t.map) ? t.map : LOS), id, richting) : [];
+};
+const schuifMap = (mappen, id, richting) => schuif(mappen, id, richting);
+
+// naar een andere map: achteraan in die map
+function naarMap(templates, mappen, id, mapId) {
+  const doel = mappen.some((m) => m.id === mapId) ? mapId : LOS;
+  return { id, map: doel, plek: plekAchteraan(inMap(templates, mappen, doel).filter((x) => x.id !== id)) };
+}
+
+function nieuweTemplate(ontwerp, { naam, map = LOS, notitie = '', door = 'jij', templates = [], mappen = [], id = nieuwId('t'), wanneer = new Date().toISOString().slice(0, 16).replace('T', ' ') } = {}) {
+  const o = normaliseerOntwerp(ontwerp);
+  if (!o) throw new Error('dit ontwerp kan geen template worden');
+  const doel = mappen.some((m) => m.id === map) ? map : LOS;
+  return { id, ontwerp: o, naam: tekst(naam, MAX.naam) || o.naam, map: doel, plek: plekAchteraan(inMap(templates, mappen, doel)), notitie: tekst(notitie, MAX.notitie), door: door === 'claude' ? 'claude' : 'jij', wanneer };
+}
+function nieuweMap(naam, mappen, id = nieuwId('m')) {
+  return { id, naam: tekst(naam, MAX.naam) || 'Map', plek: plekAchteraan(mappen) };
+}
+
+// Een template openen: het ontwerp onder de naam van de template, met een id uit die naam (daar komt de plugin-id van:
+// een template van de Dub echo wordt zo geen tweede plugin met de id van de Dub echo).
+const idVan = (naam) => tekst(naam, MAX.naam).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'template';
+const ontwerpVan = (t) => ({ ...JSON.parse(JSON.stringify(t.ontwerp)), naam: t.naam, id: idVan(t.naam) });
+
+// Zoeken op naam, notitie, map en de blokken die erin zitten (Engelse namen, zoals in de bibliotheek).
+function zoek(templates, mappen, q) {
+  const w = tekst(q, 60).toLowerCase();
+  if (!w) return templates;
+  const mapNaam = Object.fromEntries(mappen.map((m) => [m.id, m.naam]));
+  return templates.filter((t) => [t.naam, t.notitie, mapNaam[t.map] ?? '', ...t.ontwerp.knopen.map((k) => BIB[k.type].naam)].join(' ').toLowerCase().includes(w));
+}
+
+// Alles als één JSON-bestand (bewaren, of naar een andere browser), en terug: dezelfde id = vervangen.
+const exporteer = (templates, mappen) => ({ soort: EXPORT_SOORT, versie: 1, mappen: mappen.map((m) => ({ id: m.id, ...mapVorm(m) })), templates: templates.map((t) => ({ id: t.id, ...bewaarVorm(t) })) });
+function importeer(json) {
+  if (!json || json.soort !== EXPORT_SOORT || !Array.isArray(json.templates)) throw new Error('geen templatebestand van de Pluginbouwer');
+  const mappen = (json.mappen || []).slice(0, MAX.mappen).map((m) => normaliseerMap(m, m?.id)).filter(Boolean);
+  const templates = json.templates.slice(0, MAX.templates).map((t) => normaliseerTemplate(t, t?.id)).filter(Boolean);
+  return { mappen, templates, overgeslagen: json.templates.length - templates.length };
+}
+
+return { EXPORT_SOORT, LOS, MAX, bewaarVorm, exporteer, geldigId, idVan, importeer, mapVorm, naarMap, nieuwId, nieuweMap, nieuweTemplate, normaliseerMap, normaliseerOntwerp, normaliseerTemplate, ontwerpVan, ordenen, plekAchteraan, schuif, schuifMap, schuifTemplate, zoek };
+})();
+
 // ---- tool/src/app.js
 const M_app = (() => {
 // app.js — de Pluginbouwer in de browser. Ontwerpen (bibliotheek, keten, knoppen, horen, meten, verken) en Bouwen
@@ -3487,6 +3626,7 @@ const { bouwpakket, cpuSchatting, spec } = M_bouwpakket;
 const { maakTestsignalen } = M_testsignalen;
 const { zip } = M_zip;
 const { PROEF, HOORBAAR, proefOntwerp, LEVELS, level, OPDRACHTEN, maakRondes, draaiScore, zinZonderNaam, knopWaarde: spelWaarde, knopStand: spelStand, nieuweStand, antwoord, levelKlaar, opdrachtGehaald, open, gekendAantal, totaalBlokken, GEKEND, RONDES_PER_LEVEL } = M_spel;
+const { LOS, normaliseerTemplate, normaliseerMap, bewaarVorm, mapVorm, ordenen: templatesOrdenen, schuifTemplate, schuifMap, naarMap, nieuweTemplate, nieuweMap, ontwerpVan, zoek: zoekTemplates, exporteer: exporteerTemplates, importeer: importeerTemplates } = M_templates;
 const { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, hoofdweg, KOP, RIJ } = M_rollen;
 // ---------------------------------------------------------------------------------------------------- data van de bouw
 const DATA = globalThis.PB_DATA;   // door tool/bouw.mjs ingebakken: wasm (base64), bronnen voor het pakket, metingen
@@ -4197,14 +4337,14 @@ function tekenInspector() {
 
 // ---------------------------------------------------------------------------------------------------- onder: tabs
 // [id, eenvoudige naam, technische naam]; de taaktoets alleen in de technische weergave
-const TABS = [['horen', 'Horen', 'Horen'], ['paneel', 'Paneel', 'Frontpaneel'], ['meten', 'Meten', 'Meten'], ['verken', 'Varianten', 'Verken'], ['schetsboek', 'Schetsboek', 'Schetsboek'], ['abx', 'Blind vergelijken', 'ABX'], ['taak', null, 'Taaktoets']];
+const TABS = [['horen', 'Horen', 'Horen'], ['paneel', 'Paneel', 'Frontpaneel'], ['meten', 'Meten', 'Meten'], ['verken', 'Varianten', 'Verken'], ['templates', 'Templates', 'Templates'], ['schetsboek', 'Schetsboek', 'Schetsboek'], ['abx', 'Blind vergelijken', 'ABX'], ['taak', null, 'Taaktoets']];
 function tekenOnder() {
   const box = $('#onder');
   if (!tech() && S.tab === 'taak') S.tab = 'horen';
   box.replaceChildren(el('div', { class: 'tabs' }, ...TABS.filter((t) => tech() || t[1]).map(([t, n, nt]) => el('button', { class: 'seg' + (S.tab === t ? ' aan' : ''), 'data-tab': t, onclick: () => { S.tab = t; tekenOnder(); } }, tech() ? nt : n))));
   const inhoud = el('div', { class: 'tabinhoud' });
   box.append(inhoud);
-  ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
+  ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, templates: tabTemplates, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
 }
 function tabHoren(box) {
   const instrument = !heeftIngang(), toetsen = S.ontwerp.knopen.find((k) => k.type === 'toetsen');
@@ -4424,6 +4564,144 @@ async function download(blob, naam) {
     return;
   }
   const a = el('a', { href: URL.createObjectURL(blob), download: naam }); document.body.append(a); a.click(); a.remove();
+}
+
+// ---------------------------------------------------------------------------------------------------- templates
+// Eigen startpunten in mappen (tool/src/templates.js). Op claude.ai staan ze in de gedeelde database van het artifact:
+// Claude kan er vanuit het gesprek templates in zetten en lezen hoe je ze ordent. Als losse pagina (of als de database
+// er niet is) blijven ze in deze browser. Alles met tikken: ▲ ▼ en een mapkeuze in plaats van slepen.
+const TP = { templates: [], mappen: [], bron: 'laden', zoek: '', bewerk: null, bevestig: null, fout: '' };
+let tpDb = null;
+const tpRij = new Map();   // één schrijfactie tegelijk per document
+function achterElkaar(pad, f) { const p = (tpRij.get(pad) || Promise.resolve()).then(f, f); tpRij.set(pad, p.catch(() => {})); return p; }
+function leesLokaal() {
+  TP.templates = opslag.lees('templates', []).map((t) => normaliseerTemplate(t, t?.id)).filter(Boolean);
+  TP.mappen = opslag.lees('mappen', []).map((m) => normaliseerMap(m, m?.id)).filter(Boolean);
+}
+const schrijfLokaal = () => { opslag.schrijf('templates', TP.templates.map((t) => ({ id: t.id, ...bewaarVorm(t) }))); opslag.schrijf('mappen', TP.mappen.map((m) => ({ id: m.id, ...mapVorm(m) }))); };
+async function startTemplates() {
+  const db = globalThis.claude?.use ? await globalThis.claude.use('db').catch(() => null) : null;
+  if (!db) { TP.bron = 'browser'; leesLokaal(); hertekenTemplates(); return; }
+  tpDb = db; TP.bron = 'gedeeld';
+  const fout = (e) => { TP.fout = 'de gedeelde templates zijn niet te lezen (' + (e?.code || e) + ')'; hertekenTemplates(); };
+  db.collection('templates').onSnapshot((snap) => { TP.templates = snap.docs.map((d) => normaliseerTemplate(d.data(), d.id)).filter(Boolean); hertekenTemplates(); }, fout);
+  db.collection('mappen').onSnapshot((snap) => { TP.mappen = snap.docs.map((d) => normaliseerMap(d.data(), d.id)).filter(Boolean); hertekenTemplates(); }, fout);
+}
+// zet (heel document), pas (velden erbij) of weg; lokaal meteen, gedeeld via de database (de snapshot tekent)
+async function tpSchrijf(soort, id, wat, data) {
+  const lijst = soort === 'templates' ? TP.templates : TP.mappen;
+  if (!tpDb) {
+    const i = lijst.findIndex((x) => x.id === id);
+    if (wat === 'weg') { if (i >= 0) lijst.splice(i, 1); }
+    else if (wat === 'zet') { if (i >= 0) lijst[i] = { id, ...data }; else lijst.push({ id, ...data }); }
+    else if (i >= 0) Object.assign(lijst[i], data);
+    schrijfLokaal(); hertekenTemplates(); return true;
+  }
+  const doc = tpDb.doc(soort + '/' + id);
+  try {
+    await achterElkaar(soort + '/' + id, () => (wat === 'weg' ? doc.delete() : wat === 'zet' ? doc.set(data) : doc.update(data)));
+    return true;
+  } catch (e) { melding(e?.code === 'quota_exceeded' ? 'de database is vol: haal eerst templates weg' : 'niet bewaard (' + (e?.code || e) + ')'); return false; }
+}
+const pasAan = (soort, wijzigingen) => Promise.all(wijzigingen.map(({ id, ...v }) => tpSchrijf(soort, id, 'pas', v)));
+function hertekenTemplates() {
+  if (S.stand !== 'ontwerpen' || S.tab !== 'templates') return;
+  const lijst = $('#tplijst'), actief = document.activeElement;
+  if (lijst?.contains(actief) && /INPUT|TEXTAREA|SELECT/.test(actief.tagName)) return;   // niet onder je vingers vandaan tekenen
+  if (lijst) tekenTemplateLijst(lijst); else if ($('#onder')) tekenOnder();
+}
+// tweede tik binnen 3 s bevestigt (zoals overal in de tool waar iets weg kan)
+function tweedeTik(sleutel, doe, tekst) {
+  if (TP.bevestig?.sleutel === sleutel && Date.now() - TP.bevestig.t < 3000) { TP.bevestig = null; doe(); return; }
+  TP.bevestig = { sleutel, t: Date.now() }; melding(tekst);
+}
+function tabTemplates(box) {
+  const naam = el('input', { type: 'text', id: 'tpnaam', value: S.ontwerp.naam, maxlength: 60, 'aria-label': 'naam van de template' });
+  const notitie = el('input', { type: 'text', id: 'tpnotitie', placeholder: 'notitie (mag leeg)', maxlength: 400, 'aria-label': 'notitie' });
+  const map = el('select', { id: 'tpmap', 'aria-label': 'map' }, el('option', { value: LOS }, 'Los'), ...templatesOrdenen([], TP.mappen).map((g) => el('option', { value: g.map.id }, g.map.naam)));
+  const nieuw = el('input', { type: 'text', id: 'tpnieuwemap', placeholder: 'naam van een nieuwe map', maxlength: 60, 'aria-label': 'nieuwe map' });
+  box.append(
+    el('div', { class: 'rij' }, el('span', { class: 'sub' }, 'bewaar dit ontwerp als template'), naam, map, notitie,
+      el('button', { class: 'knopgroot', id: 'tpbewaar', onclick: async () => {
+        try {
+          const t = nieuweTemplate(S.ontwerp, { naam: naam.value, map: map.value, notitie: notitie.value, templates: TP.templates, mappen: TP.mappen });
+          if (await tpSchrijf('templates', t.id, 'zet', bewaarVorm(t))) melding('template bewaard: ' + t.naam);
+        } catch (f) { melding(String(f.message || f)); }
+      } }, 'bewaar')),
+    el('div', { class: 'rij' }, nieuw, el('button', { class: 'seg', id: 'tpmaperbij', onclick: async () => {
+      if (!nieuw.value.trim()) { melding('geef de map een naam'); return; }
+      const m = nieuweMap(nieuw.value, TP.mappen);
+      if (await tpSchrijf('mappen', m.id, 'zet', mapVorm(m))) { melding('map erbij: ' + m.naam); tekenOnder(); }
+    } }, 'map erbij'),
+      el('input', { type: 'search', id: 'tpzoek', placeholder: 'zoek (naam, notitie, blok)', value: TP.zoek, 'aria-label': 'zoek in de templates', oninput: (ev) => { TP.zoek = ev.target.value; tekenTemplateLijst($('#tplijst')); } }),
+      el('button', { class: 'seg', onclick: () => download(new Blob([JSON.stringify(exporteerTemplates(TP.templates, TP.mappen), null, 1)], { type: 'application/json' }), 'templates.json') }, 'exporteer'),
+      el('label', { class: 'bestand' }, 'importeer', el('input', { type: 'file', accept: '.json,application/json', onchange: async (ev) => {
+        const f = ev.target.files[0]; if (!f) return;
+        try {
+          const r = importeerTemplates(JSON.parse(await f.text()));
+          for (const m of r.mappen) await tpSchrijf('mappen', m.id, 'zet', mapVorm(m));
+          for (const t of r.templates) await tpSchrijf('templates', t.id, 'zet', bewaarVorm(t));
+          melding(`${r.templates.length} templates en ${r.mappen.length} mappen ingelezen` + (r.overgeslagen ? `, ${r.overgeslagen} overgeslagen (onbekende blokken)` : ''));
+          tekenOnder();
+        } catch (e) { melding(String(e.message || e)); }
+      } }))),
+    el('p', { class: 'zacht', id: 'tpbron' }, TP.bron === 'gedeeld' ? 'Gedeeld met Claude: vraag in het gesprek om een template of een andere indeling, dan staat het hier. Wat jij hier ordent, leest Claude terug.'
+      : TP.bron === 'laden' ? 'templates laden…' : 'Alleen in deze browser (de versie op claude.ai deelt ze met Claude). Exporteer om ze mee te nemen.'),
+    el('div', { id: 'tplijst' }));
+  tekenTemplateLijst($('#tplijst', box));
+}
+function tekenTemplateLijst(box) {
+  if (!box) return;
+  box.replaceChildren();
+  if (TP.fout) box.append(el('p', { class: 'zacht' }, TP.fout));
+  const gevonden = new Set(zoekTemplates(TP.templates, TP.mappen, TP.zoek).map((t) => t.id));
+  const groepen = templatesOrdenen(TP.templates, TP.mappen);
+  if (!groepen.length && TP.bron !== 'laden') box.append(el('p', { class: 'zacht' }, 'Nog geen templates. Bewaar het ontwerp hierboven, of maak eerst een map.'));
+  const mapKeus = (t) => el('select', { class: 'klein', 'aria-label': 'naar map', onchange: (ev) => tpSchrijf('templates', t.id, 'pas', (({ id, ...v }) => v)(naarMap(TP.templates, TP.mappen, t.id, ev.target.value))) },
+    el('option', { value: LOS, selected: !TP.mappen.some((m) => m.id === t.map) }, 'Los'), ...templatesOrdenen([], TP.mappen).map((g) => el('option', { value: g.map.id, selected: g.map.id === t.map }, g.map.naam)));
+  const bewerkVak = (soort, x) => {
+    const n = el('input', { type: 'text', value: x.naam, maxlength: 60, 'aria-label': 'naam' });
+    const no = soort === 'templates' ? el('input', { type: 'text', value: x.notitie, maxlength: 400, placeholder: 'notitie', 'aria-label': 'notitie' }) : null;
+    return el('div', { class: 'rij bewerk' }, n, no,
+      el('button', { class: 'seg', onclick: async () => { TP.bewerk = null; await tpSchrijf(soort, x.id, 'pas', soort === 'templates' ? { naam: n.value.trim() || x.naam, notitie: no.value.trim() } : { naam: n.value.trim() || x.naam }); tekenTemplateLijst(box); } }, 'klaar'),
+      el('button', { class: 'seg', onclick: () => { TP.bewerk = null; tekenTemplateLijst(box); } }, 'annuleer'));
+  };
+  for (const g of groepen) {
+    const echt = g.map.id !== LOS, zichtbaar = g.templates.filter((t) => gevonden.has(t.id));
+    if (TP.zoek && !zichtbaar.length) continue;
+    const bewerkMap = TP.bewerk?.id === g.map.id;
+    box.append(el('div', { class: 'mapkop', 'data-map': g.map.id },
+      bewerkMap ? bewerkVak('mappen', g.map) : el('span', { class: 'mapnaam' }, g.map.naam, el('span', { class: 'zacht' }, ' · ' + g.templates.length)),
+      echt && !bewerkMap ? el('span', { class: 'rij' },
+        el('button', { class: 'seg klein', title: 'map omhoog', 'aria-label': 'map omhoog', onclick: () => pasAan('mappen', schuifMap(TP.mappen, g.map.id, -1)) }, '▲'),
+        el('button', { class: 'seg klein', title: 'map omlaag', 'aria-label': 'map omlaag', onclick: () => pasAan('mappen', schuifMap(TP.mappen, g.map.id, 1)) }, '▼'),
+        el('button', { class: 'seg klein', onclick: () => { TP.bewerk = { id: g.map.id }; tekenTemplateLijst(box); } }, 'hernoem'),
+        el('button', { class: 'seg klein', onclick: () => tweedeTik('map:' + g.map.id, async () => {
+          for (const t of g.templates) await tpSchrijf('templates', t.id, 'pas', (({ id, ...v }) => v)(naarMap(TP.templates, TP.mappen.filter((m) => m.id !== g.map.id), t.id, LOS)));
+          await tpSchrijf('mappen', g.map.id, 'weg'); tekenOnder();
+        }, g.templates.length ? `nog een keer: map weg, de ${g.templates.length} templates gaan naar Los` : 'nog een keer: map weg') }, 'weg')) : null));
+    const kaarten = el('div', { class: 'kaarten' });
+    for (const t of zichtbaar) {
+      const blokken = t.ontwerp.knopen.filter((k) => !BIB[k.type].vast).map((k) => BIB[k.type].naam);
+      kaarten.append(el('div', { class: 'kaart template', 'data-template': t.id },
+        TP.bewerk?.id === t.id ? bewerkVak('templates', t) : [el('div', { class: 'kn' }, t.naam), t.notitie ? el('div', { class: 'ku' }, t.notitie) : null],
+        el('div', { class: 'ks' }, [t.door === 'claude' ? 'door Claude' : 'door jou', blokken.length + ' blokken', t.wanneer].filter(Boolean).join(' · ')),
+        el('div', { class: 'ks zacht' }, blokken.slice(0, 6).join(', ') + (blokken.length > 6 ? ' …' : '')),
+        el('div', { class: 'rij' },
+          el('button', { class: 'seg', onclick: () => kiesVoorbeeld(ontwerpVan(t)) }, 'open'),
+          el('button', { class: 'seg klein', title: 'omhoog', 'aria-label': 'omhoog', onclick: () => pasAan('templates', schuifTemplate(TP.templates, TP.mappen, t.id, -1)) }, '▲'),
+          el('button', { class: 'seg klein', title: 'omlaag', 'aria-label': 'omlaag', onclick: () => pasAan('templates', schuifTemplate(TP.templates, TP.mappen, t.id, 1)) }, '▼'),
+          mapKeus(t),
+          el('button', { class: 'seg klein', onclick: () => { TP.bewerk = { id: t.id }; tekenTemplateLijst(box); } }, 'hernoem'),
+          el('button', { class: 'seg klein', title: 'een kopie in dezelfde map', onclick: async () => { const k = nieuweTemplate(t.ontwerp, { naam: t.naam + ' (copy)', map: t.map, notitie: t.notitie, templates: TP.templates, mappen: TP.mappen }); await tpSchrijf('templates', k.id, 'zet', bewaarVorm(k)); } }, 'kopie'),
+          el('button', { class: 'seg klein', title: 'vervang de inhoud door het ontwerp dat nu open is', onclick: () => tweedeTik('vervang:' + t.id, async () => {
+            const n = nieuweTemplate(S.ontwerp, { naam: t.naam, templates: [], mappen: [] });
+            if (await tpSchrijf('templates', t.id, 'pas', { ontwerp: n.ontwerp, wanneer: n.wanneer, door: 'jij' })) melding('template bijgewerkt: ' + t.naam);
+          }, `nog een keer: "${t.naam}" vervangen door wat nu open is`) }, 'bijwerken'),
+          el('button', { class: 'seg klein', onclick: () => tweedeTik('weg:' + t.id, () => tpSchrijf('templates', t.id, 'weg'), `nog een keer: "${t.naam}" weg`) }, 'weg'))));
+    }
+    box.append(kaarten);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------- spel
@@ -4650,7 +4928,8 @@ void spec;
 bouw();
 teken();
 meetNu();
-globalThis.PB = { S, compileer: () => C, meetNu, maakPakket, speler, gewijzigd, spel: SP, spelStand };   // voor de toets in tools/headless
+startTemplates();
+globalThis.PB = { S, TP, compileer: () => C, meetNu, maakPakket, speler, gewijzigd, spel: SP, spelStand };   // voor de toets in tools/headless
 
 return {  };
 })();

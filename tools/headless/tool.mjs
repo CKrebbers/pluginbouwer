@@ -100,7 +100,7 @@ await page.click('text=■ stop');
 await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.instrument && Number.isFinite(globalThis.PB.S.readout.thdDb), null, { timeout: 30000 });
 
 // tabs
-for (const t of ['Frontpaneel', 'Meten', 'Verken', 'Schetsboek', 'ABX', 'Taaktoets']) {
+for (const t of ['Frontpaneel', 'Meten', 'Verken', 'Templates', 'Schetsboek', 'ABX', 'Taaktoets']) {
   await page.click(`.tabs >> text=${t}`);
   await page.waitForTimeout(150);
 }
@@ -129,6 +129,50 @@ for (const [p, [n, h]] of Object.entries(lijst)) {
 }
 const versie = await browser.version();
 ok(totaal > 0 && gelijk === totaal, `testsignalen uit Chromium ${versie} = die van CI (${gelijk}/${totaal})${anders.length ? ' — anders: ' + anders.join(', ') : ''}`);
+
+// ---- templates: mappen maken, bewaren, ordenen, verplaatsen, openen; blijft na herladen (als losse pagina in de browser)
+await page.click('[data-stand="ontwerpen"]');
+await page.click('.tabs >> text=Templates');
+const tp = () => page.evaluate(() => ({ t: globalThis.PB.TP.templates.map((x) => ({ naam: x.naam, map: x.map, plek: x.plek })), m: globalThis.PB.TP.mappen.map((x) => ({ id: x.id, naam: x.naam, plek: x.plek })), bron: globalThis.PB.TP.bron }));
+const mapErbij = async (n) => { await page.fill('#tpnieuwemap', n); await page.click('#tpmaperbij'); };
+const bewaar = async (n, map) => { await page.fill('#tpnaam', n); await page.selectOption('#tpmap', { label: map }); await page.click('#tpbewaar'); await page.waitForTimeout(50); };
+await mapErbij('Dub'); await mapErbij('Synth');
+await bewaar('My echo', 'Dub');
+await page.evaluate(() => { const p = globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Feedback'); p.standaard = 0.9; globalThis.PB.gewijzigd('meer feedback'); });
+await page.waitForTimeout(150);
+await bewaar('Long echo', 'Dub');
+let st = await tp();
+ok(st.bron === 'browser' && st.m.map((m) => m.naam).join() === 'Dub,Synth' && st.t.map((t) => t.naam).join() === 'My echo,Long echo', `templates: twee mappen en twee templates bewaard (${st.t.map((t) => t.naam)})`);
+const kopNamen = () => page.$$eval('#tplijst .mapkop .mapnaam', (e) => e.map((x) => x.firstChild.textContent));
+const kaartNamen = (map) => page.$$eval(`#tplijst .mapkop[data-map="${map}"] + .kaarten .kn`, (e) => e.map((x) => x.textContent));
+const dub = st.m.find((m) => m.naam === 'Dub').id, synth = st.m.find((m) => m.naam === 'Synth').id;
+ok((await kaartNamen(dub)).join() === 'My echo,Long echo', 'templates: in hun map, in volgorde van bewaren');
+await page.click(`#tplijst .kaart:has(.kn:text-is("Long echo")) button[aria-label="omhoog"]`);
+ok((await kaartNamen(dub)).join() === 'Long echo,My echo', 'templates: ▲ zet hem eerder');
+await page.click(`#tplijst .mapkop[data-map="${synth}"] button[aria-label="map omhoog"]`);
+ok((await kopNamen()).join() === 'Synth,Dub', 'templates: een map omhoog');
+await page.selectOption(`#tplijst .kaart:has(.kn:text-is("My echo")) select`, synth);
+ok((await kaartNamen(synth)).join() === 'My echo' && (await kaartNamen(dub)).join() === 'Long echo', 'templates: naar een andere map');
+await page.click(`#tplijst .kaart:has(.kn:text-is("Long echo")) button:text-is("open")`);
+await page.waitForTimeout(300);
+const geopend = await page.evaluate(() => ({ naam: globalThis.PB.S.ontwerp.naam, fb: globalThis.PB.S.ontwerp.parameters.find((q) => q.naam === 'Feedback')?.standaard }));
+ok(geopend.naam === 'Long echo' && geopend.fb === 0.9, `templates: openen laadt het bewaarde ontwerp (${geopend.naam}, feedback ${geopend.fb})`);
+await page.reload();
+await page.waitForFunction(() => globalThis.PB && globalThis.PB.TP.bron === 'browser', null, { timeout: 15000 });
+st = await tp();
+ok(st.t.length === 2 && st.m.length === 2, 'templates: na herladen nog alles (deze browser)');
+await page.click('.tabs >> text=Templates');
+const [tdl] = await Promise.all([page.waitForEvent('download'), page.click('#onder button:text-is("exporteer")')]);
+const tjson = JSON.parse(readFileSync(await tdl.path(), 'utf8'));
+ok(tjson.soort === 'pluginbouwer-templates' && tjson.templates.length === 2 && tjson.mappen.length === 2, 'templates: exporteer geeft één JSON-bestand');
+await page.click(`#tplijst .mapkop[data-map="${synth}"] button:text-is("weg")`);
+await page.click(`#tplijst .mapkop[data-map="${synth}"] button:text-is("weg")`);
+st = await tp();
+ok(st.m.length === 1 && st.t.find((t) => t.naam === 'My echo').map === 'los' && (await kopNamen()).includes('Los'), 'templates: map weg (twee tikken), zijn templates gaan naar Los');
+// terug naar de dub-echo voor wat volgt
+await page.evaluate(() => { localStorage.clear(); });
+await page.reload();
+await page.waitForFunction(() => globalThis.PB && globalThis.PB.S.readout, null, { timeout: 30000 });
 
 // telefoonbreedte: geen horizontale scroll van de pagina
 await page.click('[data-stand="ontwerpen"]');
@@ -244,6 +288,19 @@ for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone ligg
   await tel.tap('#inspector .beweeg >> nth=0');
   await tel.waitForTimeout(200);
   ok(await tel.evaluate(() => (globalThis.PB.S.ontwerp.modulaties || []).some((m) => m.doel[1] === 'freq')), `${naam}: "laat bewegen" zet een LFO op de frequentie`);
+  // templates op de telefoon: een map en een template met tikken, alles groot genoeg, niets opzij
+  await tel.tap('#tabbalk [data-scherm="horen"]');
+  await tel.tap('.tabs [data-tab="templates"]');
+  await tel.fill('#tpnieuwemap', 'Dub'); await tel.tap('#tpmaperbij');
+  await tel.selectOption('#tpmap', { label: 'Dub' }); await tel.tap('#tpbewaar');
+  await tel.waitForTimeout(150);
+  const tt = await tel.evaluate(() => {
+    const zicht = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+    return { n: globalThis.PB.TP.templates.length, over: document.documentElement.scrollWidth - innerWidth,
+      klein: [...document.querySelectorAll('#onder button, #onder select, #onder input:not([type="file"])')].filter(zicht).filter((e) => e.getBoundingClientRect().height < 35).map((e) => e.textContent || e.id) };
+  });
+  ok(tt.n === 1 && tt.over <= 0 && !tt.klein.length, `${naam}: templates met tikken (${tt.n} bewaard, ${tt.over} px opzij${tt.klein.length ? ', te klein: ' + tt.klein.join(', ') : ''})`);
+  await tel.screenshot({ path: join(UIT, 'iphone-templates.png') });
   // het spel op de telefoon: een ronde met grote antwoordknoppen, niets opzij
   await tel.tap('#tabbalk [data-scherm="spel"]');
   await tel.tap('.levelkaart >> nth=0 >> text=/speel|nog eens/');

@@ -56,7 +56,9 @@ tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.htm
                 combinaties, invoegen in de keten en netjes neerleggen (puur; tests/rollen.test.mjs)
                 src/spel.js: het spel (levels per familie, rondes Wie ben ik?/Wat hoor je?/Draai na, opdrachten die meten),
                 proefopstellingen per blok op de echte motor (puur; tests/spel.test.mjs)
+                src/templates.js: templates en mappen (normaliseren, ordenen, schuiven, export/import; puur; tests/templates.test.mjs)
 tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
+tools/template.mjs  Claude maakt een template (voorbeeld + blokken erbij, klinkt-toets op de motor) voor de gedeelde database
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
 ```
@@ -157,6 +159,13 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   `tool/src/archetypen.js` (graaf.test eist het); hernoem je er een, dan ook in `ref/dub_echo_ref.py`, `tools/au-proef.mjs`
   en de toetsen. Daarna eerst de WASM opnieuw (`sh dsp/bouw-wasm.sh <ontwerp>`), pas dan `tools/null.mjs maak`: die leest
   de namen uit de WASM, en de pluginval-JSON zet parameters op naam.
+
+- **Templates staan op claude.ai in de database van het artifact** (`templates/<id>`, `mappen/<id>`; capability `db`
+  naast `downloads`, dus een publish die capabilities opgeeft noemt ze allebei). Claude zet er templates in met
+  `node tools/template.mjs …` en ArtifactData (`door: 'claude'`) en leest zo terug hoe Clay ordent. Als losse pagina of
+  zonder database: localStorage (`pb.templates`, `pb.mappen`). Alles wat uit opslag komt gaat door
+  `normaliseerTemplate` (onbekend blok = weg). Een geopende template krijgt een id uit zijn naam (`idVan`): anders werd
+  een template van de Dub echo een tweede plugin met de CLAP-id van de Dub echo.
 
 ## Conventies
 | Onderwerp | Afspraak |

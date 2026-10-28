@@ -369,3 +369,10 @@ body.smal .tabbalk button { font-size: 11px; }
 body.smal .draaischuif input[type="range"] { height: 44px; }
 body.smal .sterren i { width: 14px; height: 14px; }
 body[data-stand="spel"] .readout { display: none; }
+
+/* templates: mappen met een kop, daaronder de kaarten; alles met tikken (▲ ▼ en een mapkeuze) */
+.mapkop { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-top: 16px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+.mapnaam { font-weight: 700; }
+.kaart.template .rij { gap: 4px; }
+.rij.bewerk input { flex: 1 1 140px; min-width: 0; }
+#tpnaam, #tpnotitie, #tpnieuwemap, #tpzoek { flex: 1 1 160px; min-width: 0; }
