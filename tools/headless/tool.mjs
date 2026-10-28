@@ -100,7 +100,7 @@ await page.click('text=■ stop');
 await page.waitForFunction(() => globalThis.PB.S.readout && !globalThis.PB.S.readout.instrument && Number.isFinite(globalThis.PB.S.readout.thdDb), null, { timeout: 30000 });
 
 // tabs
-for (const t of ['Frontpaneel', 'Meten', 'Verken', 'Templates', 'Schetsboek', 'ABX', 'Taaktoets']) {
+for (const t of ['Frontpaneel', 'Meten', 'Verken', 'Werkplaats', 'Schetsboek', 'ABX', 'Taaktoets']) {
   await page.click(`.tabs >> text=${t}`);
   await page.waitForTimeout(150);
 }
@@ -132,7 +132,7 @@ ok(totaal > 0 && gelijk === totaal, `testsignalen uit Chromium ${versie} = die v
 
 // ---- templates: mappen maken, bewaren, ordenen, verplaatsen, openen; blijft na herladen (als losse pagina in de browser)
 await page.click('[data-stand="ontwerpen"]');
-await page.click('.tabs >> text=Templates');
+await page.click('.tabs >> text=Werkplaats');
 const tp = () => page.evaluate(() => ({ t: globalThis.PB.TP.templates.map((x) => ({ naam: x.naam, map: x.map, plek: x.plek })), m: globalThis.PB.TP.mappen.map((x) => ({ id: x.id, naam: x.naam, plek: x.plek })), bron: globalThis.PB.TP.bron }));
 const mapErbij = async (n) => { await page.fill('#tpnieuwemap', n); await page.click('#tpmaperbij'); };
 const bewaar = async (n, map) => { await page.fill('#tpnaam', n); await page.selectOption('#tpmap', { label: map }); await page.click('#tpbewaar'); await page.waitForTimeout(50); };
@@ -161,7 +161,7 @@ await page.reload();
 await page.waitForFunction(() => globalThis.PB && globalThis.PB.TP.bron === 'browser', null, { timeout: 15000 });
 st = await tp();
 ok(st.t.length === 2 && st.m.length === 2, 'templates: na herladen nog alles (deze browser)');
-await page.click('.tabs >> text=Templates');
+await page.click('.tabs >> text=Werkplaats');
 const [tdl] = await Promise.all([page.waitForEvent('download'), page.click('#onder button:text-is("exporteer")')]);
 const tjson = JSON.parse(readFileSync(await tdl.path(), 'utf8'));
 ok(tjson.soort === 'pluginbouwer-templates' && tjson.templates.length === 2 && tjson.mappen.length === 2, 'templates: exporteer geeft één JSON-bestand');
@@ -173,6 +173,67 @@ ok(st.m.length === 1 && st.t.find((t) => t.naam === 'My echo').map === 'los' && 
 await page.evaluate(() => { localStorage.clear(); });
 await page.reload();
 await page.waitForFunction(() => globalThis.PB && globalThis.PB.S.readout, null, { timeout: 30000 });
+
+// ---- samen met Claude (met een nagebouwde database, zoals op claude.ai): meekijken, een voorstel horen, overnemen
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript({ path: join(ROOT, 'tools', 'headless', 'nep-db.js') });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => consoleFouten.push('samen: ' + e));
+  await p.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  await p.goto(pathToFileURL(join(ROOT, 'tool', 'index.html')).href);
+  await p.waitForFunction(() => globalThis.PB && globalThis.PB.TP.bron === 'gedeeld' && globalThis.__nepDb.store.has('werkbank/nu'), null, { timeout: 20000 });
+  const wb = () => p.evaluate(() => globalThis.__nepDb.store.get('werkbank/nu'));
+  ok((await wb()).meekijken === true && (await wb()).naam === 'Dub echo', 'samen: bij openen ziet Claude het ontwerp (standaard meekijken)');
+  await p.evaluate(() => { const q = globalThis.PB.S.ontwerp.parameters.find((x) => x.naam === 'Time'); q.standaard = 500; globalThis.PB.gewijzigd('Time 500'); });
+  await p.waitForFunction(() => globalThis.__nepDb.store.get('werkbank/nu').ontwerp.parameters.find((x) => x.naam === 'Time').standaard === 500, null, { timeout: 5000 }).catch(() => {});
+  const na = await wb();
+  ok(na.ontwerp.parameters.find((x) => x.naam === 'Time').standaard === 500 && na.wat === 'Time 500' && na.geschiedenis.at(-1).wat === 'Time 500', 'samen: een wijziging komt binnen 1,2 s door, met wat er gebeurde');
+  // Claude doet een voorstel: de keten van nu plus een Reverb, Feedback hoger
+  await p.evaluate(() => {
+    const o = JSON.parse(JSON.stringify(globalThis.PB.S.ontwerp));
+    o.knopen.push({ id: 'galm1', type: 'galm', x: 900, y: 320 });
+    const k = o.kabels.find((x) => x.naar[0] === 'uit'); const van = k.van; k.van = ['galm1', 'uit'];
+    o.kabels.push({ van, naar: ['galm1', 'in'] });
+    o.parameters.find((x) => x.naam === 'Feedback').standaard = 0.875;   // exact in float32, anders weigert de compiler
+    globalThis.__nepDb.schrijf('voorstellen/v-proef', { titel: 'Meer ruimte', waarom: 'Een galm achter de echo, en wat meer feedback.', ontwerp: o, basis: globalThis.__nepDb.store.get('werkbank/nu').afdruk, status: 'open', wanneer: new Date().toISOString() });
+  });
+  await p.waitForSelector('#voorstel:not([hidden])', { timeout: 5000 }).catch(() => {});
+  const balk = await p.evaluate(() => ({ zicht: !document.querySelector('#voorstel').hidden, tekst: document.querySelector('#voorstel').innerText }));
+  ok(balk.zicht && /Meer ruimte/.test(balk.tekst) && /Reverb erbij/.test(balk.tekst) && /Feedback|feedback/.test(balk.tekst), 'samen: het voorstel staat bovenin, met wat er anders is');
+  await p.click('#voorstel [data-ab="B"]');
+  await p.waitForTimeout(1200);
+  const hoor = await p.evaluate(() => ({ ab: globalThis.PB.TP.ab, speelt: globalThis.PB.speler.speelt() }));
+  ok(hoor.ab === 'B' && hoor.speelt, 'samen: "hoor voorstel" speelt het voorstel (slot B)');
+  await p.click('#neemover');
+  await p.waitForTimeout(300);
+  const over = await p.evaluate(() => ({ galm: globalThis.PB.S.ontwerp.knopen.some((k) => k.type === 'galm'), fb: globalThis.PB.S.ontwerp.parameters.find((x) => x.naam === 'Feedback').standaard, status: globalThis.__nepDb.store.get('voorstellen/v-proef').status, versies: globalThis.PB.TP.versies.length, balk: document.querySelector('#voorstel').hidden, ab: globalThis.PB.TP.ab }));
+  ok(over.galm && over.fb === 0.875 && over.status === 'aangenomen' && over.versies === 1 && over.balk && over.ab === 'A', `samen: overnemen zet het voorstel in de keten, bewaart de vorige versie, en meldt het terug (${over.status})`);
+  await p.waitForFunction(() => globalThis.__nepDb.store.get('werkbank/nu').ontwerp.knopen.some((k) => k.type === 'galm'), null, { timeout: 5000 }).catch(() => {});
+  ok((await wb()).ontwerp.knopen.some((k) => k.type === 'galm'), 'samen: en Claude ziet daarna het nieuwe ontwerp');
+  // een voorstel dat niet klopt (0,85 is niet exact in float32): de balk zegt het en biedt alleen "nee"
+  await p.evaluate(() => { const o = JSON.parse(JSON.stringify(globalThis.__nepDb.store.get('werkbank/nu').ontwerp)); o.parameters.find((x) => x.naam === 'Feedback').standaard = 0.85; globalThis.__nepDb.schrijf('voorstellen/v-kapot', { titel: 'Kapot', ontwerp: o, status: 'open', wanneer: new Date().toISOString() }); });
+  await p.waitForSelector('#voorstel:not([hidden])', { timeout: 5000 }).catch(() => {});
+  ok(await p.evaluate(() => /klopt nog niet/.test(document.querySelector('#voorstel').innerText) && !document.querySelector('#neemover')), 'samen: een voorstel dat niet klopt kun je niet overnemen');
+  await p.click('#nietnu');
+  await p.waitForTimeout(200);
+  // een tweede voorstel afwijzen; dan meekijken uit; een versie terugzetten
+  await p.evaluate(() => globalThis.__nepDb.schrijf('voorstellen/v-twee', { titel: 'Droger', waarom: '', ontwerp: globalThis.__nepDb.store.get('werkbank/nu').ontwerp, status: 'open', wanneer: new Date().toISOString() }));
+  await p.waitForSelector('#voorstel:not([hidden])', { timeout: 5000 }).catch(() => {});
+  await p.click('#nietnu');
+  await p.waitForTimeout(200);
+  ok(await p.evaluate(() => globalThis.__nepDb.store.get('voorstellen/v-twee').status === 'afgewezen' && document.querySelector('#voorstel').hidden), 'samen: "nee" sluit het voorstel en meldt het terug');
+  await p.click('.tabs >> text=Werkplaats');
+  await p.click('#meekijkenuit');
+  await p.waitForTimeout(200);
+  const uit = await wb();
+  ok(uit.meekijken === false && !uit.ontwerp, 'samen: "even niet" haalt het ontwerp weg bij Claude');
+  await p.click('#onder button:text-is("terug naar deze")');
+  await p.waitForTimeout(200);
+  ok(await p.evaluate(() => !globalThis.PB.S.ontwerp.knopen.some((k) => k.type === 'galm') && globalThis.PB.TP.versies.length === 2), 'samen: een versie terugzetten (en de huidige blijft ook bewaard)');
+  await p.screenshot({ path: join(UIT, 'samen.png') });
+  await ctx.close();
+}
 
 // telefoonbreedte: geen horizontale scroll van de pagina
 await page.click('[data-stand="ontwerpen"]');
@@ -290,7 +351,7 @@ for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone ligg
   ok(await tel.evaluate(() => (globalThis.PB.S.ontwerp.modulaties || []).some((m) => m.doel[1] === 'freq')), `${naam}: "laat bewegen" zet een LFO op de frequentie`);
   // templates op de telefoon: een map en een template met tikken, alles groot genoeg, niets opzij
   await tel.tap('#tabbalk [data-scherm="horen"]');
-  await tel.tap('.tabs [data-tab="templates"]');
+  await tel.tap('.tabs [data-tab="werkplaats"]');
   await tel.fill('#tpnieuwemap', 'Dub'); await tel.tap('#tpmaperbij');
   await tel.selectOption('#tpmap', { label: 'Dub' }); await tel.tap('#tpbewaar');
   await tel.waitForTimeout(150);

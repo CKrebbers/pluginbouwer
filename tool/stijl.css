@@ -376,3 +376,12 @@ body[data-stand="spel"] .readout { display: none; }
 .kaart.template .rij { gap: 4px; }
 .rij.bewerk input { flex: 1 1 140px; min-width: 0; }
 #tpnaam, #tpnotitie, #tpnieuwemap, #tpzoek { flex: 1 1 160px; min-width: 0; }
+
+/* voorstel van Claude: een balk onder de kop, zolang er een open voorstel is */
+.voorstelbalk { margin: 8px 12px 0; padding: 8px 10px; border: 2px solid var(--ink); border-left: 8px solid var(--tape); background: var(--bg); }
+.voorstelbalk .vkop { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.voorstelbalk .vlabel { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.voorstelbalk .vwaarom { margin: 4px 0; }
+.voorstelbalk ul, .vlijst { margin: 4px 0; padding-left: 18px; }
+.voorstelbalk details summary { cursor: pointer; }
+body.smal .voorstelbalk { margin: 6px 8px 0; }

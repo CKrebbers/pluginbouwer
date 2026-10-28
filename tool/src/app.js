@@ -11,6 +11,7 @@ import { maakTestsignalen } from './testsignalen.js';
 import { zip } from './zip.js';
 import { PROEF, HOORBAAR, proefOntwerp, LEVELS, level, OPDRACHTEN, maakRondes, draaiScore, zinZonderNaam, knopWaarde as spelWaarde, knopStand as spelStand, nieuweStand, antwoord, levelKlaar, opdrachtGehaald, open, gekendAantal, totaalBlokken, GEKEND, RONDES_PER_LEVEL } from './spel.js';
 import { LOS, normaliseerTemplate, normaliseerMap, bewaarVorm, mapVorm, ordenen as templatesOrdenen, schuifTemplate, schuifMap, naarMap, nieuweTemplate, nieuweMap, ontwerpVan, zoek as zoekTemplates, exporteer as exporteerTemplates, importeer as importeerTemplates } from './templates.js';
+import { klankAfdruk, verschil, werkbankVorm, nietMeekijken, bijGeschiedenis, normaliseerVoorstel, openVoorstellen, bijVersies } from './werkbank.js';
 import { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, hoofdweg, KOP, RIJ } from './rollen.js';
 
 // ---------------------------------------------------------------------------------------------------- data van de bouw
@@ -36,6 +37,10 @@ const S = {
   weergave: opslag.lees('weergave', 'eenvoudig'),
 };
 const tech = () => S.weergave === 'technisch';
+// Werkplaats (templates, meekijken, voorstellen): hier al, want gewijzigd() geeft elke wijziging door
+const TP = { templates: [], mappen: [], voorstellen: [], bron: 'laden', zoek: '', bewerk: null, bevestig: null, fout: '',
+  meekijken: opslag.lees('meekijken', true), geschiedenis: [], doorgegeven: null, ab: 'A', voorstelI: 0, versies: opslag.lees('versies', []) };
+let tpDb = null;
 // De telefoon (iPhone staand, of liggend met weinig hoogte): één scherm tegelijk met een balk onderin, de keten als lijst
 // van boven naar beneden, en grote knoppen. Dezelfde ontwerpen en dezelfde motor.
 const SMAL = matchMedia('(max-width: 700px), (max-height: 500px) and (pointer: coarse)');
@@ -119,6 +124,7 @@ let wachtCompile = 0, wachtMeten = 0;
 function gewijzigd(wat, { live = null, alGeladen = false } = {}) {
   S.laatsteWijziging = wat;
   opslag.schrijf('ontwerp', S.ontwerp);
+  werkbankWijziging(wat);
   taakLog('wijziging', wat);
   if (live) { speler.zet(live.i, live.v); }
   clearTimeout(wachtCompile);
@@ -181,6 +187,7 @@ function bouw() {
         ...['eenvoudig', 'technisch'].map((w) => el('button', { class: 'seg klein', 'data-weergave': w, onclick: () => { S.weergave = w; opslag.schrijf('weergave', w); teken(); } }, w))),
       el('button', { id: 'mini', class: 'knopgroot mini', 'aria-label': 'speel of stop', onclick: async () => { if (speler.speelt()) speler.stopBron(); else await speelNu(); tekenMini(); if (S.tab === 'horen') tekenOnder(); } }, '▶'),
       el('div', { id: 'readout', class: 'readout' })),
+    el('div', { id: 'voorstel', class: 'voorstelbalk', role: 'region', 'aria-label': 'voorstel van Claude', hidden: true }),
     el('main', { id: 'werk' },
       el('aside', { id: 'bib', class: 'paneel' }),
       el('section', { id: 'midden' }, el('div', { id: 'canvas', class: 'paneel' }), el('div', { id: 'onder', class: 'paneel' })),
@@ -224,6 +231,7 @@ function teken() {
   $('#spel').hidden = S.stand !== 'spel';
   if (S.stand === 'ontwerpen') { tekenBib(); tekenCanvas(); tekenInspector(); tekenOnder(); } else if (S.stand === 'spel') tekenSpel(); else tekenBouwen();
   tekenReadout();
+  tekenVoorstel();
 }
 
 // ---------------------------------------------------------------------------------------------------- readout
@@ -722,14 +730,14 @@ function tekenInspector() {
 
 // ---------------------------------------------------------------------------------------------------- onder: tabs
 // [id, eenvoudige naam, technische naam]; de taaktoets alleen in de technische weergave
-const TABS = [['horen', 'Horen', 'Horen'], ['paneel', 'Paneel', 'Frontpaneel'], ['meten', 'Meten', 'Meten'], ['verken', 'Varianten', 'Verken'], ['templates', 'Templates', 'Templates'], ['schetsboek', 'Schetsboek', 'Schetsboek'], ['abx', 'Blind vergelijken', 'ABX'], ['taak', null, 'Taaktoets']];
+const TABS = [['horen', 'Horen', 'Horen'], ['paneel', 'Paneel', 'Frontpaneel'], ['meten', 'Meten', 'Meten'], ['verken', 'Varianten', 'Verken'], ['werkplaats', 'Werkplaats', 'Werkplaats'], ['schetsboek', 'Schetsboek', 'Schetsboek'], ['abx', 'Blind vergelijken', 'ABX'], ['taak', null, 'Taaktoets']];
 function tekenOnder() {
   const box = $('#onder');
   if (!tech() && S.tab === 'taak') S.tab = 'horen';
   box.replaceChildren(el('div', { class: 'tabs' }, ...TABS.filter((t) => tech() || t[1]).map(([t, n, nt]) => el('button', { class: 'seg' + (S.tab === t ? ' aan' : ''), 'data-tab': t, onclick: () => { S.tab = t; tekenOnder(); } }, tech() ? nt : n))));
   const inhoud = el('div', { class: 'tabinhoud' });
   box.append(inhoud);
-  ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, templates: tabTemplates, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
+  ({ horen: tabHoren, paneel: tabPaneel, meten: tabMeten, verken: tabVerken, werkplaats: tabWerkplaats, schetsboek: tabSchetsboek, abx: tabAbx, taak: tabTaak })[S.tab](inhoud);
 }
 function tabHoren(box) {
   const instrument = !heeftIngang(), toetsen = S.ontwerp.knopen.find((k) => k.type === 'toetsen');
@@ -955,8 +963,6 @@ async function download(blob, naam) {
 // Eigen startpunten in mappen (tool/src/templates.js). Op claude.ai staan ze in de gedeelde database van het artifact:
 // Claude kan er vanuit het gesprek templates in zetten en lezen hoe je ze ordent. Als losse pagina (of als de database
 // er niet is) blijven ze in deze browser. Alles met tikken: ▲ ▼ en een mapkeuze in plaats van slepen.
-const TP = { templates: [], mappen: [], bron: 'laden', zoek: '', bewerk: null, bevestig: null, fout: '' };
-let tpDb = null;
 const tpRij = new Map();   // één schrijfactie tegelijk per document
 function achterElkaar(pad, f) { const p = (tpRij.get(pad) || Promise.resolve()).then(f, f); tpRij.set(pad, p.catch(() => {})); return p; }
 function leesLokaal() {
@@ -971,11 +977,20 @@ async function startTemplates() {
   const fout = (e) => { TP.fout = 'de gedeelde templates zijn niet te lezen (' + (e?.code || e) + ')'; hertekenTemplates(); };
   db.collection('templates').onSnapshot((snap) => { TP.templates = snap.docs.map((d) => normaliseerTemplate(d.data(), d.id)).filter(Boolean); hertekenTemplates(); }, fout);
   db.collection('mappen').onSnapshot((snap) => { TP.mappen = snap.docs.map((d) => normaliseerMap(d.data(), d.id)).filter(Boolean); hertekenTemplates(); }, fout);
+  db.collection('voorstellen').onSnapshot((snap) => { TP.voorstellen = snap.docs.map((d) => normaliseerVoorstel(d.data(), d.id)).filter(Boolean); tekenVoorstel(); hertekenWerkplaats(); }, fout);
+  // wat Claude nu ziet: alleen schrijven als het anders is dan wat er al staat (geen schrijfactie bij elk openen)
+  try {
+    const nu = await db.doc('werkbank/nu').get();
+    TP.doorgegeven = nu.exists ? nu.data() : null;
+    TP.geschiedenis = Array.isArray(TP.doorgegeven?.geschiedenis) ? TP.doorgegeven.geschiedenis.slice(-20) : [];
+  } catch { /* niet te lezen: dan bij de eerste wijziging */ }
+  werkbankWijziging('', { meteen: true });
 }
 // zet (heel document), pas (velden erbij) of weg; lokaal meteen, gedeeld via de database (de snapshot tekent)
 async function tpSchrijf(soort, id, wat, data) {
   const lijst = soort === 'templates' ? TP.templates : TP.mappen;
   if (!tpDb) {
+    if (soort !== 'templates' && soort !== 'mappen') return false;   // meekijken en voorstellen bestaan alleen gedeeld
     const i = lijst.findIndex((x) => x.id === id);
     if (wat === 'weg') { if (i >= 0) lijst.splice(i, 1); }
     else if (wat === 'zet') { if (i >= 0) lijst[i] = { id, ...data }; else lijst.push({ id, ...data }); }
@@ -990,7 +1005,7 @@ async function tpSchrijf(soort, id, wat, data) {
 }
 const pasAan = (soort, wijzigingen) => Promise.all(wijzigingen.map(({ id, ...v }) => tpSchrijf(soort, id, 'pas', v)));
 function hertekenTemplates() {
-  if (S.stand !== 'ontwerpen' || S.tab !== 'templates') return;
+  if (S.stand !== 'ontwerpen' || S.tab !== 'werkplaats') return;
   const lijst = $('#tplijst'), actief = document.activeElement;
   if (lijst?.contains(actief) && /INPUT|TEXTAREA|SELECT/.test(actief.tagName)) return;   // niet onder je vingers vandaan tekenen
   if (lijst) tekenTemplateLijst(lijst); else if ($('#onder')) tekenOnder();
@@ -999,6 +1014,98 @@ function hertekenTemplates() {
 function tweedeTik(sleutel, doe, tekst) {
   if (TP.bevestig?.sleutel === sleutel && Date.now() - TP.bevestig.t < 3000) { TP.bevestig = null; doe(); return; }
   TP.bevestig = { sleutel, t: Date.now() }; melding(tekst);
+}
+// ---- meekijken: het open ontwerp gaat (1,2 s na de laatste wijziging) naar werkbank/nu, zodat Claude ziet wat je bouwt
+let werkbankTimer = null;
+function werkbankWijziging(wat, { meteen = false } = {}) {
+  if (wat) TP.geschiedenis = bijGeschiedenis(TP.geschiedenis, wat);
+  if (!tpDb) return;
+  clearTimeout(werkbankTimer);
+  werkbankTimer = setTimeout(schrijfWerkbank, meteen ? 0 : 1200);
+}
+async function schrijfWerkbank() {
+  if (!tpDb) return;
+  const doc = TP.meekijken ? werkbankVorm(kloon(S.ontwerp), { wat: S.laatsteWijziging, geschiedenis: TP.geschiedenis }) : nietMeekijken();
+  const oud = TP.doorgegeven;
+  if (oud && oud.meekijken === doc.meekijken && (!doc.meekijken || (JSON.stringify(oud.ontwerp) === JSON.stringify(doc.ontwerp) && oud.wat === doc.wat))) return;
+  if (await tpSchrijf('werkbank', 'nu', 'zet', doc)) { TP.doorgegeven = doc; const t = $('#doorgegeven'); if (t) t.textContent = doorgegevenTekst(); }
+}
+function zetMeekijken(aan) { TP.meekijken = aan; opslag.schrijf('meekijken', aan); werkbankWijziging('', { meteen: true }); tekenOnder(); }
+
+// ---- voorstellen van Claude: bovenin een balk, om en om horen (jouw versie = A, voorstel = B), overnemen of nee
+const voorstelNu = () => { const o = openVoorstellen(TP.voorstellen); return o.length ? o[Math.min(TP.voorstelI, o.length - 1)] : null; };
+async function hoorVoorstel(kant) {
+  const v = voorstelNu(); if (!v) return;
+  if (!speler.speelt()) await speelNu();
+  if (kant === 'B') { const c = compileer(v.ontwerp); if (c.fouten.length) { melding('dit voorstel klinkt nog niet: ' + c.fouten[0]); return; } speler.laad(c.rij, c.params.map((p) => p.standaard), 'B'); }
+  speler.kies(kant); TP.ab = kant; tekenVoorstel(); tekenMini();
+}
+function bewaarVersie(waarom) { TP.versies = bijVersies(TP.versies, S.ontwerp, waarom); opslag.schrijf('versies', TP.versies); }
+async function besluit(v, aan) {
+  if (aan) {
+    bewaarVersie('vóór "' + v.titel + '"');
+    S.ontwerp = kloon(v.ontwerp); S.selectie = null;
+    if (overlap(S.ontwerp, blokMaat)) S.ontwerp = ordenen(S.ontwerp, blokMaat);
+    speler.kies('A'); TP.ab = 'A';
+    gewijzigd('voorstel van Claude overgenomen: ' + v.titel);
+    melding('overgenomen; je vorige versie staat onder Werkplaats → versies');
+  } else { speler.kies('A'); TP.ab = 'A'; }
+  await tpSchrijf('voorstellen', v.id, 'pas', { status: aan ? 'aangenomen' : 'afgewezen', besloten: new Date().toISOString() });
+  TP.voorstelI = 0; tekenVoorstel();
+}
+function tekenVoorstel() {
+  const box = $('#voorstel'); if (!box) return;
+  const open = openVoorstellen(TP.voorstellen), v = voorstelNu();
+  box.hidden = !v || S.stand !== 'ontwerpen';
+  if (box.hidden) { if (TP.ab === 'B') { speler.kies('A'); TP.ab = 'A'; } return; }
+  const anders = verschil(S.ontwerp, v.ontwerp), veranderd = v.basis && v.basis !== klankAfdruk(S.ontwerp), kapot = compileer(v.ontwerp).fouten[0];
+  box.replaceChildren(...[
+    el('div', { class: 'vkop' }, el('span', { class: 'vlabel' }, 'Claude stelt voor'), el('strong', {}, v.titel),
+      open.length > 1 ? el('span', { class: 'zacht' }, ` ${open.indexOf(v) + 1} van ${open.length}`) : null),
+    v.waarom ? el('div', { class: 'vwaarom' }, v.waarom) : null,
+    el('details', { class: 'vanders', open: anders.length <= 6 }, el('summary', {}, anders.length ? `wat er anders is (${anders.length})` : 'klinkt hetzelfde als wat je nu hebt'),
+      el('ul', {}, ...anders.map((z) => el('li', {}, z)))),
+    veranderd ? el('div', { class: 'zacht' }, 'Je ontwerp is veranderd sinds Claude dit maakte. Overnemen vervangt het; je huidige versie blijft bewaard.') : null,
+    kapot ? el('div', { class: 'zacht' }, 'Dit voorstel klopt nog niet (' + kapot + '). Zeg "nee" en vraag Claude om een nieuwe.') : null,
+    kapot ? el('div', { class: 'rij' }, el('button', { class: 'seg', id: 'nietnu', onclick: () => besluit(v, false) }, 'nee')) : el('div', { class: 'rij' },
+      el('span', { class: 'stand', role: 'group', 'aria-label': 'om en om horen' },
+        el('button', { class: 'seg' + (TP.ab === 'A' ? ' aan' : ''), 'data-ab': 'A', onclick: () => hoorVoorstel('A') }, 'hoor jouw versie'),
+        el('button', { class: 'seg' + (TP.ab === 'B' ? ' aan' : ''), 'data-ab': 'B', onclick: () => hoorVoorstel('B') }, 'hoor voorstel')),
+      el('button', { class: 'knopgroot', id: 'neemover', onclick: () => besluit(v, true) }, 'neem over'),
+      el('button', { class: 'seg', id: 'nietnu', onclick: () => besluit(v, false) }, 'nee'),
+      open.length > 1 ? el('button', { class: 'seg', onclick: () => { TP.voorstelI = (open.indexOf(v) + 1) % open.length; if (TP.ab === 'B') hoorVoorstel('B'); else tekenVoorstel(); } }, 'volgende') : null)].filter(Boolean));
+}
+
+function doorgegevenTekst() {
+  const d = TP.doorgegeven;
+  if (!TP.meekijken) return 'Claude ziet niets tot je het weer aanzet.';
+  return d?.meekijken ? `Claude ziet "${d.naam}" (${new Date(d.wanneer).toTimeString().slice(0, 5)}).` : 'wordt doorgegeven…';
+}
+function hertekenWerkplaats() {
+  if (S.stand !== 'ontwerpen' || S.tab !== 'werkplaats') return;
+  const a = document.activeElement;
+  if ($('#onder')?.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+  tekenOnder();
+}
+function tabWerkplaats(box) {
+  const gedeeld = TP.bron === 'gedeeld';
+  box.append(el('div', { class: 'sub' }, 'samen met Claude'),
+    gedeeld ? el('div', { class: 'rij' },
+      el('span', { class: 'stand', role: 'group', 'aria-label': 'Claude kijkt mee' },
+        el('button', { class: 'seg' + (TP.meekijken ? ' aan' : ''), id: 'meekijkenaan', onclick: () => zetMeekijken(true) }, 'Claude kijkt mee'),
+        el('button', { class: 'seg' + (!TP.meekijken ? ' aan' : ''), id: 'meekijkenuit', onclick: () => zetMeekijken(false) }, 'even niet')),
+      el('span', { class: 'zacht', id: 'doorgegeven' }, doorgegevenTekst()))
+      : el('p', { class: 'zacht' }, TP.bron === 'laden' ? 'verbinden…' : 'Meekijken en voorstellen werken in de versie op claude.ai. Hier blijven templates en versies in deze browser.'));
+  const besloten = TP.voorstellen.filter((v) => v.status !== 'open').sort((a, b) => (a.besloten < b.besloten ? 1 : -1)).slice(0, 8);
+  const open = openVoorstellen(TP.voorstellen);
+  if (open.length || besloten.length) box.append(el('div', { class: 'sub' }, 'voorstellen'),
+    el('ul', { class: 'vlijst' }, ...open.map((v) => el('li', {}, el('strong', {}, v.titel), ' · open (bovenin)')),
+      ...besloten.map((v) => el('li', {}, v.titel, el('span', { class: 'zacht' }, ' · ' + (v.status === 'aangenomen' ? 'overgenomen' : 'niet overgenomen'))))));
+  if (TP.versies.length) box.append(el('div', { class: 'sub' }, 'versies (op deze computer)'),
+    el('ul', { class: 'vlijst' }, ...TP.versies.slice().reverse().slice(0, 10).map((x, i) => el('li', {}, `${x.ontwerp.naam} · ${x.wanneer} · ${x.waarom} `,
+      el('button', { class: 'seg klein', onclick: () => { const terug = TP.versies[TP.versies.length - 1 - i]; bewaarVersie('vóór terugzetten'); S.ontwerp = kloon(terug.ontwerp); S.selectie = null; gewijzigd('versie teruggezet: ' + terug.wanneer); } }, 'terug naar deze')))));
+  box.append(el('div', { class: 'sub' }, 'templates'));
+  tabTemplates(box);
 }
 function tabTemplates(box) {
   const naam = el('input', { type: 'text', id: 'tpnaam', value: S.ontwerp.naam, maxlength: 60, 'aria-label': 'naam van de template' });

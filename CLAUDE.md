@@ -57,8 +57,10 @@ tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.htm
                 src/spel.js: het spel (levels per familie, rondes Wie ben ik?/Wat hoor je?/Draai na, opdrachten die meten),
                 proefopstellingen per blok op de echte motor (puur; tests/spel.test.mjs)
                 src/templates.js: templates en mappen (normaliseren, ordenen, schuiven, export/import; puur; tests/templates.test.mjs)
+                src/werkbank.js: samen met Claude (verschil in woorden, klankafdruk, voorstellen nalopen, versies; puur; tests/werkbank.test.mjs)
 tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
 tools/template.mjs  Claude maakt een template (voorbeeld + blokken erbij, klinkt-toets op de motor) voor de gedeelde database
+tools/werkbank.mjs  Claude leest de werkbank (lees) en maakt er een voorstel van (voorstel); gedeeld bouwwerk in tools/ontwerp-bouw.mjs
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
 ```
@@ -166,6 +168,14 @@ bouwpakket/     wat de tool exporteert, per ontwerp
   zonder database: localStorage (`pb.templates`, `pb.mappen`). Alles wat uit opslag komt gaat door
   `normaliseerTemplate` (onbekend blok = weg). Een geopende template krijgt een id uit zijn naam (`idVan`): anders werd
   een template van de Dub echo een tweede plugin met de CLAP-id van de Dub echo.
+- **Samen bouwen (werkplaats)**: zolang Clay meekijken aan heeft (standaard aan, Clay 28 okt) schrijft de tool 1,2 s na
+  de laatste wijziging het open ontwerp naar `werkbank/nu` (alleen als het anders is; "even niet" = `{meekijken:false}`,
+  zonder ontwerp). Claude leest het met ArtifactData (`out_dir`) en `node tools/werkbank.mjs lees`, en zet een voorstel
+  in `voorstellen/<id>` met `node tools/werkbank.mjs voorstel … --uit`. De tool toont het bovenin, laat het om en om
+  horen (slot A = Clay, B = voorstel), en zet bij "neem over" eerst de oude versie in `pb.versies`. **Claude verandert
+  het canvas nooit zelf**; de tool schrijft alleen `status` en `besloten`. Waarden in een voorstel moeten exact in
+  float32 zijn (`Math.fround`, ontwerp-bouw.mjs doet het): anders weigert de compiler en kan Clay alleen "nee" zeggen.
+  headless toetst het hele samenspel met een nagebouwde database (`tools/headless/nep-db.js`).
 
 ## Conventies
 | Onderwerp | Afspraak |

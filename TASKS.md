@@ -188,3 +188,13 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
 - Bewezen: tests/templates.test.mjs (nalopen, ordenen, schuiven, verplaatsen, zoeken, export/import), tools/headless/tool.mjs
   (de hele route met de muis, na herladen, export, map weg; op de iPhone met tikken). Niet headless te toetsen: de
   database zelf (die bestaat alleen op claude.ai); daar één lees- en schrijfronde na het publiceren.
+
+## L. De werkplaats: samen bouwen met Claude (28 okt 2026, op Clay's "zie dit als jouw werkplaats … symbiose")
+- [x] Meekijken (standaard aan, Clay: "Standaard graag"): het open ontwerp gaat naar de database, met de laatste
+  wijzigingen; "even niet" haalt het weg. Tab Werkplaats: meekijken, voorstellen, versies, templates.
+- [x] Voorstellen van Claude: bovenin een balk met wat er anders is in gewone woorden, om en om horen (jouw versie /
+  voorstel), neem over (de oude versie blijft bewaard) of nee. Een voorstel dat niet klopt kan alleen "nee".
+- [x] Claude's kant: `tools/werkbank.mjs lees|voorstel` (klinkt-toets op de motor, float32-exact).
+- Bewezen: tests/werkbank.test.mjs; tools/headless/tool.mjs het hele samenspel met een nagebouwde database.
+- Volgende stap (voorstel aan Clay): woorden op de blokken (een notitie per blok), daarna de weg schets → template →
+  voorbeeld → plugin.
