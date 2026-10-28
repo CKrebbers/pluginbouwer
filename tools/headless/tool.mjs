@@ -136,6 +136,49 @@ await page.screenshot({ path: join(UIT, 'telefoon.png'), fullPage: false });
 await page.setViewportSize({ width: 1440, height: 900 });
 await page.screenshot({ path: join(UIT, '1440.png') });
 
+// ---- het spel: een level helemaal spelen (goede antwoorden), een luisterronde klinkt, Draai na geeft 3 sterren, en de
+// opdracht wordt pas na het bouwen gehaald
+await page.click('[data-stand="spel"]');
+await page.waitForTimeout(150);
+ok(await page.evaluate(() => !document.querySelector('#spel').hidden && document.querySelectorAll('.levelkaart').length === 7), 'spel: zeven levels');
+await page.click('.levelkaart >> nth=0 >> text=speel');
+let hoorde = false, fouten2 = [];
+for (let i = 0; i < 8; i++) {
+  const r = await page.evaluate(() => globalThis.PB.spel.rondes[globalThis.PB.spel.i]);
+  if (r.soort === 'draai') {
+    const t = await page.evaluate(({ r }) => globalThis.PB.spelStand(r.blok, r.knop, r.doel), { r });
+    await page.click('.spelronde >> text=▶ doel'); await page.waitForTimeout(500);
+    hoorde ||= await page.evaluate(() => globalThis.PB.speler.speelt() && globalThis.PB.speler.motorDraait);
+    await page.locator('.draaischuif input').fill(String(Math.round(t * 1000)));
+    await page.click('text=zo klinkt het');
+  } else {
+    if (r.soort === 'hoor') { await page.click('.spelronde >> text=▶ luister'); await page.waitForTimeout(500); hoorde ||= await page.evaluate(() => globalThis.PB.speler.speelt() && globalThis.PB.speler.motorDraait); }
+    await page.locator('.antwoord').nth(r.keuzes.indexOf(r.blok)).click();
+  }
+  const fb = await page.evaluate(() => document.querySelector('.terugmelding')?.className || '');
+  if (!/ok/.test(fb)) fouten2.push(`ronde ${i + 1} (${r.soort} ${r.blok}): ${fb}`);
+  await page.click('.terugmelding .knopgroot');
+}
+const eind = await page.evaluate(() => ({ beeld: globalThis.PB.spel.beeld, sterren: globalThis.PB.spel.sterren, level: globalThis.PB.spel.stand.levels.bron, punten: globalThis.PB.spel.stand.punten }));
+ok(fouten2.length === 0 && eind.beeld === 'einde' && eind.sterren === 3 && eind.level?.sterren === 3, `spel: acht rondes goed = 3 sterren, ${eind.punten} punten` + (fouten2.length ? ': ' + fouten2.join('; ') : ''));
+ok(hoorde, 'spel: een luister- of Draai-na-ronde speelt echt geluid uit de motor');
+await page.click('text=naar de levels');
+ok(await page.evaluate(() => !!document.querySelectorAll('.levelkaart')[1].querySelector('.knopgroot')), 'spel: na een ster gaat level 2 open');
+// de opdracht
+await page.click('.levelkaart >> nth=0 >> text=opdracht');
+await page.waitForTimeout(200);
+await page.click('.opdracht >> text=controleer');
+const nietGehaald = await page.evaluate(() => !document.querySelector('.opdracht.gehaald') && !!document.querySelector('.opdracht .bad'));
+await page.click('#bib .kaart:has-text("Oscillator") .plus');
+await page.waitForTimeout(300);
+await page.click('.opdracht >> text=controleer');
+const gehaald = await page.evaluate(() => ({ ui: !!document.querySelector('.opdracht.gehaald'), stand: !!globalThis.PB.spel.stand.levels.bron.opdracht }));
+ok(nietGehaald && gehaald.ui && gehaald.stand, 'spel: de opdracht is niet gehaald op een leeg ontwerp, wel na een oscillator erbij');
+await page.click('.opdracht >> text=terug naar het spel');
+await page.click('text=alle kaarten');
+ok(await page.evaluate(() => document.querySelectorAll('.spelkaart').length === 28), 'spel: 28 kaarten');
+await page.click('[data-stand="ontwerpen"]');
+
 // ---- de iPhone: één scherm tegelijk met een balk onderin, de keten als lijst, alles met een vinger te doen ----
 for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone liggend']]) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 3, isMobile: true, hasTouch: true,
@@ -147,15 +190,16 @@ for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone ligg
   await tel.waitForFunction(() => globalThis.PB && document.body.classList.contains('smal'), null, { timeout: 15000 }).catch(() => {});
   ok(await tel.evaluate(() => document.body.classList.contains('smal') && getComputedStyle(document.querySelector('#tabbalk')).display !== 'none'), `${naam}: telefoonweergave met de balk onderin`);
   const fout = [];
-  for (const scherm of ['keten', 'blokken', 'blok', 'horen', 'bouwen']) {
+  for (const scherm of ['keten', 'blokken', 'blok', 'horen', 'spel', 'bouwen']) {
     await tel.tap(`#tabbalk [data-scherm="${scherm}"]`);
     await tel.waitForTimeout(200);
     const r = await tel.evaluate(() => {
+      document.querySelectorAll('#spel .levelkaart .knopgroot')[0]?.closest('#spel:not([hidden])');
       const zichtbaar = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
       const klein = [...document.querySelectorAll('button, select, input:not([type="range"]):not([type="file"])')].filter(zichtbaar)
         .filter((e) => !e.closest('.voorbeelden') || true).filter((e) => e.getBoundingClientRect().height < 35).map((e) => (e.textContent || e.placeholder || e.tagName).trim().slice(0, 20));
       const zoom = [...document.querySelectorAll('input:not([type="range"]), select')].filter(zichtbaar).filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).length;
-      return { over: document.documentElement.scrollWidth - innerWidth, klein, zoom, panelen: ['#bib', '#canvas', '#inspector', '#onder', '#bouwen'].filter((q) => zichtbaar(document.querySelector(q))) };
+      return { over: document.documentElement.scrollWidth - innerWidth, klein, zoom, panelen: ['#bib', '#canvas', '#inspector', '#onder', '#bouwen', '#spel'].filter((q) => zichtbaar(document.querySelector(q))) };
     });
     if (r.over > 0) fout.push(`${scherm}: ${r.over} px opzij`);
     if (r.klein.length) fout.push(`${scherm}: te klein om te tikken: ${r.klein.slice(0, 4).join(', ')}`);
@@ -189,6 +233,13 @@ for (const [w, h, naam] of [[390, 844, 'iPhone staand'], [844, 390, 'iPhone ligg
   await tel.tap('#inspector .beweeg >> nth=0');
   await tel.waitForTimeout(200);
   ok(await tel.evaluate(() => (globalThis.PB.S.ontwerp.modulaties || []).some((m) => m.doel[1] === 'freq')), `${naam}: "laat bewegen" zet een LFO op de frequentie`);
+  // het spel op de telefoon: een ronde met grote antwoordknoppen, niets opzij
+  await tel.tap('#tabbalk [data-scherm="spel"]');
+  await tel.tap('.levelkaart >> nth=0 >> text=/speel|nog eens/');
+  await tel.waitForTimeout(150);
+  const sp = await tel.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, h: Math.min(...[...document.querySelectorAll('.antwoord')].map((b) => b.getBoundingClientRect().height)), n: document.querySelectorAll('.antwoord').length }));
+  ok(sp.n >= 3 && sp.h >= 48 && sp.over <= 0, `${naam}: een spelronde past, antwoorden ${Math.round(sp.h)} px hoog`);
+  await tel.screenshot({ path: join(UIT, 'iphone-spel.png') });
   await tel.screenshot({ path: join(UIT, 'iphone.png') });
   await ctx.close();
 }

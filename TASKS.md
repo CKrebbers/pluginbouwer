@@ -157,3 +157,15 @@ Experimenteren eerst; de werkbank-plugin pas na de Logic-proef. Elke laag eindig
   iPhone, staand en liggend: niets opzij, één paneel, alles ≥ 35 px, velden ≥ 16 px, de hele route met tikken). Niet gemeten:
   echte Safari op een echte iPhone (WebKit zit niet in deze omgeving).
 - Volgende stap (niet gebouwd): Clay laten proberen met de taaktoets en kijken waar hij vastloopt.
+
+## I. Het spel (19 okt 2026, op Clay's "laten we hier een game van maken om spelenderwijs alle onderdelen te leren kennen")
+- [x] Stand **Spel** naast Ontwerpen en Bouwen (op de iPhone een eigen scherm). Zeven levels: de zes families en een
+  meesterproef. Een level gaat open met één ster in het vorige.
+- [x] Rondes: *Wie ben ik?* (zin → blok, de naam weggelaten), *Wat doet …?* (blok → zin), *Wat hoor je?* (een proefopstelling
+  per blok op de echte motor, "zonder" om het origineel te horen), *Draai na* (hoor het doel, zet de knop; 0–3 sterren).
+  Punten, een reeks, en een kaartenverzameling: een blok is gekend na drie keer goed.
+- [x] Een bouwopdracht per level die de tool zelf nameet (geluid maken, donkerder, een echo erbij, laten wiebelen, een noot
+  spelen, twee tegelijk, de dub-echo die doorgaat). Je eigen ontwerp gaat eerst naar het schetsboek.
+- Bewezen: tests/spel.test.mjs (elke proef klinkt en verschilt van elke andere, elke knop doet iets, elke opdracht: begin
+  faalt, oplossing met een paar tikken slaagt, halve oplossing faalt), tools/headless/tool.mjs (een level helemaal spelen,
+  geluid uit de motor, opdracht gehaald na een oscillator, de iPhone).

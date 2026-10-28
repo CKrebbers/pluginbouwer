@@ -54,6 +54,8 @@ testsignalen/   gegenereerde WAV's + verwachte uitvoer (CSV/WAV), met het script
 tool/           de ontwerper: src/ → index.html (losse pagina) en artifact.html (claude.ai), via bouw.mjs; WASM ingebakken
                 src/rollen.js: elk blok in gewone woorden (familie, zin, uitleg per knop en aansluiting, "past er goed bij"),
                 combinaties, invoegen in de keten en netjes neerleggen (puur; tests/rollen.test.mjs)
+                src/spel.js: het spel (levels per familie, rondes Wie ben ik?/Wat hoor je?/Draai na, opdrachten die meten),
+                proefopstellingen per blok op de echte motor (puur; tests/spel.test.mjs)
 tools/headless/ tool.mjs: de tool in Chrome (ook in CI)
 bouwpakket/     wat de tool exporteert, per ontwerp
 .github/workflows/ci.yml
@@ -145,6 +147,9 @@ bouwpakket/     wat de tool exporteert, per ontwerp
 - **Een nieuw blok in de BIB krijgt ook een regel in `ROL` (tool/src/rollen.js)**: familie, één zin zonder vaktaal en
   uitleg bij elke knop. `tests/rollen.test.mjs` eist het, en dat elk blok en elke combinatie in elk voorbeeld past.
 - **De eenvoudige weergave is de standaard.** Getallen en vaktermen alleen in de technische weergave of in een tooltip.
+- **Het spel meet, het raadt niet.** Een opdracht is gehaald als de motor het hoort (tests/spel.test.mjs: het begin faalt,
+  een oplossing met een paar tikken slaagt). Een nieuw blok krijgt een plek in een level vanzelf (zijn familie); maakt
+  het geluid, geef het dan een proefopstelling in `PROEF`: de toets eist dat hij klinkt en van alle andere verschilt.
 - **De telefoon (body.smal) kan alles met tikken.** Een nieuwe functie die slepen vraagt, krijgt ook een knop. Een
   schuif die je vasthoudt wordt niet opnieuw getekend (`actieveSchuif`), anders breekt slepen af. headless toetst iPhone staand en liggend.
 

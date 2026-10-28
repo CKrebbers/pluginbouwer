@@ -43,6 +43,10 @@ van boven naar beneden met tussen twee blokken "+ hier iets tussen"; "tekening" 
 aantikt is minstens 36 px hoog, invoervelden 16 px (anders zoomt Safari in), schuiven met een vierkante greep van 28 px.
 Wat op een computer slepen is, kan hier met een tik: "+ hier", "laat bewegen" (een LFO op die knop), "past er goed bij".
 
+## Het spel
+Zelfde werkbank: geen confetti, geen emoji. Sterren zijn drie vierkantjes (vol = --tape), voortgang een balk in --ok, een
+goed antwoord kleurt --ok, een fout --bad. Antwoordknoppen minstens 52 px hoog met de harde schaduw, op de telefoon één kolom.
+
 ## Type
 Silkscreen voor logo, tape-labels en kopjes; IBM Plex Mono voor de rest, `tabular-nums`. (Google Fonts.)
 

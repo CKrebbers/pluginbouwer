@@ -9,6 +9,7 @@ import { varianten } from './verken.js';
 import { bouwpakket, cpuSchatting, spec } from './bouwpakket.js';
 import { maakTestsignalen } from './testsignalen.js';
 import { zip } from './zip.js';
+import { PROEF, HOORBAAR, proefOntwerp, LEVELS, level, OPDRACHTEN, maakRondes, draaiScore, zinZonderNaam, knopWaarde as spelWaarde, knopStand as spelStand, nieuweStand, antwoord, levelKlaar, opdrachtGehaald, open, gekendAantal, totaalBlokken, GEKEND, RONDES_PER_LEVEL } from './spel.js';
 import { FAMILIES, ROL, RECEPTEN, recept, familieVan, familie, gewoneNaam, poortInfo, past, alleenSturing, voegIn, ordenen, overlap, blokMaat, beschrijf, hoofdweg, KOP, RIJ } from './rollen.js';
 
 // ---------------------------------------------------------------------------------------------------- data van de bouw
@@ -41,8 +42,11 @@ const smal = () => SMAL.matches;
 S.scherm = 'keten';                                   // keten · blokken · blok · horen · bouwen
 S.ketenWeergave = opslag.lees('ketenweergave', 'lijst');   // op de telefoon: lijst of tekening
 S.doelKabel = null;                                   // "+ hier" in de lijst: de kabel waar het nieuwe blok op komt
-const SCHERMEN = [['keten', 'Keten'], ['blokken', 'Blokken'], ['blok', 'Blok'], ['horen', 'Horen'], ['bouwen', 'Bouwen']];
-function naarScherm(w) { S.scherm = w; S.stand = w === 'bouwen' ? 'bouwen' : 'ontwerpen'; teken(); scrollTo(0, 0); }
+const SCHERMEN = [['keten', 'Keten'], ['blokken', 'Blokken'], ['blok', 'Blok'], ['horen', 'Horen'], ['spel', 'Spel'], ['bouwen', 'Bouwen']];
+const STAND_VAN = { bouwen: 'bouwen', spel: 'spel' };
+function naarScherm(w) { S.scherm = w; zetStand(STAND_VAN[w] || 'ontwerpen'); scrollTo(0, 0); }
+// van stand wisselen: het spel laat zijn proefgeluid niet doorspelen onder het ontwerp (en andersom)
+function zetStand(st) { if ((S.stand === 'spel') !== (st === 'spel') && speler.speelt()) speler.stopBron(); S.stand = st; teken(); }
 if (overlap(S.ontwerp, blokMaat)) S.ontwerp = ordenen(S.ontwerp, blokMaat);   // ook een bewaard ontwerp uit de tijd van smallere blokken
 let C = compileer(S.ontwerp);
 const speler = new Speler(MOTOR, MOTOR_BYTES);
@@ -171,7 +175,7 @@ function bouw() {
     el('header', { class: 'kop' },
       el('div', { class: 'logo' }, 'PLUGINBOUWER'),
       el('div', { class: 'stand standkeuze', role: 'tablist' },
-        ...['ontwerpen', 'bouwen'].map((s) => el('button', { class: 'seg', 'data-stand': s, onclick: () => { S.stand = s; teken(); } }, s === 'ontwerpen' ? 'Ontwerpen' : 'Bouwen'))),
+        ...[['ontwerpen', 'Ontwerpen'], ['spel', 'Spel'], ['bouwen', 'Bouwen']].map(([s, n]) => el('button', { class: 'seg', 'data-stand': s, onclick: () => { S.scherm = s === 'ontwerpen' ? 'keten' : s; zetStand(s); } }, n))),
       el('div', { class: 'stand', role: 'group', 'aria-label': 'weergave', title: 'eenvoudig = gewone woorden; technisch = cpu, samples, dB en de vaktermen' },
         ...['eenvoudig', 'technisch'].map((w) => el('button', { class: 'seg klein', 'data-weergave': w, onclick: () => { S.weergave = w; opslag.schrijf('weergave', w); teken(); } }, w))),
       el('button', { id: 'mini', class: 'knopgroot mini', 'aria-label': 'speel of stop', onclick: async () => { if (speler.speelt()) speler.stopBron(); else await speelNu(); tekenMini(); if (S.tab === 'horen') tekenOnder(); } }, '▶'),
@@ -181,6 +185,7 @@ function bouw() {
       el('section', { id: 'midden' }, el('div', { id: 'canvas', class: 'paneel' }), el('div', { id: 'onder', class: 'paneel' })),
       el('aside', { id: 'inspector', class: 'paneel' })),
     el('section', { id: 'bouwen', class: 'paneel', hidden: true }),
+    el('section', { id: 'spel', class: 'paneel', hidden: true }),
     el('div', { id: 'melding', class: 'melding', role: 'status', hidden: true }),
     el('nav', { id: 'tabbalk', class: 'tabbalk', 'aria-label': 'schermen' },
       ...SCHERMEN.map(([w, n]) => el('button', { 'data-scherm': w, onclick: () => naarScherm(w) }, n))));
@@ -206,7 +211,8 @@ function melding(t) { const m = $('#melding'); if (m) { m.textContent = t; m.hid
 
 function teken() {
   document.body.classList.toggle('smal', smal());
-  if (smal()) { if (S.scherm === 'bouwen') S.stand = 'bouwen'; else if (S.stand === 'bouwen') S.scherm = 'bouwen'; document.body.dataset.scherm = S.scherm; }
+  if (smal()) { if (STAND_VAN[S.scherm]) S.stand = STAND_VAN[S.scherm]; else if (S.stand !== 'ontwerpen') S.scherm = S.stand; document.body.dataset.scherm = S.scherm; }
+  document.body.dataset.stand = S.stand;
   for (const b of document.querySelectorAll('[data-scherm]')) if (b.tagName === 'BUTTON') b.classList.toggle('aan', b.dataset.scherm === S.scherm);
   tekenMini();
   for (const b of document.querySelectorAll('[data-stand]')) b.classList.toggle('aan', b.dataset.stand === S.stand);
@@ -214,7 +220,8 @@ function teken() {
   document.body.classList.toggle('technisch', tech());
   $('#werk').hidden = S.stand !== 'ontwerpen';
   $('#bouwen').hidden = S.stand !== 'bouwen';
-  if (S.stand === 'ontwerpen') { tekenBib(); tekenCanvas(); tekenInspector(); tekenOnder(); } else tekenBouwen();
+  $('#spel').hidden = S.stand !== 'spel';
+  if (S.stand === 'ontwerpen') { tekenBib(); tekenCanvas(); tekenInspector(); tekenOnder(); } else if (S.stand === 'spel') tekenSpel(); else tekenBouwen();
   tekenReadout();
 }
 
@@ -284,7 +291,7 @@ function toetsBlokjes() {
 // ---------------------------------------------------------------------------------------------------- bibliotheek
 // Een klein teken per familie (lijnen, geen emoji): toon, filterbocht, echo's, draaiende knop, toetsen, plus, pijl.
 const TEKEN = { bron: 'M0,6 C2,0 4,0 6,6 S10,12 12,6', kleur: 'M0,3 H6 C9,3 9,10 12,10', ruimte: 'M1,11 V1 M5,11 V4 M9,11 V7',
-  beweging: 'M2,10 A5,5 0 1 1 10,10 M6,6 L9,3', spelen: 'M0,1 H12 V11 H0 Z M4,1 V11 M8,1 V11', verbinden: 'M6,1 V11 M1,6 H11', vast: 'M0,6 H10 M7,3 L10,6 L7,9' };
+  beweging: 'M2,10 A5,5 0 1 1 10,10 M6,6 L9,3', spelen: 'M0,1 H12 V11 H0 Z M4,1 V11 M8,1 V11', verbinden: 'M6,1 V11 M1,6 H11', vast: 'M0,6 H10 M7,3 L10,6 L7,9', meester: 'M6,0 L7.8,4.2 L12,4.6 L8.8,7.4 L9.8,12 L6,9.6 L2.2,12 L3.2,7.4 L0,4.6 L4.2,4.2 Z' };
 const picto = (fam, x = 0, y = 0) => svg('path', { d: TEKEN[fam], class: 'teken', transform: `translate(${x},${y})` });
 const tekenEl = (fam) => { const s = svg('svg', { viewBox: '-1 -1 14 14', class: 'tekenvak f-' + fam, 'aria-hidden': 'true' }); s.append(picto(fam)); return s; };
 
@@ -459,7 +466,7 @@ function tekenCanvas() {
   // knopen
   for (const kn of S.ontwerp.knopen) s.append(tekenKnoop(s, kn));
   if (sleep?.soort === 'kabel') s.append(svg('path', { id: 'sleepKabel', class: 'kabel sleep', d: '' }));
-  box.replaceChildren(
+  box.replaceChildren(opdrachtBalk() || '',
     el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, (tech() ? 'KETEN · ' : '') + S.ontwerp.naam),
       smal() ? weergaveKeuze() : null,
       el('button', { class: 'seg klein', title: 'zet de blokken op volgorde van links naar rechts, zoals het geluid loopt', onclick: netjes }, 'netjes neerleggen')),
@@ -615,6 +622,7 @@ function tekenKetenLijst(box) {
   const rest = S.ontwerp.knopen.filter((k) => !pad.includes(k.id));
   if (rest.length) lijst.append(el('div', { class: 'sub' }, 'ook in dit ontwerp'), ...rest.map((k) => blokKaart(k, true)));
   box.replaceChildren(
+    opdrachtBalk() || '',
     el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, S.ontwerp.naam), weergaveKeuze()),
     el('p', { class: 'samenvatting' }, beschrijf(S.ontwerp)), lijst,
     ...(C.fouten.length ? [el('div', { class: 'fouten' }, ...C.fouten.map((f) => el('div', {}, '✕ ' + f)))] : []));
@@ -743,8 +751,9 @@ function tabHoren(box) {
     el('p', { class: 'zacht' }, `Motor: ${speler.modus}${speler.motorDraait ? '' : speler.ctx ? ' — draait niet' : ''}. Dezelfde WASM als de plugin; knoppen die "in plugin" staan veranderen zonder herladen, andere keuzes laden de keten opnieuw (20 ms overvloeien). Beweegt de meter maar hoor je niets? Zet het volume op en de stille modus van je telefoon uit.`));
 }
 const voorbeeldKnop = (a) => el('button', { class: 'seg' + (S.ontwerp.id === a.id ? ' aan' : ''), title: a.uitleg, onclick: () => kiesVoorbeeld(a) }, a.naam);
+function zorgGroove() { if (!speler.grooveData) speler.grooveData = renderKeten(E, compileer(GROOVE).rij, [new Float32Array(48000 * 8), new Float32Array(48000 * 8)]).uit; }
 async function speelNu() {
-  if (!speler.grooveData) speler.grooveData = renderKeten(E, compileer(GROOVE).rij, [new Float32Array(48000 * 8), new Float32Array(48000 * 8)]).uit;
+  zorgGroove();
   await speler.speel(heeftIngang() ? S.bron : 'geen');
   if (!C.fouten.length) speler.laad(C.rij, standaardWaarden());
   taakLog('afspelen');
@@ -941,6 +950,187 @@ async function download(blob, naam) {
   const a = el('a', { href: URL.createObjectURL(blob), download: naam }); document.body.append(a); a.click(); a.remove();
 }
 
+// ---------------------------------------------------------------------------------------------------- spel
+// De blokken spelenderwijs leren kennen (tool/src/spel.js): levels per familie, rondes (Wie ben ik?, Wat hoor je?,
+// Draai na) en een bouwopdracht die de tool zelf nameet. Het geluid komt uit dezelfde motor als de keten.
+const SP = { stand: { ...nieuweStand(), ...opslag.lees('spel', {}) }, beeld: 'kaart', level: null, rondes: [], i: 0, goed: 0, gekozen: null, waarde: null, luistert: null, open: null, nieuwGekend: [] };
+S.missie = opslag.lees('missie', null); S.missieUitslag = null;
+const bewaarSpel = () => opslag.schrijf('spel', SP.stand);
+const blokjesSterren = (n, max = 3) => el('span', { class: 'sterren', 'aria-label': n + ' van ' + max }, ...Array.from({ length: max }, (_, i) => el('i', { class: i < n ? 'vol' : '' })));
+const ronde = () => SP.rondes[SP.i];
+async function luisterProef(o) {
+  zorgGroove();
+  const ingang = o.knopen.some((k) => k.type === 'in');
+  await speler.speel(ingang ? 'groove' : 'geen');
+  const c = compileer(o);
+  speler.droog(false);
+  speler.laad(c.rij, c.params.map((p) => p.standaard));
+  SP.luistert = 'proef';
+}
+function stopProef() { if (speler.speelt()) speler.stopBron(); SP.luistert = null; }
+function startLevel(id) {
+  SP.level = id; SP.rondes = maakRondes(id, Date.now() >>> 0); SP.i = 0; SP.goed = 0; SP.gekozen = null; SP.nieuwGekend = [];
+  SP.beeld = 'ronde'; SP.waarde = ronde().begin ?? null; stopProef(); tekenSpel(); scrollTo(0, 0);
+}
+function kiesAntwoord(keuze) {
+  const r = ronde(); if (SP.gekozen !== null) return;
+  SP.gekozen = keuze;
+  const goed = r.soort === 'draai' ? keuze >= 1 : keuze === r.blok;
+  const voor = (SP.stand.gekend[r.blok] || 0) >= GEKEND;
+  SP.stand = antwoord(SP.stand, r.blok, goed, { sterren: r.soort === 'draai' ? keuze : 1 });
+  if (!voor && (SP.stand.gekend[r.blok] || 0) >= GEKEND) SP.nieuwGekend.push(r.blok);
+  if (goed) SP.goed++;
+  bewaarSpel(); tekenSpel();
+}
+function volgende() {
+  stopProef();
+  if (SP.i + 1 >= SP.rondes.length) {
+    const k = levelKlaar(SP.stand, SP.level, SP.goed); SP.stand = k.stand; SP.sterren = k.sterren; bewaarSpel(); SP.beeld = 'einde';
+  } else { SP.i++; SP.gekozen = null; SP.waarde = ronde().begin ?? null; }
+  tekenSpel(); scrollTo(0, 0);
+}
+function startOpdracht(id) {
+  const op = OPDRACHTEN[id];
+  if (S.ontwerp.knopen.length > 2 && !S.ontwerp.id?.startsWith('opdracht')) bewaarInSchetsboek(S.ontwerp);   // je eigen ontwerp blijft bewaard
+  stopProef();
+  S.ontwerp = { ...op.begin(), naam: 'Opdracht: ' + op.naam, id: 'opdracht_' + id }; S.selectie = null; S.missie = id; S.missieUitslag = null;
+  opslag.schrijf('missie', id);
+  S.scherm = 'keten'; S.stand = 'ontwerpen';
+  gewijzigd('opdracht ' + op.naam); scrollTo(0, 0);
+}
+function opdrachtBalk() {
+  if (!S.missie || !OPDRACHTEN[S.missie]) return null;
+  const op = OPDRACHTEN[S.missie], u = S.missieUitslag, lv = LEVELS.find((l) => l.opdracht === S.missie);
+  return el('div', { class: 'opdracht' + (u?.gehaald ? ' gehaald' : '') },
+    el('div', { class: 'kopregel' }, el('div', { class: 'tape' }, u?.gehaald ? 'GEHAALD' : 'OPDRACHT'), el('b', {}, op.naam)),
+    el('p', {}, op.doel),
+    u ? el('p', { class: u.gehaald ? 'ok' : 'bad' }, u.waarom) : null,
+    S.toonHint ? el('p', { class: 'zacht' }, 'Hint: ' + op.hint) : null,
+    el('div', { class: 'rij' },
+      u?.gehaald ? el('button', { class: 'knopgroot', onclick: () => { S.missie = null; opslag.schrijf('missie', null); S.scherm = 'spel'; SP.beeld = 'kaart'; zetStand('spel'); } }, 'terug naar het spel')
+        : el('button', { class: 'knopgroot', onclick: () => {
+          S.missieUitslag = op.controleer(E, S.ontwerp);
+          if (S.missieUitslag.gehaald && lv && !SP.stand.levels[lv.id]?.opdracht) { SP.stand = opdrachtGehaald(SP.stand, lv.id); bewaarSpel(); melding('Opdracht gehaald: +50 punten'); }
+          teken();
+        } }, 'controleer'),
+      u?.gehaald ? null : el('button', { class: 'seg', onclick: () => { S.toonHint = !S.toonHint; teken(); } }, S.toonHint ? 'hint weg' : 'hint'),
+      el('button', { class: 'seg', onclick: () => { S.missie = null; S.missieUitslag = null; opslag.schrijf('missie', null); teken(); } }, 'stop opdracht')));
+}
+function tekenSpel() {
+  const box = $('#spel');
+  const st = SP.stand, n = gekendAantal(st), tot = totaalBlokken();
+  const kop = el('div', { class: 'spelkop' },
+    el('div', { class: 'tape' }, 'SPEL'),
+    el('div', { class: 'teller' }, el('span', { class: 'rl' }, 'punten'), el('b', {}, String(st.punten))),
+    el('div', { class: 'teller' }, el('span', { class: 'rl' }, 'reeks'), el('b', {}, `${st.reeks}`), el('span', { class: 'zacht klein' }, ` beste ${st.besteReeks}`)),
+    el('div', { class: 'teller breed' }, el('span', { class: 'rl' }, `blokken gekend ${n} van ${tot}`), el('div', { class: 'voortgang' }, el('i', { style: `width:${Math.round(n / tot * 100)}%` }))));
+  box.replaceChildren(kop, ({ kaart: spelKaart, ronde: spelRonde, einde: spelEinde, kaarten: spelKaarten })[SP.beeld]());
+}
+function spelKaart() {
+  const st = SP.stand;
+  return el('div', {},
+    el('p', {}, `Leer de blokken kennen: luister, raad en bouw. Een blok ken je als je hem ${GEKEND} keer goed hebt. Haal één ster in een level en het volgende gaat open.`),
+    el('div', { class: 'levels' }, ...LEVELS.map((l, i) => {
+      const o = open(st, l.id), info = st.levels[l.id] || {}, op = OPDRACHTEN[l.opdracht];
+      const gekend = l.blokken.filter((t) => (st.gekend[t] || 0) >= GEKEND).length;
+      return el('div', { class: 'levelkaart' + (o ? '' : ' dicht') + ' f-rand-' + (familie(l.id) ? l.id : 'vast') },
+        el('div', { class: 'kn' }, el('span', { class: 'kkop' }, tekenEl(l.id), `${i + 1}. ${l.naam}`), blokjesSterren(info.sterren || 0)),
+        el('div', { class: 'ks' }, `${gekend} van ${l.blokken.length} blokken gekend` + (info.opdracht ? ' · opdracht gehaald' : '')),
+        o ? el('div', { class: 'rij' },
+          el('button', { class: 'knopgroot', onclick: () => startLevel(l.id) }, info.sterren ? 'nog eens' : 'speel'),
+          el('button', { class: 'seg' + (info.opdracht ? ' aan' : ''), title: op.doel, onclick: () => startOpdracht(l.opdracht) }, 'opdracht: ' + op.naam.toLowerCase()))
+          : el('p', { class: 'zacht klein' }, `Haal eerst een ster in "${LEVELS[i - 1].naam}".`));
+    })),
+    el('div', { class: 'rij' }, el('button', { class: 'seg', onclick: () => { SP.beeld = 'kaarten'; tekenSpel(); } }, `alle kaarten (${gekendAantal(st)} van ${totaalBlokken()})`)));
+}
+function spelRonde() {
+  const r = ronde(), l = level(SP.level), klaar = SP.gekozen !== null;
+  const naam = (t) => gewoneNaam(t);
+  const blokKnop = (t) => {
+    const cls = 'antwoord' + (klaar ? (t === r.blok ? ' goed' : t === SP.gekozen ? ' fout' : ' grijs') : '');
+    return el('button', { class: cls, disabled: klaar, onclick: () => kiesAntwoord(t) }, tekenEl(familieVan(t)), naam(t));
+  };
+  const zinKnop = (t) => {
+    const cls = 'antwoord zin' + (klaar ? (t === r.blok ? ' goed' : t === SP.gekozen ? ' fout' : ' grijs') : '');
+    return el('button', { class: cls, disabled: klaar, onclick: () => kiesAntwoord(t) }, zinZonderNaam(t, ROL[t].kort));
+  };
+  const hoorKnoppen = () => el('div', { class: 'rij' },
+    el('button', { class: 'knopgroot', onclick: async () => { if (SP.luistert) stopProef(); else await luisterProef(proefOntwerp(r.blok)); tekenSpel(); } }, SP.luistert ? '■ stop' : '▶ luister'),
+    proefOntwerp(r.blok).knopen.some((k) => k.type === 'in')
+      ? el('button', { class: 'seg vasthoud', onpointerdown: (ev) => { ev.preventDefault(); speler.droog(true); }, onpointerup: () => speler.droog(false), onpointerleave: () => speler.droog(false), onpointercancel: () => speler.droog(false), oncontextmenu: (ev) => ev.preventDefault() }, 'zonder (vasthouden)') : null,
+    PROEF[r.blok].koptelefoon ? el('span', { class: 'zacht klein' }, 'met een koptelefoon hoor je dit het best') : null);
+  let vraag, body;
+  if (r.soort === 'wie') { vraag = 'Welk blok is dit?'; body = [el('p', { class: 'groot' }, '“' + zinZonderNaam(r.blok, ROL[r.blok].kort) + '”'), el('div', { class: 'antwoorden' }, ...r.keuzes.map(blokKnop))]; }
+  else if (r.soort === 'zin') { vraag = `Wat doet ${naam(r.blok)}?`; body = [el('p', { class: 'groot' }, tekenEl(familieVan(r.blok)), naam(r.blok)), el('div', { class: 'antwoorden' }, ...r.keuzes.map(zinKnop))]; }
+  else if (r.soort === 'hoor') { vraag = 'Wat hoor je? Welk blok zit erin?'; body = [hoorKnoppen(), el('div', { class: 'antwoorden' }, ...r.keuzes.map(blokKnop))]; }
+  else {
+    const def = BIB[r.blok].knoppen.find((k) => k.id === r.knop);
+    vraag = `Draai na: ${naam(r.blok)}, knop "${def.naam}"`;
+    const o = proefOntwerp(r.blok, { knop: r.knop, waarde: SP.waarde });
+    const luister = async (wat) => {
+      if (!speler.speelt() || !SP.luistert) await luisterProef(o);
+      speler.zet(0, wat === 'doel' ? r.doel : SP.waarde); SP.luistert = wat; tekenSpel();
+    };
+    const score = klaar ? draaiScore(r.blok, r.knop, SP.waarde, r.doel) : null;
+    body = [el('p', {}, 'Luister naar het doel, en zet de schuif zo dat jouw versie hetzelfde klinkt.'),
+      el('div', { class: 'rij' },
+        el('button', { class: 'knopgroot' + (SP.luistert === 'doel' ? ' aan' : ''), onclick: () => luister('doel') }, '▶ doel'),
+        el('button', { class: 'knopgroot' + (SP.luistert === 'jouw' ? ' aan' : ''), onclick: () => luister('jouw') }, '▶ jouw versie'),
+        SP.luistert ? el('button', { class: 'seg', onclick: () => { stopProef(); tekenSpel(); } }, '■ stop') : null),
+      el('label', { class: 'draaischuif' }, def.naam, el('input', { type: 'range', min: 0, max: 1000, disabled: klaar, value: Math.round(spelStand(r.blok, r.knop, SP.waarde) * 1000), 'aria-label': def.naam,
+        oninput: (ev) => { SP.waarde = Math.fround(spelWaarde(r.blok, r.knop, ev.target.value / 1000)); if (SP.luistert === 'jouw') speler.zet(0, SP.waarde); } })),
+      klaar ? el('p', {}, `Doel ${waardeTekst(r.doel, def.eenheid)}, jij ${waardeTekst(SP.waarde, def.eenheid)}: `, blokjesSterren(score.sterren))
+        : el('button', { class: 'knopgroot', onclick: () => kiesAntwoord(draaiScore(r.blok, r.knop, SP.waarde, r.doel).sterren) }, 'zo klinkt het')];
+  }
+  const goed = klaar && (r.soort === 'draai' ? SP.gekozen >= 1 : SP.gekozen === r.blok);
+  return el('div', { class: 'spelronde' },
+    el('div', { class: 'kopregel' }, el('b', {}, l.naam), el('span', { class: 'zacht' }, `ronde ${SP.i + 1} van ${SP.rondes.length}`),
+      el('span', { class: 'rondes' }, ...SP.rondes.map((_, i) => el('i', { class: i < SP.i ? 'vol' : i === SP.i ? 'nu' : '' })))),
+    el('h3', {}, vraag), ...body,
+    klaar ? el('div', { class: 'terugmelding ' + (goed ? 'ok' : 'bad') },
+      el('b', {}, goed ? (SP.stand.reeks > 2 ? `Goed! Reeks van ${SP.stand.reeks}.` : 'Goed!') : `Niet goed: het was ${naam(r.blok)}.`),
+      el('p', {}, `${naam(r.blok)}: ${ROL[r.blok].kort}`),
+      el('div', { class: 'rij' },
+        r.soort === 'hoor' || r.soort === 'draai' ? null : (HOORBAAR.includes(r.blok) ? el('button', { class: 'seg', onclick: async () => { if (SP.luistert) stopProef(); else await luisterProef(proefOntwerp(r.blok)); tekenSpel(); } }, SP.luistert ? '■ stop' : '▶ zo klinkt het') : null),
+        el('button', { class: 'knopgroot', onclick: volgende }, SP.i + 1 >= SP.rondes.length ? 'uitslag' : 'volgende'))) : null,
+    el('div', { class: 'rij' }, el('button', { class: 'seg klein', onclick: () => { stopProef(); SP.beeld = 'kaart'; tekenSpel(); } }, 'stoppen')));
+}
+function spelEinde() {
+  const l = level(SP.level), i = LEVELS.indexOf(l), volgendeLevel = LEVELS[i + 1];
+  return el('div', { class: 'spelronde' },
+    el('h3', {}, `${l.naam}: ${SP.goed} van ${SP.rondes.length} goed`), el('p', { class: 'groot' }, blokjesSterren(SP.sterren)),
+    SP.nieuwGekend.length ? el('p', {}, 'Nieuw gekend: ' + SP.nieuwGekend.map(gewoneNaam).join(', ') + '.') : null,
+    SP.sterren ? (volgendeLevel ? el('p', {}, `"${volgendeLevel.naam}" is open.`) : el('p', {}, 'Je hebt alle levels gehaald.')) : el('p', {}, `Haal minstens ${Math.ceil(RONDES_PER_LEVEL / 2)} goed voor een ster.`),
+    el('div', { class: 'rij' },
+      el('button', { class: 'knopgroot', onclick: () => startLevel(l.id) }, 'nog eens'),
+      el('button', { class: 'seg', onclick: () => startOpdracht(l.opdracht) }, 'opdracht: ' + OPDRACHTEN[l.opdracht].naam.toLowerCase()),
+      el('button', { class: 'seg', onclick: () => { SP.beeld = 'kaart'; tekenSpel(); } }, 'naar de levels')));
+}
+// een blok in de keten zetten om ermee te spelen: zijn proefopstelling, of een leeg ontwerp met alleen dat blok
+function probeer(t) {
+  stopProef();
+  const leeg = ['bron', 'spelen'].includes(familieVan(t))
+    ? { knopen: [{ id: 'uit', type: 'uit', x: 0, y: 0 }] } : { knopen: [{ id: 'in', type: 'in', x: 0, y: 0 }, { id: 'uit', type: 'uit', x: 0, y: 0 }] };
+  const o = HOORBAAR.includes(t) ? proefOntwerp(t) : voegIn({ naam: 'Proef', id: 'proef', kabels: [], parameters: [], modulaties: [], ...leeg }, { type: t }).ontwerp;
+  S.ontwerp = ordenen({ ...o, naam: 'Proef: ' + gewoneNaam(t), id: 'proef_' + t }, blokMaat); S.selectie = null; S.scherm = 'keten'; S.stand = 'ontwerpen';
+  gewijzigd('proef ' + gewoneNaam(t)); scrollTo(0, 0);
+}
+function spelKaarten() {
+  const st = SP.stand;
+  return el('div', {},
+    el('div', { class: 'rij' }, el('button', { class: 'seg klein', onclick: () => { stopProef(); SP.beeld = 'kaart'; tekenSpel(); } }, '‹ levels'),
+      el('span', { class: 'zacht' }, `Een kaart kleurt als je het blok ${GEKEND} keer goed hebt.`)),
+    el('div', { class: 'kaartenraster' }, ...Object.keys(BIB).filter((t) => !BIB[t].vast).map((t) => {
+      const k = Math.min(GEKEND, st.gekend[t] || 0), fam = familieVan(t), uit = SP.open === t;
+      return el('div', { class: 'spelkaart f-rand-' + fam + (k >= GEKEND ? ' gekend' : ' ongekend') + (uit ? ' uit' : '') },
+        el('button', { class: 'bkkop', onclick: () => { SP.open = uit ? null : t; tekenSpel(); } }, tekenEl(fam), el('b', {}, gewoneNaam(t)), blokjesSterren(k, GEKEND)),
+        uit ? el('p', {}, ROL[t].kort) : null,
+        uit ? el('div', { class: 'rij' },
+          HOORBAAR.includes(t) ? el('button', { class: 'seg', onclick: async () => { if (SP.luistert) stopProef(); else await luisterProef(proefOntwerp(t)); tekenSpel(); } }, SP.luistert ? '■ stop' : '▶ hoor') : null,
+          el('button', { class: 'seg', onclick: () => probeer(t) }, 'probeer in de keten')) : null);
+    })));
+}
+
 // ---------------------------------------------------------------------------------------------------- bouwen-stand
 function tekenBouwen() {
   const box = $('#bouwen');
@@ -984,4 +1174,4 @@ void spec;
 bouw();
 teken();
 meetNu();
-globalThis.PB = { S, compileer: () => C, meetNu, maakPakket, speler, gewijzigd };   // voor de toets in tools/headless
+globalThis.PB = { S, compileer: () => C, meetNu, maakPakket, speler, gewijzigd, spel: SP, spelStand };   // voor de toets in tools/headless

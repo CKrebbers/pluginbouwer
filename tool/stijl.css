@@ -306,3 +306,66 @@ body.smal .voorbeelden > .zacht { min-width: 100%; }
 body.smal .knoprij > .seg { order: 6; }
 body.smal .knoprij > .seg, body.smal .knoprij > .beweeg { grid-column: auto; justify-self: start; }
 body.smal:not(.technisch) .bereik:not(.mod) { display: none; }
+
+/* ---- het spel ---------------------------------------------------------------------------------------------------- */
+#spel { max-width: 920px; margin: 0 auto; }
+.spelkop { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; margin-bottom: 10px; }
+.spelkop .tape { margin-bottom: 0; }
+.teller { display: flex; flex-direction: column; }
+.teller b { font-size: 18px; }
+.teller.breed { flex: 1 1 200px; }
+.voortgang { height: 12px; border: 2px solid var(--ink); background: var(--bg); margin-top: 3px; }
+.voortgang i { display: block; height: 100%; background: var(--ok); }
+.sterren { display: inline-flex; gap: 3px; vertical-align: middle; }
+.sterren i { width: 12px; height: 12px; border: 2px solid var(--ink); background: var(--bg); display: inline-block; }
+.sterren i.vol { background: var(--tape); }
+.groot .sterren i { width: 22px; height: 22px; }
+.levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin: 10px 0; }
+.levelkaart { border: 2px solid var(--ink); background: var(--bg); padding: 8px 10px; }
+.levelkaart.dicht { opacity: .55; }
+.levelkaart.f-rand-bron { border-left: 8px solid var(--f-bron); } .levelkaart.f-rand-kleur { border-left: 8px solid var(--f-kleur); }
+.levelkaart.f-rand-ruimte { border-left: 8px solid var(--f-ruimte); } .levelkaart.f-rand-beweging { border-left: 8px solid var(--f-beweging); }
+.levelkaart.f-rand-spelen { border-left: 8px solid var(--f-spelen); } .levelkaart.f-rand-verbinden { border-left: 8px solid var(--f-verbinden); }
+.levelkaart.f-rand-vast { border-left: 8px solid var(--ink); }
+.tekenvak.f-meester { background: var(--tape); }
+.spelronde h3 { font-size: 16px; margin: 12px 0 8px; }
+.spelronde .kopregel { align-items: center; }
+.rondes { display: inline-flex; gap: 3px; margin-left: auto; }
+.rondes i { width: 10px; height: 10px; border: 2px solid var(--ink); display: inline-block; }
+.rondes i.vol { background: var(--ink); } .rondes i.nu { background: var(--tape); }
+p.groot { font-size: 17px; line-height: 1.4; margin: 8px 0 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.antwoorden { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 10px 0; }
+.antwoord { display: flex; align-items: center; gap: 4px; min-height: 52px; padding: 8px 12px; border: 2px solid var(--ink); background: var(--panel); color: var(--ink);
+  font: 600 14px 'IBM Plex Mono', ui-monospace, monospace; text-align: left; cursor: pointer; box-shadow: var(--schaduw); }
+.antwoord.zin { font-weight: 400; font-size: 13px; }
+.antwoord:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.antwoord.goed { background: var(--ok); color: #fff; }
+.antwoord.fout { background: var(--bad); color: #fff; }
+.antwoord.grijs { opacity: .5; }
+.antwoord:disabled { cursor: default; }
+.terugmelding { border: 2px solid var(--ink); padding: 8px 10px; margin: 10px 0; background: var(--bg); }
+.terugmelding.ok { border-left: 8px solid var(--ok); color: var(--ink); } .terugmelding.bad { border-left: 8px solid var(--bad); color: var(--ink); }
+.terugmelding.ok b { color: var(--ok); } .terugmelding.bad b { color: var(--bad); }
+.draaischuif { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-weight: 600; }
+.draaischuif input[type="range"] { width: 100%; }
+.knopgroot.aan { background: var(--ink); color: var(--panel); }
+.kaartenraster { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 8px; }
+.spelkaart { border: 2px solid var(--ink); background: var(--bg); padding: 2px 10px 6px; }
+.spelkaart.ongekend { filter: grayscale(1); opacity: .7; }
+.spelkaart.ongekend.uit { filter: none; opacity: 1; }
+.spelkaart.f-rand-bron { border-left: 8px solid var(--f-bron); } .spelkaart.f-rand-kleur { border-left: 8px solid var(--f-kleur); }
+.spelkaart.f-rand-ruimte { border-left: 8px solid var(--f-ruimte); } .spelkaart.f-rand-beweging { border-left: 8px solid var(--f-beweging); }
+.spelkaart.f-rand-spelen { border-left: 8px solid var(--f-spelen); } .spelkaart.f-rand-verbinden { border-left: 8px solid var(--f-verbinden); }
+.spelkaart .bkkop .sterren { margin-left: auto; }
+.opdracht { border: 2px solid var(--ink); border-left: 8px solid var(--tape); background: var(--bg); padding: 6px 10px; margin-bottom: 10px; }
+.opdracht.gehaald { border-left-color: var(--ok); }
+.opdracht .kopregel { justify-content: flex-start; gap: 8px; align-items: center; }
+.opdracht .tape { margin-bottom: 0; }
+body[data-stand="spel"] #mini { display: none; }
+body.smal .antwoorden { grid-template-columns: 1fr; }
+body.smal .levels, body.smal .kaartenraster { grid-template-columns: 1fr; }
+body.smal .tabbalk { grid-template-columns: repeat(6, 1fr); }
+body.smal .tabbalk button { font-size: 11px; }
+body.smal .draaischuif input[type="range"] { height: 44px; }
+body.smal .sterren i { width: 14px; height: 14px; }
+body[data-stand="spel"] .readout { display: none; }
